@@ -164,16 +164,21 @@ export interface Profile {
 
 /**
  * Conversation session context
+ *
+ * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
  */
 export const ConversationSessionSchema = z.object({
-  conversationId: z.string().min(1, 'Conversation ID is required'),
-  profileId: z.string().optional(),
-  serviceId: z.string().optional(),
+  // Base SessionContext fields
+  sessionId: z.string().min(1, 'Session ID is required'),
   channel: ChannelTypeSchema,
   startedAt: z.date(),
+  metadata: z.record(z.unknown()).optional().default({}),
+
+  // Maestro-specific fields
+  profileId: z.string().optional(),
+  serviceId: z.string().optional(),
   authorInfo: AuthorInfoSchema.optional(),
   profile: z.custom<Profile>().optional(),
-  metadata: z.record(z.unknown()).optional().default({}),
 });
 
 export type ConversationSession = z.infer<typeof ConversationSessionSchema>;

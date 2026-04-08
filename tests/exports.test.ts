@@ -13,7 +13,6 @@ describe('package exports', () => {
     expect(tac.SMSChannel).toBeDefined();
     expect(tac.ChatChannel).toBeDefined();
     expect(tac.MessagingChannel).toBeDefined();
-    expect(tac.BaseChannel).toBeDefined();
   });
 
   it('exports client classes', () => {

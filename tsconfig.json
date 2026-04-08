@@ -29,7 +29,8 @@
     "paths": {
       "@twilio/tac-core": ["./packages/core/src/index.ts"],
       "@twilio/tac-tools": ["./packages/tools/src/index.ts"],
-      "@twilio/tac-server": ["./packages/server/src/index.ts"]
+      "@twilio/tac-server": ["./packages/server/src/index.ts"],
+      "@twilio/tac-conversationrelay": ["./packages/conversationrelay/src/index.ts"]
     }
   },
   "exclude": [

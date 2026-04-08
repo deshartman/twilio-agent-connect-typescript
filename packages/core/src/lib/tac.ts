@@ -12,7 +12,7 @@ import { TACConfig } from './config';
 import { MemoryClient } from '../clients/memory';
 import { ConversationClient } from '../clients/conversation';
 import { KnowledgeClient } from '../clients/knowledge';
-import { BaseChannel } from '../channels/base';
+import { Channel } from '../types/channels';
 import { Logger, createLogger } from './logger';
 import { OperatorResultProcessor } from './operator-result-processor';
 
@@ -25,7 +25,8 @@ export interface TACOptions {
  * Callback function signatures for TAC events
  */
 export type MessageReadyCallback = (params: {
-  conversationId: ConversationId;
+  /** Generic session identifier (CallSid or ConversationId) */
+  sessionId: string;
   profileId: ProfileId | undefined;
   message: string;
   author: string;
@@ -35,14 +36,16 @@ export type MessageReadyCallback = (params: {
 }) => Promise<void> | void;
 
 export type InterruptCallback = (params: {
-  conversationId: ConversationId;
+  /** Generic session identifier (CallSid or ConversationId) */
+  sessionId: string;
   reason: string;
   transcript: string | undefined;
   session: ConversationSession;
 }) => Promise<void> | void;
 
 export type HandoffCallback = (params: {
-  conversationId: ConversationId;
+  /** Generic session identifier (CallSid or ConversationId) */
+  sessionId: string;
   profileId: ProfileId | undefined;
   reason: string;
   session: ConversationSession;
@@ -64,7 +67,7 @@ export class TAC {
   private readonly memoryClient?: MemoryClient;
   private readonly knowledgeClient?: KnowledgeClient;
   private readonly conversationClient: ConversationClient;
-  private readonly channels: Map<ChannelType, BaseChannel>;
+  private readonly channels: Map<ChannelType, Channel>;
   private readonly cintelProcessor?: OperatorResultProcessor;
 
   // Callback registrations
@@ -129,7 +132,7 @@ export class TAC {
   /**
    * Register a channel with the framework
    */
-  public registerChannel(channel: BaseChannel): void {
+  public registerChannel(channel: Channel): void {
     this.logger.info({ channel: channel.channelType }, 'Registering channel');
 
     // Remove existing channel of same type
@@ -150,7 +153,7 @@ export class TAC {
   /**
    * Set up event listeners for a channel
    */
-  private setupChannelEventListeners(channel: BaseChannel): void {
+  private setupChannelEventListeners(channel: Channel): void {
     // Handle channel errors directly
     channel.on(
       'error',
@@ -221,7 +224,7 @@ export class TAC {
         if (session && this.interruptCallback) {
           try {
             await this.interruptCallback({
-              conversationId,
+              sessionId: session.sessionId,
               reason,
               transcript: transcript ?? undefined,
               session,
@@ -246,7 +249,7 @@ export class TAC {
             await this.conversationEndedCallback({ session });
           } catch (error) {
             this.logger.error(
-              { err: error, conversation_id: session.conversationId },
+              { err: error, session_id: session.sessionId },
               'Conversation ended callback error'
             );
           }
@@ -327,7 +330,7 @@ export class TAC {
       );
       try {
         await this.messageReadyCallback({
-          conversationId: data.conversationId,
+          sessionId: session.sessionId,
           profileId: data.profileId,
           message: data.message,
           author: data.author,
@@ -406,7 +409,7 @@ export class TAC {
 
     try {
       await this.handoffCallback({
-        conversationId,
+        sessionId: session.sessionId,
         profileId: session.profileId ? (session.profileId as ProfileId) : undefined,
         reason,
         session,
@@ -419,7 +422,7 @@ export class TAC {
   /**
    * Get channel by conversation ID
    */
-  private getChannelByConversationId(conversationId: ConversationId): BaseChannel | undefined {
+  private getChannelByConversationId(conversationId: ConversationId): Channel | undefined {
     for (const channel of this.channels.values()) {
       if (channel.isConversationActive(conversationId)) {
         return channel;
@@ -431,7 +434,7 @@ export class TAC {
   /**
    * Get registered channel by type
    */
-  public getChannel<T extends BaseChannel>(channelType: ChannelType): T | undefined {
+  public getChannel<T extends Channel>(channelType: ChannelType): T | undefined {
     return this.channels.get(channelType) as T | undefined;
   }
 
@@ -606,9 +609,7 @@ export class TAC {
       this.logger.info('Twilio Memory not configured, falling back to Conversations API');
 
       try {
-        const communications = await this.conversationClient.listCommunications(
-          session.conversationId
-        );
+        const communications = await this.conversationClient.listCommunications(session.sessionId);
 
         // Return TACMemoryResponse wrapper with only communications populated
         return new TACMemoryResponse(communications);

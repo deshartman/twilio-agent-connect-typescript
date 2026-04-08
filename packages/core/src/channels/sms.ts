@@ -52,6 +52,7 @@ export class SMSChannel extends MessagingChannel {
       const recipientAddress = session.authorInfo.address;
 
       // Fetch current agent participant from Conversation Orchestrator
+      // Safe to assert: MessagingChannel constructor ensures conversationClient exists
       const participants = await this.conversationClient.listParticipants(conversationId);
 
       // First, find all participants that have the configured SMS address
@@ -85,6 +86,7 @@ export class SMSChannel extends MessagingChannel {
         'Sending SMS via Send API'
       );
 
+      // Safe to assert: MessagingChannel constructor ensures conversationClient exists
       await this.conversationClient.sendCommunication(conversationId, {
         author: {
           address: this.config.twilioPhoneNumber,

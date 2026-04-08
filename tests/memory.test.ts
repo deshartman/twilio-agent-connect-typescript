@@ -314,7 +314,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        conversationId: 'CH123',
+        sessionId: 'CH123',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),

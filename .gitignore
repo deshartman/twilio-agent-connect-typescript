@@ -15,3 +15,4 @@ getting_started/examples/*/dist/
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/sync-to-python-sdk/
+coverage/

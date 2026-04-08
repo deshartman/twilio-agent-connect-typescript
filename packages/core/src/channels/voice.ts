@@ -5,7 +5,6 @@ import {
   ConversationId,
   ConversationSession,
   ProfileId,
-  WebSocketMessageSchema,
   SetupMessage,
   PromptMessage,
   InterruptMessage,
@@ -17,15 +16,20 @@ import {
   ConversationRelayCallbackPayload,
   isConversationId,
   isProfileId,
+  Channel,
+  ChannelEvents,
 } from '../types/index';
-import { BaseChannel, BaseChannelEvents } from './base';
 import type { TAC } from '../lib/tac';
+import { TACConfig } from '../lib/config';
+import { ConversationClient } from '../clients/conversation';
+import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
+import { ConversationRelay, type CallSid } from '@twilio/tac-conversationrelay';
 
 /**
  * Voice channel event callbacks extending base callbacks
  */
-export interface VoiceChannelEvents extends BaseChannelEvents {
+export interface VoiceChannelEvents extends ChannelEvents {
   onSetup?: (data: {
     conversationId: ConversationId;
     profileId: ProfileId | undefined;
@@ -55,18 +59,57 @@ export interface VoiceChannelEvents extends BaseChannelEvents {
  * Handles voice conversations through WebSocket connections.
  * Manages real-time audio streaming and conversation state.
  */
-export class VoiceChannel extends BaseChannel {
-  private readonly webSocketConnections: Map<ConversationId, WebSocket>;
+export class VoiceChannel implements Channel {
+  protected readonly tac: TAC;
+  protected readonly config: TACConfig;
+  protected readonly logger: Logger;
+  protected readonly conversationClient?: ConversationClient;
+  protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+  protected readonly callbacks: ChannelEvents;
+  private readonly conversationRelay: ConversationRelay;
   private readonly callSidToConversationId: Map<string, ConversationId>;
   private readonly voiceCallbacks: VoiceChannelEvents;
   private readonly streamTasks: Map<ConversationId, AbortController>;
   private readonly promptQueues: Map<ConversationId, Promise<void>>;
 
   constructor(tac: TAC) {
-    super(tac);
-    this.webSocketConnections = new Map();
-    this.callSidToConversationId = new Map();
+    this.tac = tac;
+    this.config = tac.getConfig();
+    this.logger = tac.logger.child({ component: 'channel' });
+    this.activeConversations = new Map();
+    this.callbacks = {};
     this.voiceCallbacks = {};
+
+    // Only create ConversationClient if Maestro is configured
+    if (this.config.conversationServiceId) {
+      this.conversationClient = new ConversationClient(this.config);
+    }
+
+    // Initialize ConversationRelay utility
+    this.conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
+
+    // Wire up ConversationRelay callbacks to VoiceChannel handlers
+    this.conversationRelay.onSetup((callSid, data) => {
+      this.handleSetupFromRelay(callSid, data);
+    });
+
+    this.conversationRelay.onPrompt((callSid, data) => {
+      this.handlePromptFromRelay(callSid, data);
+    });
+
+    this.conversationRelay.onInterrupt((callSid, data) => {
+      this.handleInterruptFromRelay(callSid, data);
+    });
+
+    this.conversationRelay.onClose(callSid => {
+      this.handleCloseFromRelay(callSid);
+    });
+
+    this.conversationRelay.onError((callSid, error) => {
+      this.handleError(error, { callSid: callSid as string });
+    });
+
+    this.callSidToConversationId = new Map();
     this.streamTasks = new Map();
     this.promptQueues = new Map();
   }
@@ -76,10 +119,159 @@ export class VoiceChannel extends BaseChannel {
   }
 
   /**
+   * Get WebSocket connection for a conversation
+   */
+  public getWebsocket(conversationId: ConversationId): WebSocket | null {
+    // Look up CallSid from conversationId
+    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
+      if (convId === conversationId) {
+        return this.conversationRelay.getWebSocket(callSid as CallSid);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Start a new conversation session
+   */
+  protected startConversation(
+    conversationId: ConversationId,
+    profileId?: ProfileId,
+    serviceId?: string
+  ): ConversationSession {
+    if (this.activeConversations.has(conversationId)) {
+      this.logger.debug(
+        {
+          conversation_id: conversationId,
+          profile_id: this.activeConversations.get(conversationId)?.profileId,
+          service_id: this.activeConversations.get(conversationId)?.serviceId,
+        },
+        'Conversation already active'
+      );
+      return this.activeConversations.get(conversationId)!;
+    }
+
+    const session: ConversationSession = {
+      // Base SessionContext fields
+      sessionId: conversationId, // Generic session identifier
+      channel: this.channelType,
+      startedAt: new Date(),
+      metadata: {},
+      // Maestro-specific fields
+      profileId: profileId,
+      serviceId: serviceId,
+    };
+
+    this.activeConversations.set(conversationId, session);
+
+    this.logger.debug(
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        service_id: serviceId,
+        channel: this.channelType,
+      },
+      'Conversation started'
+    );
+
+    if (this.callbacks.onConversationStarted) {
+      this.callbacks.onConversationStarted({ session });
+    }
+
+    return session;
+  }
+
+  /**
+   * End a conversation session.
+   *
+   * Triggers the onConversationEnded callback BEFORE removing the session,
+   * so the callback receives the full ConversationSession data.
+   * Errors in the callback do not prevent session cleanup.
+   */
+  protected async endConversation(conversationId: ConversationId): Promise<void> {
+    const session = this.activeConversations.get(conversationId);
+
+    if (session) {
+      // Trigger callback BEFORE deleting the session
+      if (this.callbacks.onConversationEnded) {
+        try {
+          await this.callbacks.onConversationEnded({ session });
+        } catch (error) {
+          this.logger.error(
+            { err: error, conversation_id: conversationId },
+            'Error in conversation ended callback'
+          );
+        }
+      }
+
+      this.activeConversations.delete(conversationId);
+      this.logger.debug(
+        {
+          conversation_id: conversationId,
+          channel: this.channelType,
+          service_id: session.serviceId,
+        },
+        'Conversation ended'
+      );
+    } else {
+      this.logger.debug(
+        { conversation_id: conversationId, channel: this.channelType },
+        'Conversation end requested but no active session found'
+      );
+    }
+  }
+
+  /**
+   * Get an active conversation session
+   */
+  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
+    return this.activeConversations.get(conversationId);
+  }
+
+  /**
+   * Check if a conversation is active
+   */
+  public isConversationActive(conversationId: ConversationId): boolean {
+    return this.activeConversations.has(conversationId);
+  }
+
+  /**
+   * Handle errors with proper context
+   */
+  protected handleError(error: Error, context?: Record<string, unknown>): void {
+    this.logger.error({ err: error, ...context }, 'Channel error');
+
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
+      }
+    }
+  }
+
+  /**
+   * Cleanup resources when shutting down
+   */
+  public shutdown(): void {
+    // Voice-specific cleanup
+    this.streamTasks.clear();
+    this.conversationRelay.shutdown();
+    this.callSidToConversationId.clear();
+    this.promptQueues.clear();
+
+    // Base cleanup
+    this.activeConversations.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+  }
+
+  /**
    * Register event callbacks (override for Voice-specific events)
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
-  public override on(event: string, callback: (...args: any[]) => void): void {
+  public on(event: string, callback: (...args: any[]) => void): void {
     switch (event) {
       case 'setup':
         this.voiceCallbacks.onSetup = callback;
@@ -96,9 +288,14 @@ export class VoiceChannel extends BaseChannel {
       case 'webSocketDisconnected':
         this.voiceCallbacks.onWebSocketDisconnected = callback;
         break;
-      default:
-        // Delegate to parent for base events
-        super.on(event, callback);
+      case 'conversationStarted':
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case 'conversationEnded':
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case 'error':
+        this.callbacks.onError = callback;
         break;
     }
   }
@@ -113,103 +310,79 @@ export class VoiceChannel extends BaseChannel {
   }
 
   /**
-   * Get active WebSocket connection for a conversation
+   * Handle WebSocket connection from ConversationRelay
+   *
+   * Delegates to ConversationRelay utility for protocol handling.
    */
-  public getWebsocket(conversationId: ConversationId): WebSocket | null {
-    return this.webSocketConnections.get(conversationId) || null;
+  public handleWebSocketConnection(ws: WebSocket): void {
+    this.conversationRelay.handleConnection(ws);
   }
 
   /**
-   * Handle WebSocket connection from ConversationRelay
+   * Handle setup message from ConversationRelay (CallSid → ConversationId bridge)
    */
-  public handleWebSocketConnection(ws: WebSocket): void {
-    let conversationId: ConversationId | null = null;
+  private handleSetupFromRelay(_callSid: CallSid, data: SetupMessage): void {
+    this.handleSetupMessage(data);
+    // Store the CallSid → ConversationId mapping is done in handleSetupMessage
+  }
 
-    ws.on('message', (data: Buffer) => {
-      try {
-        const messageText = data.toString();
-        const messageData = JSON.parse(messageText) as unknown;
+  /**
+   * Handle prompt message from ConversationRelay (CallSid → ConversationId bridge)
+   */
+  private handlePromptFromRelay(callSid: CallSid, data: PromptMessage): void {
+    const conversationId = this.callSidToConversationId.get(callSid as string);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in prompt');
+      return;
+    }
 
-        this.logger.debug({ raw_message: messageData }, 'Received WebSocket message');
+    // Serialize prompt handling per conversation to prevent race conditions
+    const previousPrompt = this.promptQueues.get(conversationId) ?? Promise.resolve();
+    const currentPrompt = previousPrompt
+      .then(() => this.handlePromptMessage(conversationId, data))
+      .catch((err: unknown) => {
+        this.logger.error(
+          { err, conversation_id: conversationId },
+          'Failed to handle prompt message'
+        );
+      });
+    this.promptQueues.set(conversationId, currentPrompt);
+  }
 
-        // Validate message structure
-        const validatedMessage = WebSocketMessageSchema.safeParse(messageData);
+  /**
+   * Handle interrupt message from ConversationRelay (CallSid → ConversationId bridge)
+   */
+  private handleInterruptFromRelay(callSid: CallSid, data: InterruptMessage): void {
+    const conversationId = this.callSidToConversationId.get(callSid as string);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in interrupt');
+      return;
+    }
+    this.handleInterruptMessage(conversationId, data);
+  }
 
-        if (!validatedMessage.success) {
-          this.logger.error(
-            { validation_errors: validatedMessage.error.errors, raw_message: messageData },
-            'Invalid WebSocket message'
-          );
-          return;
-        }
+  /**
+   * Handle close from ConversationRelay (CallSid → ConversationId bridge)
+   */
+  private handleCloseFromRelay(callSid: CallSid): void {
+    const conversationId = this.callSidToConversationId.get(callSid as string);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in close');
+      return;
+    }
 
-        const message = validatedMessage.data;
-
-        switch (message.type) {
-          case 'setup':
-            conversationId = this.handleSetupMessage(ws, message);
-            break;
-
-          case 'prompt':
-            if (conversationId) {
-              // Capture conversationId for type narrowing in closure
-              const currentConversationId = conversationId;
-              // Serialize prompt handling per conversation to prevent race conditions
-              const previousPrompt =
-                this.promptQueues.get(currentConversationId) ?? Promise.resolve();
-              const currentPrompt = previousPrompt
-                .then(() => this.handlePromptMessage(currentConversationId, message))
-                .catch((err: unknown) => {
-                  this.logger.error(
-                    { err, conversation_id: currentConversationId },
-                    'Failed to handle prompt message'
-                  );
-                });
-              this.promptQueues.set(currentConversationId, currentPrompt);
-            }
-            break;
-
-          case 'interrupt':
-            if (conversationId) {
-              this.handleInterruptMessage(conversationId, message);
-            }
-            break;
-
-          default:
-            this.logger.warn(
-              { conversation_id: conversationId, message: messageData },
-              'Unhandled WebSocket event type'
-            );
-            break;
-        }
-      } catch (error) {
-        this.handleError(error instanceof Error ? error : new Error(String(error)), {
-          conversationId,
-          message: data.toString(),
-        });
-      }
-    });
-
-    ws.on('close', () => {
-      if (conversationId) {
-        void this.handleWebSocketDisconnect(conversationId).catch((err: unknown) => {
-          this.logger.error(
-            { err, conversation_id: conversationId },
-            'WebSocket disconnect handler error'
-          );
-        });
-      }
-    });
-
-    ws.on('error', (error: Error) => {
-      this.handleError(error, { conversationId });
+    void this.handleWebSocketDisconnect(conversationId).catch((err: unknown) => {
+      this.logger.error(
+        { err, conversation_id: conversationId },
+        'WebSocket disconnect handler error'
+      );
     });
   }
 
   /**
    * Handle WebSocket setup message
    */
-  private handleSetupMessage(ws: WebSocket, message: SetupMessage): ConversationId {
+  private handleSetupMessage(message: SetupMessage): ConversationId {
     const { callSid, from, to, customParameters } = message;
 
     // Extract conversation ID and profile ID from custom parameters
@@ -235,8 +408,7 @@ export class VoiceChannel extends BaseChannel {
       profileId = customParameters.profile_id;
     }
 
-    // Store WebSocket connection
-    this.webSocketConnections.set(conversationId, ws);
+    // Store CallSid mapping (WebSocket stored in ConversationRelay utility)
     this.callSidToConversationId.set(callSid, conversationId);
 
     // Start conversation session
@@ -333,7 +505,6 @@ export class VoiceChannel extends BaseChannel {
    * Handle WebSocket disconnection
    */
   private async handleWebSocketDisconnect(conversationId: ConversationId): Promise<void> {
-    this.webSocketConnections.delete(conversationId);
     this.promptQueues.delete(conversationId);
 
     // Find and remove call SID mapping
@@ -348,13 +519,14 @@ export class VoiceChannel extends BaseChannel {
       this.voiceCallbacks.onWebSocketDisconnected({ conversationId });
     }
 
-    // End conversation (endConversation is async in BaseChannel)
-    // eslint-disable-next-line @typescript-eslint/await-thenable -- false positive: endConversation returns Promise<void>
+    // End conversation (async cleanup)
     await this.endConversation(conversationId);
   }
 
   /**
    * Send voice response via WebSocket
+   *
+   * Uses ConversationRelay utility for message sending.
    */
   public sendResponse(
     conversationId: ConversationId,
@@ -362,10 +534,17 @@ export class VoiceChannel extends BaseChannel {
     metadata?: Record<string, unknown>
   ): Promise<void> {
     try {
-      const ws = this.webSocketConnections.get(conversationId);
+      // Find CallSid from ConversationId
+      let callSid: string | undefined;
+      for (const [cSid, cId] of this.callSidToConversationId.entries()) {
+        if (cId === conversationId) {
+          callSid = cSid;
+          break;
+        }
+      }
 
-      if (ws?.readyState !== WebSocket.OPEN) {
-        throw new Error(`No active WebSocket connection for conversation ${conversationId}`);
+      if (!callSid) {
+        throw new Error(`No CallSid found for conversation ${conversationId}`);
       }
 
       const response: TextTokenMessage = {
@@ -374,7 +553,8 @@ export class VoiceChannel extends BaseChannel {
         last: true,
       };
 
-      ws.send(JSON.stringify(response));
+      // Delegate to ConversationRelay utility
+      this.conversationRelay.sendMessage(callSid as CallSid, response);
       return Promise.resolve();
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
@@ -405,50 +585,73 @@ export class VoiceChannel extends BaseChannel {
   }): Promise<string> {
     const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
 
-    // Create timestamp for conversation name
-    const timestamp = new Date().toISOString().replaceAll(/[-:.]/g, '').slice(0, 15) + 'Z';
-    const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
-
-    // Get conversation client
+    // Get conversation client (may be undefined in CR-only mode)
     const conversationClient = this.tac.getConversationClient();
 
-    // Create conversation
-    const conversation = await conversationClient.createConversation(conversationName);
-    const conversationId = conversation.id;
+    if (conversationClient) {
+      // ========== MAESTRO MODE ==========
+      // Create conversation and participants via Maestro Conversations Service
+      const timestamp = new Date().toISOString().replaceAll(/[-:.]/g, '').slice(0, 15) + 'Z';
+      const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
 
-    this.logger.debug(
-      { conversation_id: conversationId, call_sid: callSid },
-      'Created conversation for voice call'
-    );
+      // Create conversation
+      const conversation = await conversationClient.createConversation(conversationName);
+      const conversationId = conversation.id;
 
-    // Add customer participant (caller)
-    const customerParticipant = await conversationClient.addParticipant(
-      conversationId,
-      [{ channel: 'VOICE', address: fromNumber, channelId: callSid }],
-      'CUSTOMER'
-    );
-    const profileId = customerParticipant.profileId || '';
-    const customerParticipantId = customerParticipant.id;
+      this.logger.debug(
+        { conversation_id: conversationId, call_sid: callSid },
+        'Created Maestro conversation for voice call'
+      );
 
-    // Add AI agent participant (Twilio number)
-    const aiAgentParticipant = await conversationClient.addParticipant(
-      conversationId,
-      [{ channel: 'VOICE', address: toNumber, channelId: callSid }],
-      'AI_AGENT'
-    );
-    const aiAgentParticipantId = aiAgentParticipant.id;
+      // Add customer participant (caller)
+      const customerParticipant = await conversationClient.addParticipant(
+        conversationId,
+        [{ channel: 'VOICE', address: fromNumber, channelId: callSid }],
+        'CUSTOMER'
+      );
+      const profileId = customerParticipant.profileId || '';
+      const customerParticipantId = customerParticipant.id;
 
-    // Delegate TwiML generation to connectConversationRelay
-    return this.connectConversationRelay(
-      conversationRelayConfig,
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        customer_participant_id: customerParticipantId,
-        ai_agent_participant_id: aiAgentParticipantId,
-      },
-      actionUrl ? { actionUrl } : undefined
-    );
+      // Add AI agent participant (Twilio number)
+      const aiAgentParticipant = await conversationClient.addParticipant(
+        conversationId,
+        [{ channel: 'VOICE', address: toNumber, channelId: callSid }],
+        'AI_AGENT'
+      );
+      const aiAgentParticipantId = aiAgentParticipant.id;
+
+      // Generate TwiML with Maestro conversation identifiers
+      return this.connectConversationRelay(
+        conversationRelayConfig,
+        {
+          conversation_id: conversationId,
+          profile_id: profileId,
+          customer_participant_id: customerParticipantId,
+          ai_agent_participant_id: aiAgentParticipantId,
+        },
+        actionUrl ? { actionUrl } : undefined
+      );
+    } else {
+      // ========== CR-ONLY MODE ==========
+      // No Maestro - use CallSid as session identifier
+      if (!callSid) {
+        throw new Error('CallSid is required for ConversationRelay-only mode');
+      }
+
+      this.logger.debug(
+        { call_sid: callSid },
+        'Using ConversationRelay-only mode (no Maestro conversation)'
+      );
+
+      // Generate TwiML with CallSid as conversation identifier
+      return this.connectConversationRelay(
+        conversationRelayConfig,
+        {
+          conversation_id: callSid, // Use CallSid as session identifier
+        },
+        actionUrl ? { actionUrl } : undefined
+      );
+    }
   }
 
   // =========================================================================
@@ -678,19 +881,5 @@ export class VoiceChannel extends BaseChannel {
   protected extractProfileId(_payload: unknown): ProfileId | null {
     // Voice channel doesn't use traditional webhooks
     return null;
-  }
-
-  /**
-   * Cleanup channel state on shutdown
-   *
-   * Note: WebSocket connections are managed by the server and closed there.
-   * This method only cleans up internal channel state.
-   */
-  public override shutdown(): void {
-    this.streamTasks.clear();
-    this.webSocketConnections.clear();
-    this.callSidToConversationId.clear();
-    this.promptQueues.clear();
-    super.shutdown();
   }
 }

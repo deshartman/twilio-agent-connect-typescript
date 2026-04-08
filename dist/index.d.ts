@@ -791,6 +791,37 @@ declare const CreateConversationSummariesResponseSchema: z.ZodObject<{
 type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSummariesResponseSchema>;
 
 /**
+ * Session Types
+ *
+ * Generic session abstractions that work with any identifier (CallSid, ConversationId, etc.)
+ */
+
+/**
+ * Base session context - works with any session identifier
+ *
+ * This minimal interface supports both CR-only mode (CallSid) and
+ * Maestro mode (ConversationId) without forcing conversation concepts.
+ */
+interface SessionContext {
+    /**
+     * Session identifier - generic string that can be CallSid, ConversationId, or any identifier
+     */
+    sessionId: string;
+    /**
+     * Channel type for this session
+     */
+    channel: ChannelType;
+    /**
+     * When the session started
+     */
+    startedAt: Date;
+    /**
+     * Arbitrary metadata for this session
+     */
+    metadata: Record<string, unknown>;
+}
+
+/**
  * Participant address type for different communication channels
  */
 declare const ParticipantAddressTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
@@ -1357,13 +1388,16 @@ interface Profile {
 }
 /**
  * Conversation session context
+ *
+ * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
  */
 declare const ConversationSessionSchema: z.ZodObject<{
-    conversationId: z.ZodString;
-    profileId: z.ZodOptional<z.ZodString>;
-    serviceId: z.ZodOptional<z.ZodString>;
+    sessionId: z.ZodString;
     channel: z.ZodEnum<["sms", "voice", "chat"]>;
     startedAt: z.ZodDate;
+    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+    profileId: z.ZodOptional<z.ZodString>;
+    serviceId: z.ZodOptional<z.ZodString>;
     authorInfo: z.ZodOptional<z.ZodObject<{
         address: z.ZodString;
         participantId: z.ZodOptional<z.ZodString>;
@@ -1375,10 +1409,9 @@ declare const ConversationSessionSchema: z.ZodObject<{
         participantId?: string | undefined;
     }>>;
     profile: z.ZodOptional<z.ZodType<Profile, z.ZodTypeDef, Profile>>;
-    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, "strip", z.ZodTypeAny, {
     channel: "sms" | "voice" | "chat";
-    conversationId: string;
+    sessionId: string;
     startedAt: Date;
     metadata: Record<string, unknown>;
     profileId?: string | undefined;
@@ -1390,8 +1423,9 @@ declare const ConversationSessionSchema: z.ZodObject<{
     profile?: Profile | undefined;
 }, {
     channel: "sms" | "voice" | "chat";
-    conversationId: string;
+    sessionId: string;
     startedAt: Date;
+    metadata?: Record<string, unknown> | undefined;
     profileId?: string | undefined;
     serviceId?: string | undefined;
     authorInfo?: {
@@ -1399,7 +1433,6 @@ declare const ConversationSessionSchema: z.ZodObject<{
         participantId?: string | undefined;
     } | undefined;
     profile?: Profile | undefined;
-    metadata?: Record<string, unknown> | undefined;
 }>;
 type ConversationSession = z.infer<typeof ConversationSessionSchema>;
 /**
@@ -1521,6 +1554,77 @@ declare const ConversationParticipantSchema: z.ZodObject<{
     }[] | undefined;
 }>;
 type ConversationParticipant = z.infer<typeof ConversationParticipantSchema>;
+
+/**
+ * Channel interface definitions
+ *
+ * Minimal contract that TAC requires from all channel implementations.
+ * Channels use composition instead of inheritance.
+ */
+
+/**
+ * Base channel event callbacks
+ */
+interface ChannelEvents {
+    onConversationStarted?: (data: {
+        session: ConversationSession;
+    }) => void;
+    onConversationEnded?: (data: {
+        session: ConversationSession;
+    }) => Promise<void> | void;
+    onError?: (data: {
+        error: Error;
+        context?: Record<string, unknown>;
+    }) => void;
+}
+/**
+ * Base interface for all channel implementations
+ *
+ * Defines the minimal contract that TAC requires:
+ * - Send responses to users
+ * - Register event callbacks
+ * - Provide session lookup
+ * - Lifecycle management
+ */
+interface Channel {
+    /**
+     * Channel type identifier
+     */
+    readonly channelType: ChannelType;
+    /**
+     * Send a response message to the user
+     *
+     * @param conversationId - Internal channel session identifier
+     * @param message - The message text to send
+     * @param metadata - Optional metadata to include
+     */
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Register event callback for TAC integration
+     *
+     * @param event - Event name (e.g., 'prompt', 'interrupt', 'conversationEnded')
+     * @param callback - Event handler function
+     */
+    on(event: string, callback: (...args: any[]) => void): void;
+    /**
+     * Get conversation session by internal identifier
+     *
+     * @param conversationId - Internal channel session identifier
+     * @returns Session if active, undefined otherwise
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if conversation is active
+     *
+     * @param conversationId - Internal channel session identifier
+     * @returns True if conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Shutdown channel and cleanup resources
+     */
+    shutdown(): void;
+}
 
 /**
  * ConversationRelay API Types
@@ -3281,93 +3385,6 @@ declare class KnowledgeClient {
     private logResponse;
 }
 
-/**
- * Base channel event callbacks
- */
-interface BaseChannelEvents {
-    onConversationStarted?: (data: {
-        session: ConversationSession;
-    }) => void;
-    onConversationEnded?: (data: {
-        session: ConversationSession;
-    }) => Promise<void> | void;
-    onError?: (data: {
-        error: Error;
-        context?: Record<string, unknown>;
-    }) => void;
-}
-/**
- * Abstract base class for all channel implementations
- *
- * Provides common functionality for conversation lifecycle management,
- * session tracking, and shared utilities across different channel types.
- */
-declare abstract class BaseChannel {
-    protected readonly tac: TAC;
-    protected readonly config: TACConfig;
-    protected readonly logger: Logger;
-    protected readonly conversationClient: ConversationClient;
-    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
-    protected readonly callbacks: BaseChannelEvents;
-    constructor(tac: TAC);
-    /**
-     * Get the channel type (implemented by subclasses)
-     */
-    abstract get channelType(): ChannelType;
-    /**
-     * Register event callbacks
-     */
-    on(event: string, callback: (...args: any[]) => void): void;
-    /**
-     * Process incoming webhook data (implemented by subclasses)
-     */
-    abstract processWebhook(payload: unknown): Promise<void>;
-    /**
-     * Send a response back to the user (implemented by subclasses)
-     */
-    abstract sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Start a new conversation session
-     */
-    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
-    /**
-     * End a conversation session.
-     *
-     * Triggers the onConversationEnded callback BEFORE removing the session,
-     * so the callback receives the full ConversationSession data.
-     * Errors in the callback do not prevent session cleanup.
-     */
-    protected endConversation(conversationId: ConversationId): Promise<void>;
-    /**
-     * Get an active conversation session
-     */
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    /**
-     * Check if a conversation is active
-     */
-    isConversationActive(conversationId: ConversationId): boolean;
-    /**
-     * Handle errors with proper context
-     */
-    protected handleError(error: Error, context?: Record<string, unknown>): void;
-    /**
-     * Validate webhook payload (override in subclasses for specific validation)
-     */
-    protected validateWebhookPayload(payload: unknown): boolean;
-    /**
-     * Extract conversation ID from webhook payload (implemented by subclasses)
-     */
-    protected abstract extractConversationId(payload: unknown): ConversationId | null;
-    /**
-     * Extract profile ID from webhook payload (implemented by subclasses)
-     */
-    protected abstract extractProfileId(payload: unknown): ProfileId | null;
-    /**
-     * Cleanup resources when shutting down
-     */
-    shutdown(): void;
-}
-
 interface TACOptions {
     config?: TACConfig | TACConfigData;
     logger?: Logger;
@@ -3376,7 +3393,8 @@ interface TACOptions {
  * Callback function signatures for TAC events
  */
 type MessageReadyCallback = (params: {
-    conversationId: ConversationId;
+    /** Generic session identifier (CallSid or ConversationId) */
+    sessionId: string;
     profileId: ProfileId | undefined;
     message: string;
     author: string;
@@ -3385,13 +3403,15 @@ type MessageReadyCallback = (params: {
     channel: ChannelType;
 }) => Promise<void> | void;
 type InterruptCallback = (params: {
-    conversationId: ConversationId;
+    /** Generic session identifier (CallSid or ConversationId) */
+    sessionId: string;
     reason: string;
     transcript: string | undefined;
     session: ConversationSession;
 }) => Promise<void> | void;
 type HandoffCallback = (params: {
-    conversationId: ConversationId;
+    /** Generic session identifier (CallSid or ConversationId) */
+    sessionId: string;
     profileId: ProfileId | undefined;
     reason: string;
     session: ConversationSession;
@@ -3421,7 +3441,7 @@ declare class TAC {
     /**
      * Register a channel with the framework
      */
-    registerChannel(channel: BaseChannel): void;
+    registerChannel(channel: Channel): void;
     /**
      * Set up event listeners for a channel
      */
@@ -3462,7 +3482,7 @@ declare class TAC {
     /**
      * Get registered channel by type
      */
-    getChannel<T extends BaseChannel>(channelType: ChannelType): T | undefined;
+    getChannel<T extends Channel>(channelType: ChannelType): T | undefined;
     /**
      * Get configuration
      */
@@ -3581,7 +3601,7 @@ interface MessagingChannelConfig {
 /**
  * Messaging channel event callbacks extending base callbacks
  */
-interface MessagingChannelEvents extends BaseChannelEvents {
+interface MessagingChannelEvents extends ChannelEvents {
     onMessageReceived?: (data: {
         conversationId: ConversationId;
         profileId: ProfileId | undefined;
@@ -3596,7 +3616,13 @@ interface MessagingChannelEvents extends BaseChannelEvents {
  * Provides shared webhook processing logic for messaging channels
  * (SMS and Chat) that use the Conversations Service webhooks.
  */
-declare abstract class MessagingChannel extends BaseChannel {
+declare abstract class MessagingChannel implements Channel {
+    protected readonly tac: TAC;
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger;
+    protected readonly conversationClient: ConversationClient;
+    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+    protected readonly callbacks: ChannelEvents;
     protected readonly messagingCallbacks: MessagingChannelEvents;
     private readonly processedTokens;
     private readonly maxTrackedTokens;
@@ -3613,6 +3639,42 @@ declare abstract class MessagingChannel extends BaseChannel {
      * Subclasses implement channel-specific filtering (e.g., by phone number or agent address)
      */
     protected abstract isOwnMessage(authorAddress: string): boolean;
+    /**
+     * Get the channel type (implemented by subclasses)
+     */
+    abstract get channelType(): ChannelType;
+    /**
+     * Send a response back to the user (implemented by subclasses)
+     */
+    abstract sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Start a new conversation session
+     */
+    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
+    /**
+     * End a conversation session.
+     *
+     * Triggers the onConversationEnded callback BEFORE removing the session,
+     * so the callback receives the full ConversationSession data.
+     * Errors in the callback do not prevent session cleanup.
+     */
+    protected endConversation(conversationId: ConversationId): Promise<void>;
+    /**
+     * Get an active conversation session
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if a conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Handle errors with proper context
+     */
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
+    /**
+     * Cleanup resources when shutting down
+     */
+    shutdown(): void;
     /**
      * Register event callbacks (override for messaging-specific events)
      */
@@ -3705,7 +3767,7 @@ declare class ChatChannel extends MessagingChannel {
 /**
  * Voice channel event callbacks extending base callbacks
  */
-interface VoiceChannelEvents extends BaseChannelEvents {
+interface VoiceChannelEvents extends ChannelEvents {
     onSetup?: (data: {
         conversationId: ConversationId;
         profileId: ProfileId | undefined;
@@ -3738,14 +3800,52 @@ interface VoiceChannelEvents extends BaseChannelEvents {
  * Handles voice conversations through WebSocket connections.
  * Manages real-time audio streaming and conversation state.
  */
-declare class VoiceChannel extends BaseChannel {
-    private readonly webSocketConnections;
+declare class VoiceChannel implements Channel {
+    protected readonly tac: TAC;
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger;
+    protected readonly conversationClient?: ConversationClient;
+    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+    protected readonly callbacks: ChannelEvents;
+    private readonly conversationRelay;
     private readonly callSidToConversationId;
     private readonly voiceCallbacks;
     private readonly streamTasks;
     private readonly promptQueues;
     constructor(tac: TAC);
     get channelType(): ChannelType;
+    /**
+     * Get WebSocket connection for a conversation
+     */
+    getWebsocket(conversationId: ConversationId): WebSocket | null;
+    /**
+     * Start a new conversation session
+     */
+    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
+    /**
+     * End a conversation session.
+     *
+     * Triggers the onConversationEnded callback BEFORE removing the session,
+     * so the callback receives the full ConversationSession data.
+     * Errors in the callback do not prevent session cleanup.
+     */
+    protected endConversation(conversationId: ConversationId): Promise<void>;
+    /**
+     * Get an active conversation session
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if a conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Handle errors with proper context
+     */
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
+    /**
+     * Cleanup resources when shutting down
+     */
+    shutdown(): void;
     /**
      * Register event callbacks (override for Voice-specific events)
      */
@@ -3756,13 +3856,27 @@ declare class VoiceChannel extends BaseChannel {
      */
     processWebhook(_payload: unknown): Promise<void>;
     /**
-     * Get active WebSocket connection for a conversation
-     */
-    getWebsocket(conversationId: ConversationId): WebSocket | null;
-    /**
      * Handle WebSocket connection from ConversationRelay
+     *
+     * Delegates to ConversationRelay utility for protocol handling.
      */
     handleWebSocketConnection(ws: WebSocket): void;
+    /**
+     * Handle setup message from ConversationRelay (CallSid → ConversationId bridge)
+     */
+    private handleSetupFromRelay;
+    /**
+     * Handle prompt message from ConversationRelay (CallSid → ConversationId bridge)
+     */
+    private handlePromptFromRelay;
+    /**
+     * Handle interrupt message from ConversationRelay (CallSid → ConversationId bridge)
+     */
+    private handleInterruptFromRelay;
+    /**
+     * Handle close from ConversationRelay (CallSid → ConversationId bridge)
+     */
+    private handleCloseFromRelay;
     /**
      * Handle WebSocket setup message
      */
@@ -3781,6 +3895,8 @@ declare class VoiceChannel extends BaseChannel {
     private handleWebSocketDisconnect;
     /**
      * Send voice response via WebSocket
+     *
+     * Uses ConversationRelay utility for message sending.
      */
     sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
     /**
@@ -3865,13 +3981,6 @@ declare class VoiceChannel extends BaseChannel {
      * Extract profile ID - Not applicable for Voice channel
      */
     protected extractProfileId(_payload: unknown): ProfileId | null;
-    /**
-     * Cleanup channel state on shutdown
-     *
-     * Note: WebSocket connections are managed by the server and closed there.
-     * This method only cleans up internal channel state.
-     */
-    shutdown(): void;
 }
 
 /**
@@ -3999,7 +4108,7 @@ interface SendMessageResult {
 /**
  * Create send message tool
  */
-declare function createSendMessageTool(channel: BaseChannel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
+declare function createSendMessageTool(channel: Channel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
 /**
  * Create factory function for messaging tools
  */
@@ -4007,7 +4116,7 @@ declare function createMessagingTools(): {
     /**
      * Create send message tool for specific channel and conversation
      */
-    forConversation: (channel: BaseChannel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
+    forConversation: (channel: Channel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
 };
 
 /**
@@ -4168,4 +4277,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type AuthorInfo, AuthorInfoSchema, BaseChannel, type BaseChannelEvents, type BuiltInToolName, BuiltInTools, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationEndedCallback, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationRelayAttributes, ConversationRelayAttributesSchema, type ConversationRelayCallbackPayload, ConversationRelayCallbackPayloadSchema, type ConversationRelayConfig, ConversationRelayConfigSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, type CustomParameters, CustomParametersSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type HandoffData, HandoffDataSchema, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type InterruptCallback, type InterruptMessage, InterruptMessageSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type LanguageAttributes, LanguageAttributesSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingChannelEvents, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, type PromptMessage, PromptMessageSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SetupMessage, SetupMessageSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type TextTokenMessage, TextTokenMessageSchema, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelEvents, type VoiceServerConfig, VoiceServerConfigSchema, type WebSocketMessage, WebSocketMessageSchema, type _SDKDriftGuards, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId };
+export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, type Channel, type ChannelEvents, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationEndedCallback, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationRelayAttributes, ConversationRelayAttributesSchema, type ConversationRelayCallbackPayload, ConversationRelayCallbackPayloadSchema, type ConversationRelayConfig, ConversationRelayConfigSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, type CustomParameters, CustomParametersSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type HandoffData, HandoffDataSchema, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type InterruptCallback, type InterruptMessage, InterruptMessageSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type LanguageAttributes, LanguageAttributesSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingChannelEvents, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, type PromptMessage, PromptMessageSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SetupMessage, SetupMessageSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type TextTokenMessage, TextTokenMessageSchema, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelEvents, type VoiceServerConfig, VoiceServerConfigSchema, type WebSocketMessage, WebSocketMessageSchema, type _SDKDriftGuards, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId };

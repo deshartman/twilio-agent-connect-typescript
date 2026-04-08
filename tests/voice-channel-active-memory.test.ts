@@ -63,13 +63,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         .spyOn(tac, 'retrieveMemory')
         .mockResolvedValue(mockMemory as any);
 
-      // Set up WebSocket and session
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
-
       // Simulate setup message to create session
       const setupMessage = {
         type: 'setup' as const,
@@ -83,7 +76,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       };
 
       // Access private method for testing
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       // Set up prompt callback spy
       const promptCallbackSpy = vi.fn();
@@ -100,7 +93,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify memory was retrieved
       expect(retrieveMemorySpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          conversationId: 'conv123',
+          sessionId: 'conv123',
           profileId: 'prof123',
         }),
         'Hello, I need help'
@@ -113,7 +106,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
           transcript: 'Hello, I need help',
           userMemory: mockMemory,
           session: expect.objectContaining({
-            conversationId: 'conv123',
+            sessionId: 'conv123',
             profileId: 'prof123',
           }),
         })
@@ -144,7 +137,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       const promptCallbackSpy = vi.fn();
       voiceChannel.on('prompt', promptCallbackSpy);
@@ -197,7 +190,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       const promptCallbackSpy = vi.fn();
       voiceChannel.on('prompt', promptCallbackSpy);
@@ -256,7 +249,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       const promptMessage: PromptMessage = {
         type: 'prompt',
@@ -268,7 +261,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // TAC's onMessageReady should receive enriched memory
       expect(messageReadySpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          conversationId: 'conv123',
+          sessionId: 'conv123',
           message: 'Integration test message',
           memory: mockMemory,
           channel: 'voice',
@@ -300,7 +293,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       const promptMessage: PromptMessage = {
         type: 'prompt',
@@ -312,7 +305,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Should still invoke callback without memory
       expect(messageReadySpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          conversationId: 'conv123',
+          sessionId: 'conv123',
           message: 'No memory test',
           channel: 'voice',
         })
@@ -359,7 +352,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       const promptMessage: PromptMessage = {
         type: 'prompt',
@@ -421,7 +414,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         },
       };
 
-      (voiceChannel as any).handleSetupMessage(mockWs, setupMessage);
+      (voiceChannel as any).handleSetupMessage(setupMessage);
 
       // Send 3 prompts in quick succession
       const promptMessage1: PromptMessage = { type: 'prompt', voicePrompt: 'prompt 1' };

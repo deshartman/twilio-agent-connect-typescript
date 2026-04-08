@@ -1,4 +1,4 @@
-import { BuiltInTools, ConversationId, BaseChannel } from '@twilio/tac-core';
+import { BuiltInTools, ConversationId, Channel } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
 /**
@@ -22,7 +22,7 @@ interface SendMessageResult {
  * Create send message tool
  */
 export function createSendMessageTool(
-  channel: BaseChannel,
+  channel: Channel,
   conversationId: ConversationId
 ): TACTool<SendMessageParams, SendMessageResult> {
   return defineTool(
@@ -69,7 +69,7 @@ export function createMessagingTools() {
     /**
      * Create send message tool for specific channel and conversation
      */
-    forConversation: (channel: BaseChannel, conversationId: ConversationId) =>
+    forConversation: (channel: Channel, conversationId: ConversationId) =>
       createSendMessageTool(channel, conversationId),
   };
 }

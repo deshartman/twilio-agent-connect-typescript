@@ -11,8 +11,14 @@ export * from './config';
 // Memory types
 export * from './memory';
 
+// Session types (base abstractions)
+export * from './session';
+
 // Conversation types
 export * from './conversation';
+
+// Channel interface
+export * from './channels';
 
 // ConversationRelay types (Twilio Voice API)
 export * from './crelay';

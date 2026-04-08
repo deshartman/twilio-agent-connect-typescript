@@ -1,0 +1,27 @@
+{
+  "name": "@twilio/tac-conversationrelay",
+  "version": "1.0.0",
+  "description": "Pure ConversationRelay protocol utility - WebSocket handling and TwiML generation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "pino": "^9.6.0",
+    "twilio": "^5.4.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

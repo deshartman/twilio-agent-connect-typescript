@@ -75,8 +75,8 @@ describe('Integration Tests', () => {
       let capturedContext: any = null;
 
       // Register message callback
-      tac.onMessageReady(({ conversationId, profileId, message, author, session }) => {
-        capturedContext = { conversationId, profileId, message, author, session };
+      tac.onMessageReady(({ sessionId, profileId, message, author, session }) => {
+        capturedContext = { sessionId, profileId, message, author, session };
         return 'Hello back!';
       });
 
@@ -110,11 +110,11 @@ describe('Integration Tests', () => {
 
       // Verify callback was invoked with correct context
       expect(capturedContext).not.toBeNull();
-      expect(capturedContext.conversationId).toBe('CHtest123456789');
+      expect(capturedContext.sessionId).toBe('CHtest123456789');
       expect(capturedContext.message).toBe('Hello TAC');
       expect(capturedContext.author).toBe('+15559876543');
       expect(capturedContext.session).toBeDefined();
-      expect(capturedContext.session.conversationId).toBe('CHtest123456789');
+      expect(capturedContext.session.sessionId).toBe('CHtest123456789');
     });
 
     it('should handle multiple concurrent conversations', async () => {
@@ -154,9 +154,9 @@ describe('Integration Tests', () => {
 
       // Verify all conversations were processed
       expect(capturedMessages).toHaveLength(3);
-      expect(capturedMessages.map(m => m.conversationId)).toContain('CHtest1');
-      expect(capturedMessages.map(m => m.conversationId)).toContain('CHtest2');
-      expect(capturedMessages.map(m => m.conversationId)).toContain('CHtest3');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('CHtest1');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('CHtest2');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('CHtest3');
     });
 
     it('should filter out empty messages', async () => {

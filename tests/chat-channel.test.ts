@@ -66,7 +66,7 @@ describe('Chat Channel', () => {
       expect(channel.isConversationActive('CHtest123456789')).toBe(true);
       expect(startedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          conversationId: 'CHtest123456789',
+          sessionId: 'CHtest123456789',
           profileId: 'test_profile_123',
           channel: 'chat',
         }),
@@ -200,7 +200,7 @@ describe('Chat Channel', () => {
       expect(channel.isConversationActive('CHtest123456789')).toBe(false);
       expect(endedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          conversationId: 'CHtest123456789',
+          sessionId: 'CHtest123456789',
           channel: 'chat',
         }),
       });

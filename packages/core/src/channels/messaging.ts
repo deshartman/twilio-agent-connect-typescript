@@ -1,5 +1,16 @@
-import { ConversationId, ProfileId, isConversationId, isProfileId } from '../types/index';
-import { BaseChannel, BaseChannelEvents } from './base';
+import {
+  ConversationId,
+  ProfileId,
+  ConversationSession,
+  ChannelType,
+  Channel,
+  ChannelEvents,
+  isConversationId,
+  isProfileId,
+} from '../types/index';
+import { TACConfig } from '../lib/config';
+import { ConversationClient } from '../clients/conversation';
+import { Logger } from '../lib/logger';
 import type { TAC } from '../lib/tac';
 
 /**
@@ -51,7 +62,7 @@ const DEFAULT_DEDUP_CAPACITY = 10_000;
 /**
  * Messaging channel event callbacks extending base callbacks
  */
-export interface MessagingChannelEvents extends BaseChannelEvents {
+export interface MessagingChannelEvents extends ChannelEvents {
   onMessageReceived?: (data: {
     conversationId: ConversationId;
     profileId: ProfileId | undefined;
@@ -68,14 +79,34 @@ export interface MessagingChannelEvents extends BaseChannelEvents {
  * Provides shared webhook processing logic for messaging channels
  * (SMS and Chat) that use the Conversations Service webhooks.
  */
-export abstract class MessagingChannel extends BaseChannel {
+export abstract class MessagingChannel implements Channel {
+  protected readonly tac: TAC;
+  protected readonly config: TACConfig;
+  protected readonly logger: Logger;
+  protected readonly conversationClient: ConversationClient;
+  protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+  protected readonly callbacks: ChannelEvents;
   protected readonly messagingCallbacks: MessagingChannelEvents;
   private readonly processedTokens = new Set<string>();
   private readonly maxTrackedTokens: number;
 
   constructor(tac: TAC, config?: MessagingChannelConfig) {
-    super(tac);
+    this.tac = tac;
+    this.config = tac.getConfig();
+    this.logger = tac.logger.child({ component: 'channel' });
+    this.activeConversations = new Map();
+    this.callbacks = {};
     this.messagingCallbacks = {};
+
+    // Messaging channels require Maestro Conversations Service
+    if (!this.config.conversationServiceId) {
+      throw new Error(
+        'Messaging channels require Maestro Conversations Service (CONVERSATION_SERVICE_ID not configured)'
+      );
+    }
+
+    this.conversationClient = new ConversationClient(this.config);
+
     const capacity = config?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
     if (capacity < 1 || !Number.isInteger(capacity)) {
       throw new Error('dedupCapacity must be a positive integer');
@@ -110,15 +141,168 @@ export abstract class MessagingChannel extends BaseChannel {
   protected abstract isOwnMessage(authorAddress: string): boolean;
 
   /**
+   * Get the channel type (implemented by subclasses)
+   */
+  public abstract get channelType(): ChannelType;
+
+  /**
+   * Send a response back to the user (implemented by subclasses)
+   */
+  public abstract sendResponse(
+    conversationId: ConversationId,
+    message: string,
+    metadata?: Record<string, unknown>
+  ): Promise<void>;
+
+  /**
+   * Start a new conversation session
+   */
+  protected startConversation(
+    conversationId: ConversationId,
+    profileId?: ProfileId,
+    serviceId?: string
+  ): ConversationSession {
+    if (this.activeConversations.has(conversationId)) {
+      this.logger.debug(
+        {
+          conversation_id: conversationId,
+          profile_id: this.activeConversations.get(conversationId)?.profileId,
+          service_id: this.activeConversations.get(conversationId)?.serviceId,
+        },
+        'Conversation already active'
+      );
+      return this.activeConversations.get(conversationId)!;
+    }
+
+    const session: ConversationSession = {
+      // Base SessionContext fields
+      sessionId: conversationId, // Generic session identifier
+      channel: this.channelType,
+      startedAt: new Date(),
+      metadata: {},
+      // Maestro-specific fields
+      profileId: profileId,
+      serviceId: serviceId,
+    };
+
+    this.activeConversations.set(conversationId, session);
+
+    this.logger.debug(
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        service_id: serviceId,
+        channel: this.channelType,
+      },
+      'Conversation started'
+    );
+
+    if (this.callbacks.onConversationStarted) {
+      this.callbacks.onConversationStarted({ session });
+    }
+
+    return session;
+  }
+
+  /**
+   * End a conversation session.
+   *
+   * Triggers the onConversationEnded callback BEFORE removing the session,
+   * so the callback receives the full ConversationSession data.
+   * Errors in the callback do not prevent session cleanup.
+   */
+  protected async endConversation(conversationId: ConversationId): Promise<void> {
+    const session = this.activeConversations.get(conversationId);
+
+    if (session) {
+      // Trigger callback BEFORE deleting the session
+      if (this.callbacks.onConversationEnded) {
+        try {
+          await this.callbacks.onConversationEnded({ session });
+        } catch (error) {
+          this.logger.error(
+            { err: error, conversation_id: conversationId },
+            'Error in conversation ended callback'
+          );
+        }
+      }
+
+      this.activeConversations.delete(conversationId);
+      this.logger.debug(
+        {
+          conversation_id: conversationId,
+          channel: this.channelType,
+          service_id: session.serviceId,
+        },
+        'Conversation ended'
+      );
+    } else {
+      this.logger.debug(
+        { conversation_id: conversationId, channel: this.channelType },
+        'Conversation end requested but no active session found'
+      );
+    }
+  }
+
+  /**
+   * Get an active conversation session
+   */
+  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
+    return this.activeConversations.get(conversationId);
+  }
+
+  /**
+   * Check if a conversation is active
+   */
+  public isConversationActive(conversationId: ConversationId): boolean {
+    return this.activeConversations.has(conversationId);
+  }
+
+  /**
+   * Handle errors with proper context
+   */
+  protected handleError(error: Error, context?: Record<string, unknown>): void {
+    this.logger.error({ err: error, ...context }, 'Channel error');
+
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
+      }
+    }
+  }
+
+  /**
+   * Cleanup resources when shutting down
+   */
+  public shutdown(): void {
+    this.activeConversations.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+  }
+
+  /**
    * Register event callbacks (override for messaging-specific events)
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
-  public override on(event: string, callback: (...args: any[]) => void): void {
+  public on(event: string, callback: (...args: any[]) => void): void {
     if (event === 'messageReceived') {
       this.messagingCallbacks.onMessageReceived = callback;
     } else {
-      // Delegate to parent for base events
-      super.on(event, callback);
+      // Handle base events
+      switch (event) {
+        case 'conversationStarted':
+          this.callbacks.onConversationStarted = callback;
+          break;
+        case 'conversationEnded':
+          this.callbacks.onConversationEnded = callback;
+          break;
+        case 'error':
+          this.callbacks.onError = callback;
+          break;
+      }
     }
   }
 
@@ -493,8 +677,8 @@ export abstract class MessagingChannel extends BaseChannel {
   /**
    * Validate messaging channel webhook payload structure
    */
-  protected override validateWebhookPayload(payload: unknown): boolean {
-    if (!super.validateWebhookPayload(payload)) {
+  protected validateWebhookPayload(payload: unknown): boolean {
+    if (payload === null || payload === undefined) {
       return false;
     }
 
