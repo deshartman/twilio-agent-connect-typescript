@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TAC, TACConfig, SMSChannel, VoiceChannel } from '@twilio/tac-core';
+import { TAC, TACConfig, SMSChannel, VoiceChannel } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 import { TACServer } from '@twilio/tac-server';
 
 // Mock twilio module - use vi.hoisted since vi.mock is hoisted to top of file
@@ -30,6 +31,7 @@ const getNextPort = () => testPort++;
 describe('TACServer Webhook Validation', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -288,6 +290,7 @@ describe('TACServer Webhook Validation', () => {
 describe('TACServer idempotency token', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -389,6 +392,7 @@ describe('TACServer idempotency token', () => {
 describe('TACServer with conversationRelayConfig', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

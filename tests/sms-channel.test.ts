@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SMSChannel, TAC, ConversationSession } from '@twilio/tac-core';
+import { SMSChannel, TAC, ConversationSession } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 
 describe('SMS Channel', () => {
   let originalFetch: typeof global.fetch;
@@ -14,6 +15,7 @@ describe('SMS Channel', () => {
   });
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

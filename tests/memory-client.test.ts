@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core';
+import { TACConfig, TACMode, ProfileLookupResponse, ProfileResponse } from '@twilio/tac-core';
 import { MemoryClient } from '../packages/core/src/clients/memory';
-import { ProfileLookupResponse, ProfileResponse } from '@twilio/tac-core';
 
 /**
  * Create a mock Response object with proper clone() support
@@ -23,6 +22,7 @@ function createMockResponse(data: unknown, options: { ok: boolean; status?: numb
 describe('MemoryClient', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

@@ -7,6 +7,18 @@ export const EnvironmentSchema = z.enum(['dev', 'stage', 'prod']).default('prod'
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
 /**
+ * TAC Mode - determines which features are enabled
+ * - 'crelay': ConversationRelay-only mode (voice only, no Maestro)
+ * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
+ */
+export const TACModeSchema = z.enum(['crelay', 'conversation'], {
+  errorMap: () => ({
+    message: 'TAC_MODE must be either "crelay" or "conversation"',
+  }),
+});
+export type TACMode = z.infer<typeof TACModeSchema>;
+
+/**
  * Channel types supported by the framework
  */
 export const ChannelTypeSchema = z.enum(['sms', 'voice', 'chat']);
@@ -17,6 +29,7 @@ export type ChannelType = z.infer<typeof ChannelTypeSchema>;
  */
 export const TACConfigSchema = z.object({
   environment: EnvironmentSchema,
+  tacMode: TACModeSchema,
   twilioAccountSid: z.string().min(1, 'Twilio Account SID is required'),
   twilioAuthToken: z.string().min(1, 'Twilio Auth Token is required'),
   twilioApiKey: z.string().min(1, 'Twilio API Key is required'),
@@ -32,7 +45,8 @@ export const TACConfigSchema = z.object({
     .regex(
       /^(comms_service|conv_configuration)_[0-9a-z]{26}$/,
       'Invalid Conversation Configuration ID format'
-    ),
+    )
+    .optional(),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
@@ -46,6 +60,7 @@ export type TACConfigData = z.infer<typeof TACConfigSchema>;
  */
 export const EnvironmentVariables = {
   ENVIRONMENT: 'ENVIRONMENT',
+  TAC_MODE: 'TAC_MODE',
   TWILIO_ACCOUNT_SID: 'TWILIO_ACCOUNT_SID',
   TWILIO_AUTH_TOKEN: 'TWILIO_AUTH_TOKEN',
   TWILIO_API_KEY: 'TWILIO_API_KEY',

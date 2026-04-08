@@ -10,6 +10,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'SKtest_api_key',
@@ -21,6 +22,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
   const getTestConfigWithoutMemory = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'SKtest_api_key',

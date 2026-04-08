@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { TAC, TACConfig } from '@twilio/tac-core';
+import { TAC, TACConfig, TACMode } from '@twilio/tac-core';
 
 describe('TAC Core', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

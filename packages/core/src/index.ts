@@ -44,6 +44,8 @@ export type { ChatChannelConfig } from './channels/chat';
 export { VoiceChannel } from './channels/voice';
 export type { VoiceChannelEvents } from './channels/voice';
 
+export { ConversationRelayChannel } from './channels/crelay';
+
 // Utility functions
 export { handleFlexHandoffLogic } from './util/flex';
 export type { FlexHandoffResult } from './util/flex';

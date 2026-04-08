@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig, KnowledgeClient, KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core';
+import { TACConfig, KnowledgeClient, KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 import {
   createKnowledgeSearchTool,
   createKnowledgeSearchToolAsync,
@@ -29,6 +30,7 @@ function createMockResponse(
 describe('Knowledge Tools', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

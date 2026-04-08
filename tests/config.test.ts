@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core';
+import { TACConfig } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 
 describe('TACConfig', () => {
   const getTestConfigData = () => ({
     environment: 'prod' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'SKtest123456789',
@@ -19,6 +21,7 @@ describe('TACConfig', () => {
   beforeEach(() => {
     originalEnv = {
       ENVIRONMENT: process.env.ENVIRONMENT,
+      TAC_MODE: process.env.TAC_MODE,
       TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
       TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
       TWILIO_API_KEY: process.env.TWILIO_API_KEY,
@@ -136,6 +139,7 @@ describe('TACConfig', () => {
   describe('fromEnv', () => {
     const setRequiredEnvVars = () => {
       process.env.ENVIRONMENT = 'prod';
+      process.env.TAC_MODE = 'conversation';
       process.env.TWILIO_ACCOUNT_SID = 'ACtest123';
       process.env.TWILIO_AUTH_TOKEN = 'test_auth_token';
       process.env.TWILIO_API_KEY = 'SKtest123';
@@ -231,13 +235,13 @@ describe('TACConfig', () => {
       expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
     });
 
-    it('should throw error when CONVERSATION_SERVICE_ID is missing', () => {
+    it('should throw error when CONVERSATION_SERVICE_ID is missing in conversation mode', () => {
       setRequiredEnvVars();
       delete process.env.CONVERSATION_SERVICE_ID;
 
       expect(() => {
         TACConfig.fromEnv();
-      }).toThrow('Missing required environment variable: CONVERSATION_SERVICE_ID');
+      }).toThrow('TAC_MODE=conversation requires CONVERSATION_SERVICE_ID to be configured');
     });
 
     it('should throw error when no environment variables are set', () => {

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { VoiceChannel, TAC, TACConfig, ConversationSession } from '@twilio/tac-core';
+import { VoiceChannel, TAC, TACConfig, ConversationSession, TACMode } from '@twilio/tac-core';
 
 describe('VoiceChannel', () => {
   const getTestConfig = () => ({
     environment: 'prod' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -98,101 +99,7 @@ describe('VoiceChannel', () => {
     });
   });
 
-  describe('stream task management', () => {
-    it('should start and track a stream task', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-      const conversationId = 'CH_test_123' as any;
-
-      const controller = voiceChannel.startStreamTask(conversationId);
-
-      expect(controller).toBeInstanceOf(AbortController);
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(true);
-    });
-
-    it('should cancel an active stream task', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-      const conversationId = 'CH_test_123' as any;
-
-      const controller = voiceChannel.startStreamTask(conversationId);
-      const cancelled = voiceChannel.cancelStreamTask(conversationId);
-
-      expect(cancelled).toBe(true);
-      expect(controller.signal.aborted).toBe(true);
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(false);
-    });
-
-    it('should return false when cancelling non-existent task', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const cancelled = voiceChannel.cancelStreamTask('CH_nonexistent' as any);
-
-      expect(cancelled).toBe(false);
-    });
-
-    it('should complete a stream task (remove from tracking)', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-      const conversationId = 'CH_test_123' as any;
-
-      voiceChannel.startStreamTask(conversationId);
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(true);
-
-      voiceChannel.completeStreamTask(conversationId);
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(false);
-    });
-
-    it('should replace existing stream task when starting new one', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-      const conversationId = 'CH_test_123' as any;
-
-      const firstController = voiceChannel.startStreamTask(conversationId);
-      const secondController = voiceChannel.startStreamTask(conversationId);
-
-      expect(firstController.signal.aborted).toBe(true);
-      expect(secondController.signal.aborted).toBe(false);
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(true);
-    });
-
-    it('should report inactive for aborted task', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-      const conversationId = 'CH_test_123' as any;
-
-      voiceChannel.startStreamTask(conversationId);
-      voiceChannel.cancelStreamTask(conversationId);
-
-      expect(voiceChannel.hasActiveStreamTask(conversationId)).toBe(false);
-    });
-  });
-
   describe('shutdown()', () => {
-    it('should clear all stream tasks on shutdown', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      voiceChannel.startStreamTask('CH_1' as any);
-      voiceChannel.startStreamTask('CH_2' as any);
-
-      expect(voiceChannel.hasActiveStreamTask('CH_1' as any)).toBe(true);
-      expect(voiceChannel.hasActiveStreamTask('CH_2' as any)).toBe(true);
-
-      voiceChannel.shutdown();
-
-      expect(voiceChannel.hasActiveStreamTask('CH_1' as any)).toBe(false);
-      expect(voiceChannel.hasActiveStreamTask('CH_2' as any)).toBe(false);
-    });
-
     it('should clear WebSocket references on shutdown', () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SpyInstance } from 'vitest';
-import { TAC, SMSChannel } from '@twilio/tac-core';
+import { TAC, SMSChannel } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 
 describe('Integration Tests', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

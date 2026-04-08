@@ -69,7 +69,6 @@ export class VoiceChannel implements Channel {
   private readonly conversationRelay: ConversationRelay;
   private readonly callSidToConversationId: Map<string, ConversationId>;
   private readonly voiceCallbacks: VoiceChannelEvents;
-  private readonly streamTasks: Map<ConversationId, AbortController>;
   private readonly promptQueues: Map<ConversationId, Promise<void>>;
 
   constructor(tac: TAC) {
@@ -80,9 +79,13 @@ export class VoiceChannel implements Channel {
     this.callbacks = {};
     this.voiceCallbacks = {};
 
-    // Only create ConversationClient if Maestro is configured
-    if (this.config.conversationServiceId) {
-      this.conversationClient = new ConversationClient(this.config);
+    // Get ConversationClient from TAC (undefined in crelay mode)
+    const client = tac.getConversationClient();
+    if (client) {
+      this.conversationClient = client;
+      this.logger.info('Voice channel initialized with Maestro support');
+    } else {
+      this.logger.info('Voice channel initialized in CR-only mode');
     }
 
     // Initialize ConversationRelay utility
@@ -110,7 +113,6 @@ export class VoiceChannel implements Channel {
     });
 
     this.callSidToConversationId = new Map();
-    this.streamTasks = new Map();
     this.promptQueues = new Map();
   }
 
@@ -255,7 +257,6 @@ export class VoiceChannel implements Channel {
    */
   public shutdown(): void {
     // Voice-specific cleanup
-    this.streamTasks.clear();
     this.conversationRelay.shutdown();
     this.callSidToConversationId.clear();
     this.promptQueues.clear();
@@ -447,9 +448,6 @@ export class VoiceChannel implements Channel {
   ): Promise<void> {
     const transcript = message.voicePrompt;
 
-    // Cancel any existing stream task before processing new prompt
-    this.cancelStreamTask(conversationId);
-
     // Get session for memory retrieval
     const session = this.getConversationSession(conversationId);
 
@@ -483,15 +481,7 @@ export class VoiceChannel implements Channel {
   private handleInterruptMessage(conversationId: ConversationId, message: InterruptMessage): void {
     const { reason, transcript } = message;
 
-    // Cancel any in-flight stream task on interrupt
-    const cancelled = this.cancelStreamTask(conversationId);
-    if (cancelled) {
-      this.logger.info(
-        { conversation_id: conversationId },
-        'Cancelled stream task due to interrupt'
-      );
-    }
-
+    // Fire interrupt callback - application handles stream cancellation
     if (this.voiceCallbacks.onInterrupt) {
       this.voiceCallbacks.onInterrupt({
         conversationId,
@@ -700,8 +690,13 @@ export class VoiceChannel implements Channel {
    * Close all conversations associated with a call
    */
   private async closeConversationsForCall(callSid: string): Promise<void> {
+    const conversationClient = this.tac.getConversationClient();
+    if (!conversationClient) {
+      this.logger.debug({ call_sid: callSid }, 'Skipping conversation cleanup (crelay mode)');
+      return;
+    }
+
     try {
-      const conversationClient = this.tac.getConversationClient();
       const conversations = await conversationClient.listConversations({ channelId: callSid });
 
       this.logger.info(
@@ -728,61 +723,6 @@ export class VoiceChannel implements Channel {
   // =========================================================================
   // Stream Task Management
   // =========================================================================
-
-  /**
-   * Start tracking a streaming task for a conversation
-   *
-   * @param conversationId - The conversation ID
-   * @returns AbortController for the task
-   */
-  public startStreamTask(conversationId: ConversationId): AbortController {
-    // Cancel any existing task
-    this.cancelStreamTask(conversationId);
-
-    const controller = new AbortController();
-    this.streamTasks.set(conversationId, controller);
-
-    this.logger.debug({ conversation_id: conversationId }, 'Started stream task');
-    return controller;
-  }
-
-  /**
-   * Cancel an active streaming task
-   *
-   * @param conversationId - The conversation ID
-   * @returns true if a task was cancelled, false otherwise
-   */
-  public cancelStreamTask(conversationId: ConversationId): boolean {
-    const controller = this.streamTasks.get(conversationId);
-    if (controller) {
-      controller.abort();
-      this.streamTasks.delete(conversationId);
-      this.logger.debug({ conversation_id: conversationId }, 'Cancelled stream task');
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Complete a streaming task (remove from tracking)
-   *
-   * @param conversationId - The conversation ID
-   */
-  public completeStreamTask(conversationId: ConversationId): void {
-    this.streamTasks.delete(conversationId);
-    this.logger.debug({ conversation_id: conversationId }, 'Completed stream task');
-  }
-
-  /**
-   * Check if a stream task is active
-   *
-   * @param conversationId - The conversation ID
-   * @returns true if an active task exists
-   */
-  public hasActiveStreamTask(conversationId: ConversationId): boolean {
-    const controller = this.streamTasks.get(conversationId);
-    return controller !== undefined && !controller.signal.aborted;
-  }
 
   // =========================================================================
   // ConversationRelay TwiML Generation

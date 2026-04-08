@@ -35,6 +35,13 @@ export class ConversationClient {
   private readonly logger: Logger;
 
   constructor(config: TACConfig, logger?: Logger) {
+    if (!config.conversationServiceId) {
+      throw new Error(
+        'ConversationClient requires CONVERSATION_SERVICE_ID to be configured. ' +
+          'Ensure TAC_MODE=conversation and CONVERSATION_SERVICE_ID is set.'
+      );
+    }
+
     this.baseUrl = config.conversationsApiUrl;
     this.credentials = {
       username: config.twilioApiKey,

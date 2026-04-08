@@ -52,6 +52,27 @@ getting_started/  # Example apps (OpenAI integration)
 - **API credentials consolidated** at `TACConfig` level (twilioApiKey/twilioApiToken shared across Memory, Conversation, Knowledge clients)
 - **TACServer** (`packages/server/src/lib/server.ts`): Fastify-based server with default `welcomeGreeting` for voice calls; customizable via `conversationRelayConfig`
 
+## Channel Architecture
+
+TAC provides two voice channel implementations, selected via the `TAC_MODE` environment variable:
+
+### ConversationRelayChannel (CR-only mode)
+- **Mode**: `TAC_MODE=crelay`
+- **Use case**: Voice-only applications without Maestro Conversations Service
+- **Features**: WebSocket voice protocol via ConversationRelay, basic session tracking
+- **Limitations**: No multi-channel support, no Maestro memory/profiles, no participant management
+- **Session ID**: Uses CallSid directly as the session identifier
+- **Import**: `import { ConversationRelayChannel } from '@twilio/tac-core'`
+
+### VoiceChannel (Maestro mode)
+- **Mode**: `TAC_MODE=conversation`
+- **Use case**: Multi-channel applications with full Maestro Conversations Service integration
+- **Features**: Full Maestro integration including memory, profiles, multi-channel orchestration, participant management
+- **Session ID**: Uses ConversationId from Maestro
+- **Import**: `import { VoiceChannel } from '@twilio/tac-core'`
+
+**Note**: Both channels use the `@twilio/tac-conversationrelay` package for WebSocket protocol handling. The difference is in session management and Maestro integration, not the underlying voice protocol.
+
 ## Dependencies
 
 **Runtime**: twilio, fastify, @fastify/websocket, @fastify/formbody, ws, zod, pino, pino-pretty, dotenv, fastify-graceful-shutdown

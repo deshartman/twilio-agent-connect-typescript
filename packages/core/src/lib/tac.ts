@@ -66,7 +66,7 @@ export class TAC {
   public readonly logger: Logger;
   private readonly memoryClient?: MemoryClient;
   private readonly knowledgeClient?: KnowledgeClient;
-  private readonly conversationClient: ConversationClient;
+  private readonly conversationClient?: ConversationClient;
   private readonly channels: Map<ChannelType, Channel>;
   private readonly cintelProcessor?: OperatorResultProcessor;
 
@@ -123,10 +123,16 @@ export class TAC {
       this.logger.info('Conversation Intelligence processor initialized');
     }
 
-    this.conversationClient = new ConversationClient(
-      this.config,
-      this.logger.child({ component: 'conversation' })
-    );
+    // Only initialize ConversationClient if in conversation mode
+    if (this.config.tacMode === 'conversation') {
+      this.conversationClient = new ConversationClient(
+        this.config,
+        this.logger.child({ component: 'conversation' })
+      );
+      this.logger.info('ConversationClient initialized (conversation mode)');
+    } else {
+      this.logger.info('ConversationClient not initialized (crelay mode)');
+    }
   }
 
   /**
@@ -463,8 +469,9 @@ export class TAC {
 
   /**
    * Get conversation client for advanced conversation operations
+   * Returns undefined in crelay mode
    */
-  public getConversationClient(): ConversationClient {
+  public getConversationClient(): ConversationClient | undefined {
     return this.conversationClient;
   }
 
@@ -606,6 +613,13 @@ export class TAC {
       }
     } else {
       // Fallback to Conversations API
+      if (!this.conversationClient) {
+        throw new Error(
+          'Cannot retrieve memory: Memory API not configured and ConversationClient not available. ' +
+            'Ensure either MEMORY_STORE_ID is configured or TAC_MODE=conversation with CONVERSATION_SERVICE_ID.'
+        );
+      }
+
       this.logger.info('Twilio Memory not configured, falling back to Conversations API');
 
       try {

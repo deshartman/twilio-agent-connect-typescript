@@ -4,6 +4,7 @@ import {
   EnvironmentVariables,
   computeServiceUrls,
   Environment,
+  TACMode,
 } from '../types/index';
 
 /**
@@ -24,6 +25,7 @@ import {
  */
 export class TACConfig {
   public readonly environment: Environment;
+  public readonly tacMode: TACMode;
   public readonly twilioAccountSid: string;
   public readonly twilioAuthToken: string;
   public readonly twilioApiKey: string;
@@ -31,7 +33,7 @@ export class TACConfig {
   public readonly twilioPhoneNumber: string;
   public readonly memoryStoreId?: string;
   public readonly traitGroups?: string[];
-  public readonly conversationServiceId: string;
+  public readonly conversationServiceId?: string;
   public readonly voicePublicDomain?: string;
   public readonly cintelConfigurationId?: string;
   public readonly cintelObservationOperatorSid?: string;
@@ -44,11 +46,28 @@ export class TACConfig {
     // Validate the configuration data
     const validatedConfig = TACConfigSchema.parse(data);
 
+    // Validate mode against configuration
+    if (validatedConfig.tacMode === 'conversation') {
+      if (!validatedConfig.conversationServiceId) {
+        throw new Error(
+          'TAC_MODE=conversation requires CONVERSATION_SERVICE_ID to be configured. ' +
+            'Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".'
+        );
+      }
+    } else if (validatedConfig.tacMode === 'crelay' && validatedConfig.conversationServiceId) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. ' +
+          'Maestro features will be ignored in crelay mode.'
+      );
+    }
+
     // Compute service URLs based on environment
     const serviceUrls = computeServiceUrls(validatedConfig.environment);
 
     // Assign all properties
     this.environment = validatedConfig.environment;
+    this.tacMode = validatedConfig.tacMode;
     this.twilioAccountSid = validatedConfig.twilioAccountSid;
     this.twilioAuthToken = validatedConfig.twilioAuthToken;
     this.twilioApiKey = validatedConfig.twilioApiKey;
@@ -60,7 +79,9 @@ export class TACConfig {
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;
     }
-    this.conversationServiceId = validatedConfig.conversationServiceId;
+    if (validatedConfig.conversationServiceId) {
+      this.conversationServiceId = validatedConfig.conversationServiceId;
+    }
     if (validatedConfig.voicePublicDomain) {
       this.voicePublicDomain = validatedConfig.voicePublicDomain;
     }
@@ -83,6 +104,7 @@ export class TACConfig {
    *
    * Loads configuration from the following environment variables:
    * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
+   * - TAC_MODE: Operating mode - 'crelay' or 'conversation' (required)
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -90,7 +112,7 @@ export class TACConfig {
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required)
+   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required if TAC_MODE=conversation)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    *
    * @throws Error if required environment variables are not set or invalid
@@ -107,12 +129,12 @@ export class TACConfig {
   public static fromEnv(): TACConfig {
     // Check for required environment variables
     const requiredVars = [
+      { key: EnvironmentVariables.TAC_MODE, name: 'TAC_MODE' },
       { key: EnvironmentVariables.TWILIO_ACCOUNT_SID, name: 'TWILIO_ACCOUNT_SID' },
       { key: EnvironmentVariables.TWILIO_AUTH_TOKEN, name: 'TWILIO_AUTH_TOKEN' },
       { key: EnvironmentVariables.TWILIO_API_KEY, name: 'TWILIO_API_KEY' },
       { key: EnvironmentVariables.TWILIO_API_TOKEN, name: 'TWILIO_API_TOKEN' },
       { key: EnvironmentVariables.TWILIO_PHONE_NUMBER, name: 'TWILIO_PHONE_NUMBER' },
-      { key: EnvironmentVariables.CONVERSATION_SERVICE_ID, name: 'CONVERSATION_SERVICE_ID' },
     ];
 
     // Throw error for missing required variables (like Python's KeyError)
@@ -124,6 +146,7 @@ export class TACConfig {
 
     const rawConfig: TACConfigData = {
       environment: (process.env[EnvironmentVariables.ENVIRONMENT] ?? 'prod') as Environment,
+      tacMode: process.env[EnvironmentVariables.TAC_MODE]! as TACMode,
       twilioAccountSid: process.env[EnvironmentVariables.TWILIO_ACCOUNT_SID]!,
       twilioAuthToken: process.env[EnvironmentVariables.TWILIO_AUTH_TOKEN]!,
       twilioApiKey: process.env[EnvironmentVariables.TWILIO_API_KEY]!,
@@ -131,7 +154,7 @@ export class TACConfig {
       twilioPhoneNumber: process.env[EnvironmentVariables.TWILIO_PHONE_NUMBER]!,
       memoryStoreId: process.env[EnvironmentVariables.MEMORY_STORE_ID],
       traitGroups: process.env[EnvironmentVariables.TRAIT_GROUPS]?.split(','),
-      conversationServiceId: process.env[EnvironmentVariables.CONVERSATION_SERVICE_ID]!,
+      conversationServiceId: process.env[EnvironmentVariables.CONVERSATION_SERVICE_ID],
       voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],
       cintelObservationOperatorSid:

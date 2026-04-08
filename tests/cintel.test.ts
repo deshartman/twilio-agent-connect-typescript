@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core';
+import { TACConfig } from '@twilio/tac-core'
+import type { TACMode } from "@twilio/tac-core";;
 import { OperatorResultProcessor } from '../packages/core/src/lib/operator-result-processor';
 import { MemoryClient } from '../packages/core/src/clients/memory';
 import {
@@ -168,6 +169,7 @@ describe('Conversation Intelligence Types', () => {
 describe('OperatorResultProcessor', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -505,6 +507,7 @@ describe('OperatorResultProcessor', () => {
 describe('Memory Client Write Methods', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
+    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
