@@ -24,12 +24,12 @@ import {
   type ConversationSession,
   type ProfileId,
   type ChannelMessage,
+  type MemoryRetriever,
   isConversationId,
   isProfileId,
   type Channel,
   type ChannelEvents,
 } from '../types/index';
-import type { TAC } from '../lib/tac';
 import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
@@ -43,7 +43,6 @@ import { TACMemoryResponse } from '../lib/tac-memory-response';
  * Emits all CR events as unified 'message' events with conversation bundle.
  */
 export class VoiceChannel implements Channel {
-  protected readonly tac: TAC;
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
@@ -51,27 +50,24 @@ export class VoiceChannel implements Channel {
   protected readonly callbacks: ChannelEvents;
   private readonly crelayVoice: CRelayVoice;
   private readonly callSidToConversationId: Map<string, ConversationId>;
+  private readonly memoryRetriever?: MemoryRetriever | undefined;
 
-  constructor(tac: TAC) {
-    this.tac = tac;
-    this.config = tac.getConfig();
-    this.logger = tac.logger.child({ component: 'channel' });
+  constructor(deps: {
+    config: TACConfig;
+    logger: Logger;
+    conversationClient: ConversationClient;
+    memoryRetriever?: MemoryRetriever | undefined;
+  }) {
+    this.config = deps.config;
+    this.logger = deps.logger.child({ component: 'channel' });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
     this.activeConversations = new Map();
     this.callbacks = {};
     this.callSidToConversationId = new Map();
 
-    // Conversation mode requires ConversationClient
-    const client = tac.getConversationClient();
-    if (!client) {
-      throw new Error(
-        'VoiceChannel requires ConversationClient (TAC_MODE=conversation). ' +
-          'Use CRelayChannel for TAC_MODE=crelay.'
-      );
-    }
-    this.conversationClient = client;
-
     // Initialize CRelayVoice for WebSocket protocol handling
-    this.crelayVoice = new CRelayVoice(tac.logger.child({ component: 'crelay' }));
+    this.crelayVoice = new CRelayVoice(deps.logger.child({ component: 'crelay' }));
 
     // Wire up CRelayVoice callbacks
     this.crelayVoice.onSessionStarted((callSid, _session, data) => {
@@ -282,11 +278,11 @@ export class VoiceChannel implements Channel {
     const transcript = message.voicePrompt;
     const session = this.getConversationSession(conversationId);
 
-    // Automatic memory retrieval
+    // Automatic memory retrieval via injected retriever
     let userMemory: TACMemoryResponse | undefined;
-    if (session && this.tac.isMemoryEnabled()) {
+    if (session && this.memoryRetriever) {
       try {
-        userMemory = await this.tac.retrieveMemory(session, transcript);
+        userMemory = await this.memoryRetriever(session, transcript);
         this.logger.debug({ conversation_id: conversationId }, 'Retrieved memory for voice prompt');
       } catch (error) {
         this.logger.warn(

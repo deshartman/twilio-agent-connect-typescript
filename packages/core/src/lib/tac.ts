@@ -7,6 +7,7 @@ import {
   ChannelType,
   OperatorProcessingResult,
   ChannelMessage,
+  MemoryRetriever,
 } from '../types/index';
 import { TACMemoryResponse } from './tac-memory-response';
 import { TACConfig } from './config';
@@ -327,6 +328,42 @@ export class TAC {
    */
   public getConversationClient(): ConversationClient | undefined {
     return this.conversationClient;
+  }
+
+  /**
+   * Create a MemoryRetriever function for channel dependency injection.
+   * Returns undefined if memory is not configured.
+   */
+  public createMemoryRetriever(): MemoryRetriever | undefined {
+    if (!this.isMemoryEnabled()) {
+      return undefined;
+    }
+    return (session: ConversationSession, query?: string) => this.retrieveMemory(session, query);
+  }
+
+  /**
+   * Get channel dependencies for creating Maestro channels (VoiceChannel, MessagingChannel subclasses).
+   * Throws if ConversationClient is not available (crelay mode).
+   */
+  public getChannelDeps(): {
+    config: TACConfig;
+    logger: Logger;
+    conversationClient: ConversationClient;
+    memoryRetriever: MemoryRetriever | undefined;
+  } {
+    const conversationClient = this.getConversationClient();
+    if (!conversationClient) {
+      throw new Error(
+        'getChannelDeps() requires ConversationClient (TAC_MODE=conversation or passive). ' +
+          'Use CRelayChannel with logger for TAC_MODE=crelay.'
+      );
+    }
+    return {
+      config: this.config,
+      logger: this.logger,
+      conversationClient,
+      memoryRetriever: this.createMemoryRetriever(),
+    };
   }
 
   /**

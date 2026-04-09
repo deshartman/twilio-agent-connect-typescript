@@ -9,16 +9,20 @@
  * Responses are sent via Maestro Send API with channel='VOICE'.
  */
 
-import { ChannelType, ConversationId } from '../types/index';
-import { MessagingChannel, MessagingChannelConfig } from './messaging';
-import type { TAC } from '../lib/tac';
+import { ChannelType, ConversationId, MemoryRetriever } from '../types/index';
+import { MessagingChannel } from './messaging';
+import type { TACConfig } from '../lib/config';
+import type { ConversationClient } from '../clients/conversation';
+import type { Logger } from '../lib/logger';
 
 /**
  * VoiceWebhookChannel configuration options
  */
-export interface VoiceWebhookChannelConfig extends MessagingChannelConfig {
+export interface VoiceWebhookChannelConfig {
   /** Voice agent address identifier (defaults to the configured Twilio phone number) */
   agentAddress?: string | undefined;
+  /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+  dedupCapacity?: number | undefined;
 }
 
 /**
@@ -30,8 +34,16 @@ export interface VoiceWebhookChannelConfig extends MessagingChannelConfig {
 export class VoiceWebhookChannel extends MessagingChannel {
   private readonly agentAddress: string;
 
-  constructor(tac: TAC, config?: VoiceWebhookChannelConfig) {
-    super(tac, config);
+  constructor(
+    deps: {
+      config: TACConfig;
+      logger: Logger;
+      conversationClient: ConversationClient;
+      memoryRetriever?: MemoryRetriever | undefined;
+    },
+    config?: VoiceWebhookChannelConfig
+  ) {
+    super(deps, config);
     this.agentAddress = config?.agentAddress ?? this.config.twilioPhoneNumber;
   }
 

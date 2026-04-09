@@ -48,6 +48,16 @@ export interface ChannelMessage {
 }
 
 /**
+ * Function that retrieves memory for a conversation session.
+ * Injected into Maestro channels (VoiceChannel, MessagingChannel subclasses)
+ * to decouple them from the TAC instance.
+ */
+export type MemoryRetriever = (
+  session: ConversationSession,
+  query?: string
+) => Promise<TACMemoryResponse | undefined>;
+
+/**
  * Base channel event callbacks
  */
 export interface ChannelEvents {

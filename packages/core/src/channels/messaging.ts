@@ -6,6 +6,7 @@ import {
   Channel,
   ChannelEvents,
   ChannelMessage,
+  MemoryRetriever,
   isConversationId,
   isProfileId,
 } from '../types/index';
@@ -13,7 +14,6 @@ import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
-import type { TAC } from '../lib/tac';
 
 /**
  * Messaging webhook event types from Twilio Conversations Service
@@ -56,7 +56,7 @@ export interface MessagingWebhookPayload {
  */
 export interface MessagingChannelConfig {
   /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
-  dedupCapacity?: number;
+  dedupCapacity?: number | undefined;
 }
 
 const DEFAULT_DEDUP_CAPACITY = 10_000;
@@ -68,32 +68,32 @@ const DEFAULT_DEDUP_CAPACITY = 10_000;
  * (SMS and Chat) that use the Conversations Service webhooks.
  */
 export abstract class MessagingChannel implements Channel {
-  protected readonly tac: TAC;
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
   protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
+  private readonly memoryRetriever?: MemoryRetriever | undefined;
   private readonly processedTokens = new Set<string>();
   private readonly maxTrackedTokens: number;
 
-  constructor(tac: TAC, config?: MessagingChannelConfig) {
-    this.tac = tac;
-    this.config = tac.getConfig();
-    this.logger = tac.logger.child({ component: 'channel' });
+  constructor(
+    deps: {
+      config: TACConfig;
+      logger: Logger;
+      conversationClient: ConversationClient;
+      memoryRetriever?: MemoryRetriever | undefined;
+    },
+    channelConfig?: MessagingChannelConfig
+  ) {
+    this.config = deps.config;
+    this.logger = deps.logger.child({ component: 'channel' });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
     this.activeConversations = new Map();
     this.callbacks = {};
 
-    // Messaging channels require Maestro Conversations Service
-    if (!this.config.conversationServiceId) {
-      throw new Error(
-        'Messaging channels require Maestro Conversations Service (CONVERSATION_SERVICE_ID not configured)'
-      );
-    }
-
-    this.conversationClient = new ConversationClient(this.config);
-
-    const capacity = config?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
+    const capacity = channelConfig?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
     if (capacity < 1 || !Number.isInteger(capacity)) {
       throw new Error('dedupCapacity must be a positive integer');
     }
@@ -571,12 +571,12 @@ export abstract class MessagingChannel implements Channel {
       }
     }
 
-    // Retrieve user memory using tac.retrieveMemory, which handles profile lookup by address (e.g., phone number or email)
+    // Retrieve user memory via injected retriever
     let userMemory: TACMemoryResponse | undefined;
-    if (session && this.tac.isMemoryEnabled()) {
+    if (session && this.memoryRetriever) {
       this.logger.debug({ conversation_id: conversationId, author }, 'Retrieving user memory');
       try {
-        userMemory = await this.tac.retrieveMemory(session, message);
+        userMemory = await this.memoryRetriever(session, message);
         this.logger.debug(
           { conversation_id: conversationId, profile_id: session.profileId },
           'User memory retrieved'

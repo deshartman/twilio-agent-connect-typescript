@@ -1,13 +1,17 @@
-import { ChannelType, ConversationId } from '../types/index';
-import { MessagingChannel, MessagingChannelConfig } from './messaging';
-import type { TAC } from '../lib/tac';
+import { ChannelType, ConversationId, MemoryRetriever } from '../types/index';
+import { MessagingChannel } from './messaging';
+import type { TACConfig } from '../lib/config';
+import type { ConversationClient } from '../clients/conversation';
+import type { Logger } from '../lib/logger';
 
 /**
  * Chat channel configuration options
  */
-export interface ChatChannelConfig extends MessagingChannelConfig {
+export interface ChatChannelConfig {
   /** Chat agent identity string (defaults to 'ai-assistant') */
-  agentAddress?: string;
+  agentAddress?: string | undefined;
+  /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+  dedupCapacity?: number | undefined;
 }
 
 /**
@@ -20,8 +24,16 @@ export interface ChatChannelConfig extends MessagingChannelConfig {
 export class ChatChannel extends MessagingChannel {
   private readonly agentAddress: string;
 
-  constructor(tac: TAC, config?: ChatChannelConfig) {
-    super(tac, config);
+  constructor(
+    deps: {
+      config: TACConfig;
+      logger: Logger;
+      conversationClient: ConversationClient;
+      memoryRetriever?: MemoryRetriever | undefined;
+    },
+    config?: ChatChannelConfig
+  ) {
+    super(deps, config);
     this.agentAddress = config?.agentAddress ?? 'ai-assistant';
   }
 
