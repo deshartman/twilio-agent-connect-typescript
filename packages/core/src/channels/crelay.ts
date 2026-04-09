@@ -53,7 +53,7 @@ export class CRelayChannel implements Channel {
   private wireCRelayEvents(): void {
     this.crelayVoice.onSessionStarted((callSid, session, data) => {
       const convSession: ConversationSession = {
-        sessionId: callSid as string,
+        sessionId: callSid,
         channel: 'voice',
         startedAt: session.startedAt,
         metadata: {},

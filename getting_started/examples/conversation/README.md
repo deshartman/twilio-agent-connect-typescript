@@ -1,6 +1,6 @@
-# OpenAI SDK Example
+# Multi-Channel Conversation Example
 
-This example demonstrates how to use OpenAI with Twilio Agent Connect (TAC) to build an intelligent conversational agent that works across both SMS and Voice channels.
+This example demonstrates how to use Twilio Agent Connect (TAC) in conversation mode to build an intelligent conversational agent that works across both SMS and Voice channels, with OpenAI as the LLM provider.
 
 ## What This Example Does
 
