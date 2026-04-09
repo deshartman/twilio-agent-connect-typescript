@@ -13,7 +13,7 @@ twilio-agent-connect-typescript/
 ├── getting_started/         # Getting started guide and examples
 │   ├── README.md            # Step-by-step tutorial
 │   └── examples/
-│       └── openai/          # OpenAI example (SMS + Voice)
+│       └── conversation/    # Conversation mode example (SMS + Voice)
 └── package.json             # Workspace root
 ```
 
@@ -226,7 +226,7 @@ We use TypeScript project references for:
 ### Reference Structure
 
 ```
-getting_started/examples/openai → packages/server → packages/core
+getting_started/examples/conversation → packages/server → packages/core
                                                ↘ packages/tools ↗
 ```
 
@@ -263,7 +263,7 @@ npm install
 npm run build
 
 # Check symlinks exist
-ls -la getting_started/examples/openai/node_modules/@twilio/
+ls -la getting_started/examples/conversation/node_modules/@twilio/
 ```
 
 ## Best Practices

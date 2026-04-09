@@ -31,7 +31,7 @@ npm run build
 Then install the example's dependencies:
 
 ```bash
-cd getting_started/examples/openai
+cd getting_started/examples/conversation
 npm install
 ```
 
@@ -125,7 +125,7 @@ Call your Twilio number:
 ## Code Structure
 
 ```
-getting_started/examples/openai/
+getting_started/examples/conversation/
 ├── src/
 │   └── index.ts           # Main application
 ├── package.json           # Dependencies

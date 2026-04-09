@@ -1,7 +1,7 @@
 {
   "name": "tac-example-crelay",
   "version": "1.0.0",
-  "description": "ConversationRelay voice-only example for Twilio Agent Connect",
+  "description": "ConversationRelay voice-only example for Twilio Agent Connect integrated with OpenAI",
   "private": true,
   "type": "module",
   "scripts": {

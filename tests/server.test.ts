@@ -555,7 +555,7 @@ describe('TACServer with conversationRelayConfig', () => {
       expect.objectContaining({
         conversationRelayConfig: expect.objectContaining({
           url: expect.stringMatching(/^wss?:\/\//),
-          welcomeGreeting: 'Hello! How can I assist you today?', // Default value
+          welcomeGreeting: 'Hello! Set up your welcome greeting in the server config.', // Default value
         }),
       })
     );

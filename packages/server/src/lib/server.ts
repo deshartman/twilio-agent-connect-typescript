@@ -81,7 +81,7 @@ const DEFAULT_CONFIG = {
     conversationRelayCallback: '/conversation-relay-callback',
   },
   conversationRelayConfig: {
-    welcomeGreeting: 'Hello! How can I assist you today?',
+    welcomeGreeting: 'Hello! Set up your welcome greeting in the server config.',
   },
   development: false,
   validateWebhooks: true,

@@ -55,10 +55,10 @@ See the **Environment Variables** section below for details.
 
 ### Install Example Dependencies and Run the Server
 
-From the `getting_started/examples/openai` directory:
+From the `getting_started/examples/conversation` directory:
 
 ```bash
-cd getting_started/examples/openai
+cd getting_started/examples/conversation
 npm install
 npm run dev
 ```
@@ -111,7 +111,7 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 
 ## Next Steps
 
-- Customize the agent's behavior by modifying the message handler in `examples/openai/src/index.ts`
+- Customize the agent's behavior by modifying the message handler in `examples/conversation/src/index.ts`
 - Add tool calling to enable agent actions beyond text responses
 - Explore the main [README](../README.md) for advanced features
 - Review [CLAUDE.md](../CLAUDE.md) for architecture and development guidelines

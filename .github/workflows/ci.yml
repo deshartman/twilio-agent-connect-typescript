@@ -116,7 +116,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: |
             package-lock.json
-            getting_started/examples/openai/package-lock.json
+            getting_started/examples/conversation/package-lock.json
             getting_started/examples/chat/package-lock.json
 
       - name: Install root dependencies
@@ -125,16 +125,16 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Install openai example dependencies
-        working-directory: getting_started/examples/openai
+      - name: Install conversation example dependencies
+        working-directory: getting_started/examples/conversation
         run: npm ci
 
-      - name: Lint openai example
-        working-directory: getting_started/examples/openai
+      - name: Lint conversation example
+        working-directory: getting_started/examples/conversation
         run: npx eslint src/**/*.ts
 
-      - name: Type check openai example
-        working-directory: getting_started/examples/openai
+      - name: Type check conversation example
+        working-directory: getting_started/examples/conversation
         run: npx tsc --noEmit
 
       - name: Install chat example dependencies

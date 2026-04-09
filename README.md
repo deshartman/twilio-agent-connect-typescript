@@ -164,7 +164,7 @@ For detailed architecture and advanced usage, see [CLAUDE.md](CLAUDE.md).
 
 **Examples & Guides:**
 - **[Getting Started Guide](getting_started/)** - Examples and comprehensive documentation
-- **[OpenAI SDK Example](getting_started/examples/openai/)** - Multi-channel example with Voice and SMS (`conversation` mode)
+- **[Conversation Example](getting_started/examples/conversation/)** - Multi-channel example with Voice and SMS (`conversation` mode)
 - **[Chat Example](getting_started/examples/chat/)** - Web chat with Twilio Conversations JS SDK
 - **[CRelay Example](getting_started/examples/crelay/)** - Voice-only with ConversationRelay (`crelay` mode)
 
