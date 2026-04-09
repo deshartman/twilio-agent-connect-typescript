@@ -44,7 +44,11 @@ export type { ChatChannelConfig } from './channels/chat';
 export { VoiceChannel } from './channels/voice';
 export type { VoiceChannelEvents } from './channels/voice';
 
-export { ConversationRelayChannel } from './channels/crelay';
+export { CRelayChannel } from './channels/crelay';
+export type { CRelayChannelEvents } from './channels/crelay';
+
+export { VoiceWebhookChannel } from './channels/voice-webhook';
+export type { VoiceWebhookChannelConfig } from './channels/voice-webhook';
 
 // Utility functions
 export { handleFlexHandoffLogic } from './util/flex';

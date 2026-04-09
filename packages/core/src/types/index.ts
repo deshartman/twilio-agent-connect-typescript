@@ -20,8 +20,9 @@ export * from './conversation';
 // Channel interface
 export * from './channels';
 
-// ConversationRelay types (Twilio Voice API)
-export * from './crelay';
+// TAC Custom Parameters (Maestro-specific, for bridging CR calls to Conversations)
+// All ConversationRelay protocol types now live in @twilio/tac-conversationrelay
+export { TACCustomParametersSchema, type TACCustomParameters } from './crelay';
 
 // Tool types (TACTool interface excluded — use the TACTool class from the tools package)
 export {

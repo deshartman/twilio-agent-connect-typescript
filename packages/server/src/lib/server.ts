@@ -13,11 +13,15 @@ import twilio from 'twilio';
 import {
   VoiceServerConfig,
   VoiceServerConfigSchema,
-  ConversationRelayCallbackPayload,
-  ConversationRelayCallbackPayloadSchema,
-  ConversationRelayConfig,
+  TAC,
+  VoiceChannel,
+  MessagingChannel,
 } from '@twilio/tac-core';
-import { TAC, VoiceChannel, MessagingChannel } from '@twilio/tac-core';
+import {
+  type ConversationRelayCallbackPayload,
+  ConversationRelayCallbackPayloadSchema,
+  type ConversationRelayConfig,
+} from '@twilio/tac-conversationrelay';
 
 /**
  * Server configuration options

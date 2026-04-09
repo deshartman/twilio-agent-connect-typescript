@@ -1,35 +1,49 @@
 /**
  * @twilio/tac-conversationrelay
  *
- * Pure ConversationRelay protocol utility package.
- * NO dependency on @twilio/tac-core - completely standalone.
+ * ConversationRelay voice handler package.
+ * NO dependency on @twilio/tac-core — completely standalone.
  *
- * Provides WebSocket handling and TwiML generation for Twilio ConversationRelay.
- * CallSid-based operations only - no Conversation/Maestro concepts.
+ * Provides CRelayVoice for WebSocket handling, session management,
+ * TwiML generation, and event routing for Twilio ConversationRelay.
  */
 
-export { ConversationRelay } from './relay.js';
-export { ConversationRelayProtocol } from './protocol.js';
+export { CRelayVoice } from './crelay.js';
+
+// Message types (incoming WebSocket)
 export type {
   CallSid,
   SetupMessage,
   PromptMessage,
   InterruptMessage,
-  TextTokenMessage,
+  DtmfMessage,
+  InfoMessage,
+  ErrorMessage,
   WebSocketMessage,
+  TextTokenMessage,
   CustomParameters,
   ConversationRelayConfig,
   ConversationRelayAttributes,
   LanguageAttributes,
+  ConversationRelayCallbackPayload,
+  HandoffData,
+  CRelaySession,
 } from './types.js';
+
+// Zod schemas (for runtime validation)
 export {
   SetupMessageSchema,
   PromptMessageSchema,
   InterruptMessageSchema,
-  TextTokenMessageSchema,
+  DtmfMessageSchema,
+  InfoMessageSchema,
+  ErrorMessageSchema,
   WebSocketMessageSchema,
+  TextTokenMessageSchema,
   CustomParametersSchema,
   ConversationRelayConfigSchema,
   ConversationRelayAttributesSchema,
   LanguageAttributesSchema,
+  ConversationRelayCallbackPayloadSchema,
+  HandoffDataSchema,
 } from './types.js';

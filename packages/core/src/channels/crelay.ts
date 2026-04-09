@@ -1,233 +1,131 @@
+/**
+ * CRelayChannel — CR-only voice channel (TAC_MODE=crelay)
+ *
+ * Thin adapter wrapping CRelayVoice from the CR package.
+ * No Maestro. No memory. No ConversationClient.
+ * Uses CallSid as session identifier.
+ */
+
 import { WebSocket } from 'ws';
-import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
+import type { Logger } from 'pino';
 import {
-  ChannelType,
-  ConversationId,
-  ConversationSession,
-  ProfileId,
-  SetupMessage,
-  PromptMessage,
-  InterruptMessage,
-  TextTokenMessage,
-  CustomParameters,
-  CustomParametersSchema,
-  ConversationRelayConfig,
-  ConversationRelayConfigSchema,
-  isProfileId,
-  Channel,
-  ChannelEvents,
+  CRelayVoice,
+  type CallSid,
+  type InterruptMessage,
+  type ConversationRelayConfig,
+} from '@twilio/tac-conversationrelay';
+import {
+  type ConversationId,
+  type ConversationSession,
+  type ChannelType,
+  type Channel,
+  type ChannelEvents,
 } from '../types/index';
-import type { TAC } from '../lib/tac';
-import { TACConfig } from '../lib/config';
-import { Logger } from '../lib/logger';
-import { ConversationRelay, type CallSid } from '@twilio/tac-conversationrelay';
 
 /**
- * ConversationRelay channel event callbacks extending base callbacks
+ * CRelayChannel event callbacks
  */
-export interface ConversationRelayChannelEvents extends ChannelEvents {
+export interface CRelayChannelEvents extends ChannelEvents {
   onPrompt?: (data: {
     conversationId: ConversationId;
     transcript: string;
-    session?: ConversationSession;
+    session?: ConversationSession | undefined;
   }) => void;
   onInterrupt?: (data: {
     conversationId: ConversationId;
-    reason: string;
-    transcript: string | undefined;
+    utteranceUntilInterrupt: string | undefined;
+    durationUntilInterruptMs: number | undefined;
   }) => void;
 }
 
 /**
- * ConversationRelay-only voice channel (no Maestro)
+ * CR-only voice channel adapter.
  *
- * Handles voice conversations using ConversationRelay protocol without
- * Maestro Conversations Service. Uses CallSid as session identifier.
+ * Wraps CRelayVoice for WebSocket protocol handling, maps CRelaySession
+ * to ConversationSession, and exposes the Channel interface for TAC.
  */
-export class ConversationRelayChannel implements Channel {
+export class CRelayChannel implements Channel {
   public readonly channelType: ChannelType = 'voice';
 
-  protected readonly tac: TAC;
-  protected readonly config: TACConfig;
-  protected readonly logger: Logger;
-  protected readonly activeConversations: Map<ConversationId, ConversationSession>;
-  protected readonly callbacks: ConversationRelayChannelEvents;
-  private readonly conversationRelay: ConversationRelay;
-  private readonly callSidToSessionId: Map<string, string>;
-  private readonly promptQueues: Map<ConversationId, Promise<void>>;
+  private readonly logger: Logger;
+  private readonly crelayVoice: CRelayVoice;
+  private readonly activeConversations: Map<ConversationId, ConversationSession>;
+  private readonly callbacks: CRelayChannelEvents;
 
-  constructor(tac: TAC) {
-    this.tac = tac;
-    this.config = tac.getConfig();
-    this.logger = tac.logger.child({ component: 'crelay-channel' });
+  constructor(logger: Logger) {
+    this.logger = logger.child({ component: 'crelay-channel' });
+    this.crelayVoice = new CRelayVoice(logger.child({ component: 'crelay' }));
     this.activeConversations = new Map();
     this.callbacks = {};
-    this.callSidToSessionId = new Map();
-    this.promptQueues = new Map();
 
-    // Verify we're in crelay mode
-    if (this.config.tacMode !== 'crelay') {
-      throw new Error(
-        'ConversationRelayChannel requires TAC_MODE=crelay. ' +
-          'Use VoiceChannel for TAC_MODE=conversation.'
-      );
-    }
+    this.wireCRelayEvents();
+    this.logger.info('CRelayChannel initialized');
+  }
 
-    // Initialize ConversationRelay utility
-    this.conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
-
-    // Wire up ConversationRelay callbacks
-    this.conversationRelay.onSetup((callSid, data) => {
-      this.handleSetupFromRelay(callSid, data);
+  private wireCRelayEvents(): void {
+    this.crelayVoice.onSessionStarted((callSid, session) => {
+      const conversationId = callSid as string as ConversationId;
+      const convSession: ConversationSession = {
+        sessionId: conversationId,
+        channel: 'voice',
+        startedAt: session.startedAt,
+        metadata: {},
+      };
+      this.activeConversations.set(conversationId, convSession);
+      this.callbacks.onConversationStarted?.({ session: convSession });
     });
 
-    this.conversationRelay.onPrompt((callSid, data) => {
-      this.handlePromptFromRelay(callSid, data);
+    this.crelayVoice.onMessage((callSid, message) => {
+      const conversationId = callSid as string as ConversationId;
+      const session = this.activeConversations.get(conversationId);
+      this.callbacks.onPrompt?.({ conversationId, transcript: message, session });
     });
 
-    this.conversationRelay.onInterrupt((callSid, data) => {
-      this.handleInterruptFromRelay(callSid, data);
+    this.crelayVoice.onInterrupt((callSid, data: InterruptMessage) => {
+      const conversationId = callSid as string as ConversationId;
+      this.callbacks.onInterrupt?.({
+        conversationId,
+        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
+        durationUntilInterruptMs: data.durationUntilInterruptMs,
+      });
     });
 
-    this.conversationRelay.onClose(callSid => {
-      this.handleCloseFromRelay(callSid);
+    this.crelayVoice.onSessionEnded(callSid => {
+      const conversationId = callSid as string as ConversationId;
+      const session = this.activeConversations.get(conversationId);
+      if (session) {
+        void Promise.resolve(this.callbacks.onConversationEnded?.({ session })).catch(
+          (err: unknown) => {
+            this.logger.error(
+              { err, conversation_id: conversationId },
+              'Error in conversation ended callback'
+            );
+          }
+        );
+        this.activeConversations.delete(conversationId);
+      }
     });
 
-    this.conversationRelay.onError((callSid, error) => {
-      this.handleError(error, { callSid: callSid as string });
-    });
-
-    this.logger.info('ConversationRelayChannel initialized (CR-only mode)');
-  }
-
-  // =========================================================================
-  // Setup/Prompt/Interrupt Handlers (from ConversationRelay)
-  // =========================================================================
-
-  private handleSetupFromRelay(callSid: CallSid, data: SetupMessage): void {
-    // Use CallSid directly as sessionId
-    const sessionId = callSid as string;
-    this.callSidToSessionId.set(callSid as string, sessionId);
-
-    // Extract profileId from custom parameters if provided
-    let profileId: ProfileId | undefined;
-    if (
-      data.customParameters?.profile_id &&
-      typeof data.customParameters.profile_id === 'string' &&
-      isProfileId(data.customParameters.profile_id)
-    ) {
-      profileId = data.customParameters.profile_id;
-    }
-
-    // Create session (minimal - CR-only)
-    const session: ConversationSession = {
-      sessionId,
-      profileId,
-      channel: this.channelType,
-      startedAt: new Date(),
-      metadata: {},
-    };
-
-    this.startConversation(sessionId as ConversationId, session);
-
-    this.logger.info(
-      { call_sid: callSid, session_id: sessionId, profile_id: profileId },
-      'Setup complete for CR-only call'
-    );
-  }
-
-  private handlePromptFromRelay(callSid: CallSid, data: PromptMessage): void {
-    const sessionId = this.callSidToSessionId.get(callSid as string);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, 'No session found for CallSid in prompt');
-      return;
-    }
-
-    this.handlePromptMessage(sessionId as ConversationId, data);
-  }
-
-  private handleInterruptFromRelay(callSid: CallSid, data: InterruptMessage): void {
-    const sessionId = this.callSidToSessionId.get(callSid as string);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, 'No session found for CallSid in interrupt');
-      return;
-    }
-
-    this.handleInterruptMessage(sessionId as ConversationId, data);
-  }
-
-  private handleCloseFromRelay(callSid: CallSid): void {
-    const sessionId = this.callSidToSessionId.get(callSid as string);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, 'No session found for CallSid in close');
-      return;
-    }
-
-    void this.endConversation(sessionId as ConversationId);
-    this.callSidToSessionId.delete(callSid as string);
-  }
-
-  // =========================================================================
-  // Message Handlers
-  // =========================================================================
-
-  private handlePromptMessage(sessionId: ConversationId, message: PromptMessage): void {
-    const { voicePrompt } = message;
-
-    // Queue prompt handling to prevent overlapping responses
-    const existingQueue = this.promptQueues.get(sessionId);
-    const promptTask = async () => {
-      if (existingQueue) await existingQueue;
-      this.processPrompt(sessionId, voicePrompt || '');
-    };
-
-    this.promptQueues.set(sessionId, promptTask());
-  }
-
-  private processPrompt(sessionId: ConversationId, transcript: string): void {
-    const session = this.getConversationSession(sessionId);
-    if (!session) return;
-
-    this.callbacks.onPrompt?.({
-      conversationId: sessionId,
-      transcript,
-      session,
+    this.crelayVoice.onError((callSid, error) => {
+      this.callbacks.onError?.({ error, context: { callSid: callSid as string } });
     });
   }
 
-  private handleInterruptMessage(sessionId: ConversationId, message: InterruptMessage): void {
-    const { reason, transcript } = message;
-
-    this.callbacks.onInterrupt?.({
-      conversationId: sessionId,
-      reason: reason ?? 'unknown',
-      transcript: transcript ?? undefined,
-    });
-  }
-
-  // =========================================================================
-  // Channel Interface Implementation
-  // =========================================================================
+  // ===========================================================================
+  // Channel Interface
+  // ===========================================================================
 
   public sendResponse(
     conversationId: ConversationId,
     message: string,
     _metadata?: Record<string, unknown>
   ): Promise<void> {
-    // Get CallSid from sessionId
-    const callSid = conversationId as string; // In CR-only mode, sessionId IS callSid
-
-    const textMessage: TextTokenMessage = {
-      type: 'text',
-      token: message,
-      last: true,
-    };
-
-    this.conversationRelay.sendMessage(callSid as CallSid, textMessage);
+    this.crelayVoice.sendResponse(conversationId as string as CallSid, message);
     return Promise.resolve();
   }
 
-  public on(event: string, callback: (...args: unknown[]) => void): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback
+  public on(event: string, callback: (...args: any[]) => void): void {
     switch (event) {
       case 'prompt':
         this.callbacks.onPrompt = callback;
@@ -256,152 +154,31 @@ export class ConversationRelayChannel implements Channel {
   }
 
   public shutdown(): void {
-    this.conversationRelay.shutdown();
-    this.callSidToSessionId.clear();
-    this.promptQueues.clear();
+    this.crelayVoice.shutdown();
     this.activeConversations.clear();
-    delete this.callbacks.onConversationStarted;
-    delete this.callbacks.onConversationEnded;
-    delete this.callbacks.onError;
   }
 
-  // =========================================================================
-  // WebSocket Handling
-  // =========================================================================
+  // ===========================================================================
+  // WebSocket + TwiML
+  // ===========================================================================
 
   public handleWebSocketConnection(ws: WebSocket): void {
-    this.conversationRelay.handleConnection(ws);
+    this.crelayVoice.handleConnection(ws);
   }
-
-  // =========================================================================
-  // TwiML Generation
-  // =========================================================================
 
   public handleIncomingCall(options: {
-    toNumber: string;
-    fromNumber: string;
-    callSid?: string;
-    actionUrl?: string;
+    callSid: string;
     conversationRelayConfig: ConversationRelayConfig;
+    actionUrl?: string;
   }): string {
-    const { callSid, conversationRelayConfig, actionUrl } = options;
-
-    if (!callSid) {
-      throw new Error('callSid is required for ConversationRelay-only mode');
+    if (!options.callSid) {
+      throw new Error('callSid is required for CRelayChannel');
     }
 
-    this.logger.debug({ call_sid: callSid }, 'Generating TwiML for CR-only call');
-
-    // Generate TwiML using CallSid as conversation_id
-    return this.connectConversationRelay(
-      conversationRelayConfig,
-      { conversation_id: callSid },
-      actionUrl ? { actionUrl } : undefined
+    return this.crelayVoice.generateTwiML(
+      options.conversationRelayConfig,
+      { conversation_id: options.callSid },
+      options.actionUrl ? { actionUrl: options.actionUrl } : undefined
     );
-  }
-
-  // =========================================================================
-  // Session Management
-  // =========================================================================
-
-  protected startConversation(conversationId: ConversationId, session: ConversationSession): void {
-    this.activeConversations.set(conversationId, session);
-    this.callbacks.onConversationStarted?.({ session });
-    this.logger.debug({ session_id: session.sessionId }, 'Conversation started');
-  }
-
-  protected async endConversation(conversationId: ConversationId): Promise<void> {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            'Error in conversation ended callback'
-          );
-        }
-      }
-
-      this.activeConversations.delete(conversationId);
-      this.logger.debug({ session_id: session.sessionId }, 'Conversation ended');
-    }
-  }
-
-  protected handleError(error: Error, context?: Record<string, unknown>): void {
-    this.logger.error({ err: error, ...context }, 'Channel error');
-
-    if (this.callbacks.onError) {
-      if (context) {
-        this.callbacks.onError({ error, context });
-      } else {
-        this.callbacks.onError({ error });
-      }
-    }
-  }
-
-  // =========================================================================
-  // ConversationRelay TwiML Utility
-  // =========================================================================
-
-  private connectConversationRelay(
-    config: ConversationRelayConfig,
-    parameters: CustomParameters,
-    options?: { actionUrl?: string }
-  ): string {
-    // Validate configuration with Zod schema (consistent with project pattern)
-    const validationResult = ConversationRelayConfigSchema.safeParse(config);
-
-    if (!validationResult.success) {
-      const errorMessage = validationResult.error.issues
-        .map(issue => `${issue.path.join('.')}: ${issue.message}`)
-        .join(', ');
-      throw new Error(`Invalid ConversationRelay configuration: ${errorMessage}`);
-    }
-
-    const validatedConfig = validationResult.data;
-
-    // Filter out undefined values to keep TwiML clean
-    const filteredConfig = this.filterUnsetValues(
-      validatedConfig as unknown as Record<string, unknown>
-    );
-
-    // Build TwiML using SDK
-    const response = new VoiceResponse();
-    const connect = response.connect(options?.actionUrl ? { action: options.actionUrl } : {});
-    const relay = connect.conversationRelay(
-      filteredConfig as Parameters<typeof connect.conversationRelay>[0]
-    );
-
-    // Validate and add custom parameters as child <Parameter> elements
-    if (parameters) {
-      const paramResult = CustomParametersSchema.safeParse(parameters);
-      if (!paramResult.success) {
-        throw new Error(`Invalid custom parameters: ${paramResult.error.message}`);
-      }
-
-      for (const [name, value] of Object.entries(paramResult.data)) {
-        if (value !== undefined) {
-          relay.parameter({ name, value });
-        }
-      }
-    }
-
-    return response.toString();
-  }
-
-  /**
-   * Filter out undefined values from configuration object.
-   * Keeps null, false, 0, and empty strings as they are valid values.
-   */
-  private filterUnsetValues(config: Record<string, unknown>): Record<string, unknown> {
-    const filtered: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(config)) {
-      if (value !== undefined) {
-        filtered[key] = value;
-      }
-    }
-    return filtered;
   }
 }
