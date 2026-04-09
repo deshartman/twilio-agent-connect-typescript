@@ -117,7 +117,7 @@ tac.onMessageReady(async msg => {
   conversationHistory[convId].push({ role: 'user', content: msg.message });
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.4-mini',
     messages: conversationHistory[convId],
   });
 
@@ -135,6 +135,8 @@ tac.onMessageReady(async msg => {
 const server = new TACServer(tac);
 await server.start();
 ```
+
+> **Note**: The framework defaults to port 3000 (configurable via `TACServer` constructor). Examples override to port 8000 to avoid conflicts with common development services. For production, consider using the default or setting via environment configuration.
 
 > **Note**: See the [getting started guide](getting_started/README.md) for complete setup instructions and `.env` configuration details.
 

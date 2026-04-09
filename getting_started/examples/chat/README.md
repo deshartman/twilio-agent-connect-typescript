@@ -17,11 +17,12 @@ Example demonstrating ChatChannel integration with Twilio Agent Connect. Uses th
    ```
 
    Required credentials:
-   - `TAC_MODE=conversation` (Chat requires Maestro)
-   - Standard TAC credentials (Account SID, Auth Token, API credentials, Conversation Service ID)
-   - `TWILIO_API_KEY` - API Key SID (starts with SK) for token generation
-   - `TWILIO_API_TOKEN` - API Token
-   - `TWILIO_CONVERSATION_SERVICE_SID` - Conversations v1 Service SID (starts with IS, **not** the Conversation Orchestrator configuration ID)
+   - `TAC_MODE=conversation` (Chat requires Conversation Orchestrator / Maestro)
+   - Standard TAC credentials (Account SID, Auth Token, API credentials)
+   - `CONVERSATION_SERVICE_ID` - Conversation Orchestrator configuration ID (starts with `conv_configuration_`)
+   - `TWILIO_API_KEY` - API Key SID (starts with SK) for SDK token generation
+   - `TWILIO_API_TOKEN` - API Token for SDK token generation
+   - `TWILIO_CONVERSATION_SERVICE_SID` - Conversations API v1 Service SID (starts with IS, **not** the same as Conversation Orchestrator)
    - `OPENAI_API_KEY` - OpenAI API key
 
 3. Install the example's dependencies:
@@ -50,7 +51,7 @@ Example demonstrating ChatChannel integration with Twilio Agent Connect. Uses th
    - `POST /token` — generates Conversations SDK access token
    - `POST /conversation` — Conversation Orchestrator webhook endpoint
    - Routes webhook events to ChatChannel
-   - Calls OpenAI gpt-4o-mini for responses
+   - Calls OpenAI gpt-5.4-mini for responses
    - Sends responses via Conversation Orchestrator Send API
 
 ## Architecture

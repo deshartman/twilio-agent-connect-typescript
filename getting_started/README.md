@@ -63,7 +63,7 @@ npm install
 npm run dev
 ```
 
-The server will start on `http://localhost:8000`.
+The server will start on `http://localhost:8000` (as configured in the example). The TAC framework defaults to port 3000, but examples use 8000 for development convenience to avoid conflicts with other services.
 
 ### Expose Your Server
 
@@ -77,6 +77,8 @@ ngrok http 8000
 Update `VOICE_PUBLIC_DOMAIN` in your `.env` file with the full ngrok URL (including `https://`).
 
 ## Environment Variables
+
+> **Important**: TAC uses Conversation Orchestrator (Maestro) via `CONVERSATION_SERVICE_ID` (format: `conv_configuration_*`). The chat example separately requires Conversations API v1 via `TWILIO_CONVERSATION_SERVICE_SID` (format: `IS*`) for SDK token generation. These are different Twilio services - do not confuse them.
 
 See [`examples/.env.example`](examples/.env.example) for all available configuration options. Key variables:
 
@@ -92,9 +94,9 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 - `TWILIO_API_TOKEN`: Twilio API token
 - `TWILIO_PHONE_NUMBER`: Your Twilio phone number
 
-### Maestro (Required for `conversation` and `passive` modes)
+### Conversation Orchestrator - Maestro (Required for `conversation` and `passive` modes)
 
-- `CONVERSATION_SERVICE_ID`: Conversation service ID
+- `CONVERSATION_SERVICE_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`)
 
 ### Optional
 

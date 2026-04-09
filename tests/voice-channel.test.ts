@@ -7,6 +7,7 @@ import {
   TACMode,
   createLogger,
   ConversationClient,
+  ConversationId,
 } from '@twilio/tac-core';
 
 describe('VoiceChannel', () => {
@@ -387,6 +388,17 @@ describe('VoiceChannel', () => {
 
       expect(listSpy).toHaveBeenCalledWith({ channelId: 'CA123' });
       expect(updateSpy).toHaveBeenCalledWith('CH_test_conv', 'CLOSED');
+    });
+  });
+
+  describe('sendResponse', () => {
+    it('should throw error when ConversationId not found', () => {
+      const { channel } = createVoiceChannel();
+
+      // Channel interface: only knows about ConversationId
+      expect(() => {
+        channel.sendResponse('CHnonexistent' as ConversationId, 'Test message');
+      }).toThrow('No CallSid found for conversation');
     });
   });
 });

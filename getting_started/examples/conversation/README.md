@@ -5,7 +5,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 ## What This Example Does
 
 - **Multi-Channel Support**: Handles both SMS and Voice conversations in a single application
-- **OpenAI Integration**: Uses GPT-4o-mini for intelligent, context-aware responses
+- **OpenAI Integration**: Uses gpt-5.4-mini for intelligent, context-aware responses
 - **Memory Integration**: Automatically retrieves user profiles and conversation history from Twilio Memory
 - **Profile Personalization**: Incorporates user profile traits into responses for personalized interactions
 - **Conversation History**: Maintains context across multiple message exchanges
@@ -14,7 +14,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 
 1. **Node.js 22.13.0+** installed
 2. **Twilio Account** with a phone number
-3. **OpenAI API Key** for GPT-4o-mini access
+3. **OpenAI API Key** for gpt-5.4-mini access
 4. **ngrok** or similar tunneling tool for local development
 
 ## Setup

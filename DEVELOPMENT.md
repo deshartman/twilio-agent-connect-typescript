@@ -164,17 +164,34 @@ npm run example:getting-started  # OpenAI example (SMS + Voice)
    ```
 
 2. **Create package.json with local dependencies**:
+   
+   **Current (Development in this repository)**:
    ```json
    {
      "name": "my-example",
      "private": true,
      "type": "module",
      "dependencies": {
-       "@twilio/tac-core": "*",
-       "@twilio/tac-server": "*"
+       "twilio-agent-connect": "file:../../.."
      }
    }
    ```
+   
+   This uses the `file:` protocol to reference the root package during development. When you run `npm install`, it creates a symbolic link in `node_modules/` pointing to the repository root, allowing examples to use the local build.
+   
+   **Future (When published to NPM)**:
+   ```json
+   {
+     "name": "my-example",
+     "private": true,
+     "type": "module",
+     "dependencies": {
+       "twilio-agent-connect": "^1.0.0"
+     }
+   }
+   ```
+   
+   > **Note**: If using ConversationRelay directly (crelay mode without TAC), you may need to add `@twilio/tac-conversationrelay` as a separate dependency.
 
 3. **Example automatically available**:
    ```bash
