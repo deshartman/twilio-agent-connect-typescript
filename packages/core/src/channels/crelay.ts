@@ -17,7 +17,7 @@ import {
   type ConversationRelayConfig,
 } from '@twilio/tac-conversationrelay';
 import {
-  type ConversationId,
+  type SessionId,
   type ConversationSession,
   type ChannelType,
   type ChannelMessage,
@@ -37,7 +37,7 @@ export class CRelayChannel implements Channel {
 
   private readonly logger: Logger;
   private readonly crelayVoice: CRelayVoice;
-  private readonly activeConversations: Map<ConversationId, ConversationSession>;
+  private readonly activeConversations: Map<CallSid, ConversationSession>;
   private readonly callbacks: ChannelEvents;
 
   constructor(logger: Logger) {
@@ -52,19 +52,18 @@ export class CRelayChannel implements Channel {
 
   private wireCRelayEvents(): void {
     this.crelayVoice.onSessionStarted((callSid, session, data) => {
-      const conversationId = callSid as string as ConversationId;
       const convSession: ConversationSession = {
-        sessionId: conversationId,
+        sessionId: callSid as string,
         channel: 'voice',
         startedAt: session.startedAt,
         metadata: {},
       };
-      this.activeConversations.set(conversationId, convSession);
+      this.activeConversations.set(callSid, convSession);
       this.callbacks.onConversationStarted?.({ session: convSession });
 
       // Emit setup as system message
       this.emitMessage({
-        sessionId: conversationId,
+        sessionId: callSid,
         messageType: 'system',
         message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
         channel: 'voice',
@@ -79,9 +78,8 @@ export class CRelayChannel implements Channel {
     });
 
     this.crelayVoice.onMessage((callSid, message, data) => {
-      const conversationId = callSid as string as ConversationId;
       this.emitMessage({
-        sessionId: conversationId,
+        sessionId: callSid,
         messageType: 'user',
         message,
         channel: 'voice',
@@ -90,7 +88,6 @@ export class CRelayChannel implements Channel {
     });
 
     this.crelayVoice.onInterrupt((callSid, data) => {
-      const conversationId = callSid as string as ConversationId;
       const parts: string[] = ['User interrupted'];
       if (data.durationUntilInterruptMs !== undefined) {
         parts.push(`after ${data.durationUntilInterruptMs}ms`);
@@ -100,7 +97,7 @@ export class CRelayChannel implements Channel {
       }
 
       this.emitMessage({
-        sessionId: conversationId,
+        sessionId: callSid,
         messageType: 'system',
         message: parts.join('. '),
         channel: 'voice',
@@ -113,9 +110,8 @@ export class CRelayChannel implements Channel {
     });
 
     this.crelayVoice.onDtmf((callSid, data) => {
-      const conversationId = callSid as string as ConversationId;
       this.emitMessage({
-        sessionId: conversationId,
+        sessionId: callSid,
         messageType: 'system',
         message: `User pressed ${data.digit}`,
         channel: 'voice',
@@ -124,9 +120,8 @@ export class CRelayChannel implements Channel {
     });
 
     this.crelayVoice.onInfo((callSid, data) => {
-      const conversationId = callSid as string as ConversationId;
       this.emitMessage({
-        sessionId: conversationId,
+        sessionId: callSid,
         messageType: 'system',
         message: JSON.stringify(data.info ?? {}),
         channel: 'voice',
@@ -135,18 +130,17 @@ export class CRelayChannel implements Channel {
     });
 
     this.crelayVoice.onSessionEnded(callSid => {
-      const conversationId = callSid as string as ConversationId;
-      const session = this.activeConversations.get(conversationId);
+      const session = this.activeConversations.get(callSid);
       if (session) {
         void Promise.resolve(this.callbacks.onConversationEnded?.({ session })).catch(
           (err: unknown) => {
             this.logger.error(
-              { err, conversation_id: conversationId },
+              { err, call_sid: callSid as string },
               'Error in conversation ended callback'
             );
           }
         );
-        this.activeConversations.delete(conversationId);
+        this.activeConversations.delete(callSid);
       }
     });
 
@@ -168,11 +162,11 @@ export class CRelayChannel implements Channel {
   // ===========================================================================
 
   public sendResponse(
-    conversationId: ConversationId,
+    sessionId: SessionId,
     message: string,
     _metadata?: Record<string, unknown>
   ): Promise<void> {
-    this.crelayVoice.sendResponse(conversationId as string as CallSid, message);
+    this.crelayVoice.sendResponse(sessionId as CallSid, message);
     return Promise.resolve();
   }
 
@@ -194,12 +188,12 @@ export class CRelayChannel implements Channel {
     }
   }
 
-  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
-    return this.activeConversations.get(conversationId);
+  public getConversationSession(sessionId: SessionId): ConversationSession | undefined {
+    return this.activeConversations.get(sessionId as CallSid);
   }
 
-  public isConversationActive(conversationId: ConversationId): boolean {
-    return this.activeConversations.has(conversationId);
+  public isConversationActive(sessionId: SessionId): boolean {
+    return this.activeConversations.has(sessionId as CallSid);
   }
 
   public shutdown(): void {

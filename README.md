@@ -11,12 +11,12 @@ Explore the [getting_started](getting_started) directory to see the SDK in actio
 
 ## Key Features
 
-- **SMS Channel Support**: Built-in webhook handling for Twilio SMS conversations
-- **Voice Channel Support**: WebSocket protocol handling for Twilio Voice with ConversationRelay
+- **Multi-Channel Support**: SMS, Voice (ConversationRelay), and Chat channels
+- **Three Operating Modes**: CR-only (`crelay`), full Maestro (`conversation`), or BYO CR server (`passive`)
 - **Memory Management**: Automatic integration with Twilio Memory for persistent user context
 - **Conversation Lifecycle**: Automatic tracking of conversation sessions and state
 - **Type-Safe**: Full TypeScript support with strict type checking
-- **Callback-Based**: Simple `onMessageReady` callback for LLM integration with optional memory retrieval
+- **Callback-Based**: Unified `onMessageReady` callback for LLM integration with `messageType` discriminator
 - **Production Ready**: Comprehensive test coverage and error handling
 
 ## Get Started
@@ -49,15 +49,23 @@ If you have an existing project, you can install directly from GitHub:
 npm install git@github.com:twilio-innovation/twilio-agent-connect-typescript.git
 ```
 
+## Operating Modes
+
+TAC supports three operating modes via the `TAC_MODE` environment variable:
+
+| Mode | Description | Channels | Requires |
+|------|-------------|----------|----------|
+| `crelay` | Voice-only via ConversationRelay, no Maestro | `CRelayChannel` | — |
+| `conversation` | Multi-channel with full Maestro integration | `VoiceChannel`, `SMSChannel`, `ChatChannel` | `CONVERSATION_SERVICE_ID` |
+| `passive` | Maestro-only (bring your own CR server) | `VoiceWebhookChannel`, `SMSChannel`, `ChatChannel` | `CONVERSATION_SERVICE_ID` |
+
 ## Quick Examples
 
 Create Memory and Conversation services through the [Twilio Console](https://1console.twilio.com), then configure your `.env` file (see the [getting started guide](getting_started/README.md) for details).
 
-Here's a minimal example to get started:
-
 ### Multi-Channel with OpenAI SDK
 
-Build an AI agent that works across both Voice and SMS channels with conversation memory and user context.
+Build an AI agent that works across both Voice and SMS channels with conversation memory and user context. Requires `TAC_MODE=conversation`.
 
 First, install the required dependencies in the repository:
 
@@ -75,6 +83,7 @@ import {
   TACConfig,
   VoiceChannel,
   SMSChannel,
+  ConversationId,
   TACServer,
 } from 'twilio-agent-connect';
 
@@ -84,8 +93,8 @@ const openai = new OpenAI();
 
 // Initialize TAC and channels
 const tac = new TAC({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac);
-const smsChannel = new SMSChannel(tac);
+const voiceChannel = new VoiceChannel(tac.getChannelDeps());
+const smsChannel = new SMSChannel(tac.getChannelDeps());
 
 // Register channels
 tac.registerChannel(voiceChannel);
@@ -94,29 +103,32 @@ tac.registerChannel(smsChannel);
 // Store conversation history
 const conversationHistory: Record<string, OpenAI.Chat.ChatCompletionMessageParam[]> = {};
 
-// Handle incoming messages
-tac.onMessageReady(async ({ conversationId, message, memory, session, channel }) => {
-  const convId = conversationId as string;
+// Handle incoming messages (unified callback for all channels)
+tac.onMessageReady(async msg => {
+  // Only generate responses for user messages, not system events
+  if (msg.messageType !== 'user') return;
+
+  const convId = msg.sessionId;
 
   if (!conversationHistory[convId]) {
     conversationHistory[convId] = [];
   }
 
-  conversationHistory[convId].push({ role: 'user', content: message });
+  conversationHistory[convId].push({ role: 'user', content: msg.message });
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
-    messages: conversationHistory[convId]
+    messages: conversationHistory[convId],
   });
 
   const llmResponse = response.choices[0]?.message?.content ?? '';
   conversationHistory[convId].push({ role: 'assistant', content: llmResponse });
 
   // Send response based on channel
-  if (channel === 'voice') {
-    await voiceChannel.sendResponse(conversationId, llmResponse);
-  } else if (channel === 'sms') {
-    await smsChannel.sendResponse(conversationId, llmResponse);
+  if (msg.channel === 'voice') {
+    await voiceChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+  } else if (msg.channel === 'sms') {
+    await smsChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
   }
 });
 
@@ -129,7 +141,7 @@ await server.start();
 **That's it!** The server automatically:
 - Creates Fastify app with `/twiml`, `/ws`, and `/webhook` endpoints
 - Handles both Voice and SMS conversations
-- Provides conversation memory and user profile in the callback
+- Provides conversation memory and user profile in the `msg.conversation` bundle
 - Routes responses through the appropriate channel
 
 For configuration details and environment variables, see the [getting started guide](getting_started/README.md).
@@ -146,17 +158,18 @@ TAC simplifies building AI agents by handling the integration between Twilio's c
 4. **Callback Invoked**: Your `onMessageReady` callback receives user message, context, and optional memory response
 5. **LLM Integration**: Your code calls LLM with message and memories, sends response through the appropriate channel
 
-For detailed architecture and advanced usage, see [CLAUDE.md](.claude/CLAUDE.md).
+For detailed architecture and advanced usage, see [CLAUDE.md](CLAUDE.md).
 
 ## Learn More
 
 **Examples & Guides:**
 - **[Getting Started Guide](getting_started/)** - Examples and comprehensive documentation
-- **[OpenAI SDK Example](getting_started/examples/openai/)** - Complete multi-channel example with Voice and SMS
-- More examples coming soon
+- **[OpenAI SDK Example](getting_started/examples/openai/)** - Multi-channel example with Voice and SMS (`conversation` mode)
+- **[Chat Example](getting_started/examples/chat/)** - Web chat with Twilio Conversations JS SDK
+- **[CRelay Example](getting_started/examples/crelay/)** - Voice-only with ConversationRelay (`crelay` mode)
 
 **Documentation:**
-- **[CLAUDE.md](.claude/CLAUDE.md)** - Architecture, development guide, and API reference
+- **[CLAUDE.md](CLAUDE.md)** - Architecture, development guide, and API reference
 - **[Getting Started Guide](getting_started/README.md)** - Setup instructions, environment variables, and troubleshooting
 
 ---

@@ -17,6 +17,7 @@ Example demonstrating ChatChannel integration with Twilio Agent Connect. Uses th
    ```
 
    Required credentials:
+   - `TAC_MODE=conversation` (Chat requires Maestro)
    - Standard TAC credentials (Account SID, Auth Token, API credentials, Conversation Service ID)
    - `TWILIO_API_KEY` - API Key SID (starts with SK) for token generation
    - `TWILIO_API_TOKEN` - API Token

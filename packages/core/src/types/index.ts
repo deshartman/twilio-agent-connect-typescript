@@ -20,6 +20,9 @@ export * from './conversation';
 // Channel interface
 export * from './channels';
 
+// Re-export CallSid from CR package (used in SessionId union)
+export type { CallSid } from '@twilio/tac-conversationrelay';
+
 // TAC Custom Parameters (Maestro-specific, for bridging CR calls to Conversations)
 // All ConversationRelay protocol types now live in @twilio/tac-conversationrelay
 export { TACCustomParametersSchema, type TACCustomParameters } from './crelay';

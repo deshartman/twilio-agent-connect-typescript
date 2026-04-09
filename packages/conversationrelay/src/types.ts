@@ -18,7 +18,7 @@ import type VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 /**
  * CallSid - Twilio call identifier (branded for type safety)
  */
-export type CallSid = string & { readonly __brand: 'CallSid' };
+export type CallSid = string & { readonly _brand: 'CallSid' };
 
 // =============================================================================
 // WebSocket Message Schemas (Incoming from Twilio)

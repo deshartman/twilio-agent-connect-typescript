@@ -44,9 +44,12 @@ cp .env.example .env
 # Edit .env with your credentials
 ```
 
+Ensure `TAC_MODE=conversation` is set (this example uses both Voice and SMS channels with Maestro).
+
 Required variables:
 
 ```bash
+TAC_MODE=conversation
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_API_KEY=SKxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

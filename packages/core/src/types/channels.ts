@@ -5,6 +5,7 @@
  * Channels use composition instead of inheritance.
  */
 
+import type { CallSid } from '@twilio/tac-conversationrelay';
 import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
 import type { TACMemoryResponse } from '../lib/tac-memory-response';
@@ -13,9 +14,8 @@ import type { TACMemoryResponse } from '../lib/tac-memory-response';
  * SessionId — the key used by the Channel interface.
  *
  * In CR-only mode this is a CallSid; in Conversation/Passive mode it's a Maestro ConversationId.
- * Aliased to ConversationId so existing implementations remain compatible.
  */
-export type SessionId = ConversationId;
+export type SessionId = CallSid | ConversationId;
 
 export function isSessionId(value: string): value is SessionId {
   return value.length > 0;
@@ -30,7 +30,7 @@ export function isSessionId(value: string): value is SessionId {
  * - conversation bundle is only present in Conversation/Passive modes (Maestro)
  */
 export interface ChannelMessage {
-  sessionId: string;
+  sessionId: SessionId;
   messageType: 'user' | 'system';
   message: string;
   channel: ChannelType;

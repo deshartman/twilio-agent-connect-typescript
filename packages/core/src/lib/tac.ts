@@ -1,7 +1,7 @@
 import {
   TACConfigData,
   ConversationSession,
-  ConversationId,
+  SessionId,
   ProfileId,
   ProfileResponse,
   ChannelType,
@@ -255,17 +255,17 @@ export class TAC {
   /**
    * Trigger handoff callback
    */
-  public async triggerHandoff(conversationId: ConversationId, reason: string): Promise<void> {
+  public async triggerHandoff(sessionId: SessionId, reason: string): Promise<void> {
     if (!this.handoffCallback) {
-      this.logger.warn({ conversation_id: conversationId }, 'No handoff callback registered');
+      this.logger.warn({ session_id: sessionId }, 'No handoff callback registered');
       return;
     }
 
-    const channel = this.getChannelByConversationId(conversationId);
-    const session = channel?.getConversationSession(conversationId);
+    const channel = this.getChannelBySessionId(sessionId);
+    const session = channel?.getConversationSession(sessionId);
 
     if (!session) {
-      throw new Error(`No session found for conversation ${conversationId}`);
+      throw new Error(`No session found for ${sessionId}`);
     }
 
     try {
@@ -276,16 +276,16 @@ export class TAC {
         session,
       });
     } catch (error) {
-      this.logger.error({ err: error, conversation_id: conversationId }, 'Handoff callback error');
+      this.logger.error({ err: error, session_id: sessionId }, 'Handoff callback error');
     }
   }
 
   /**
-   * Get channel by conversation ID
+   * Get channel by session ID (CallSid or ConversationId)
    */
-  private getChannelByConversationId(conversationId: ConversationId): Channel | undefined {
+  private getChannelBySessionId(sessionId: SessionId): Channel | undefined {
     for (const channel of this.channels.values()) {
-      if (channel.isConversationActive(conversationId)) {
+      if (channel.isConversationActive(sessionId)) {
         return channel;
       }
     }

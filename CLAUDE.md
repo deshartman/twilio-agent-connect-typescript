@@ -45,7 +45,7 @@ getting_started/  # Example apps (OpenAI integration)
 ## Key Architecture
 
 - **TAC class** (`packages/core/src/lib/tac.ts`): Central orchestrator managing config, channels, callbacks, and API clients
-- **Channel composition** (`packages/core/src/channels/`): Channels use composition (not inheritance from TAC). Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `{ logger }` for CRelay
+- **Channel composition** (`packages/core/src/channels/`): Channels use composition (not inheritance from TAC). Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `logger` for CRelay
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars; environment-aware API URL computation (dev/stage/prod)
@@ -88,7 +88,7 @@ TAC provides three operating modes, selected via `TAC_MODE`:
 All channels emit a unified `ChannelMessage` via `onMessageReady`:
 ```typescript
 {
-  sessionId: string;               // CallSid (CR) or ConversationId (Maestro)
+  sessionId: SessionId;             // CallSid (CR) or ConversationId (Maestro)
   messageType: 'user' | 'system';  // 'user' = generate response, 'system' = context only
   message: string;                 // Human-readable text for LLM
   channel: ChannelType;            // 'voice' | 'sms' | 'chat'
@@ -96,6 +96,16 @@ All channels emit a unified `ChannelMessage` via `onMessageReady`:
   conversation?: { ... };          // Only in conversation/passive modes (Maestro)
 }
 ```
+
+### Session Identity Types
+
+Each layer uses the appropriate branded type:
+- **Channel interface / TAC**: `SessionId = CallSid | ConversationId` — the honest union abstraction
+- **CRelayChannel**: `CallSid` internally — CR-specific call identifier
+- **Maestro channels**: `ConversationId` internally — Maestro conversation identifier
+- **Tools package**: `ConversationId` — Maestro-specific (handoff contract redesign pending)
+
+`ChannelMessage.sessionId` is typed as `SessionId`, so `msg.sessionId` flows directly to `sendResponse()` without casts in CR mode. Conversation-mode examples calling concrete Maestro channel types cast `msg.sessionId as ConversationId`.
 
 ### Channel Construction
 
@@ -105,9 +115,9 @@ const channel = new SMSChannel(tac.getChannelDeps());
 // or manually: new SMSChannel({ config, logger, conversationClient, memoryRetriever })
 ```
 
-CRelayChannel takes only a logger:
+CRelayChannel takes only a logger (bare parameter, not destructured):
 ```typescript
-const channel = new CRelayChannel({ logger: createLogger({ name: 'app' }) });
+const channel = new CRelayChannel(createLogger({ name: 'app' }));
 ```
 
 ## Dependencies
