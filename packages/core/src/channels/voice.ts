@@ -4,6 +4,8 @@
  * Handles voice conversations using ConversationRelay WebSocket protocol
  * WITH full Maestro Conversations Service integration. Always has ConversationClient.
  * Uses CRelayVoice from the CR package for WebSocket protocol handling.
+ *
+ * All CR events are emitted as unified 'message' events with conversation bundle.
  */
 
 import { WebSocket } from 'ws';
@@ -21,7 +23,7 @@ import {
   type ConversationId,
   type ConversationSession,
   type ProfileId,
-  type TACCustomParameters,
+  type ChannelMessage,
   isConversationId,
   isProfileId,
   type Channel,
@@ -34,37 +36,11 @@ import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
 
 /**
- * Voice channel event callbacks extending base callbacks
- */
-export interface VoiceChannelEvents extends ChannelEvents {
-  onSetup?: (data: {
-    conversationId: ConversationId;
-    profileId: ProfileId | undefined;
-    callSid: string;
-    from: string;
-    to: string;
-    customParameters: TACCustomParameters | undefined;
-  }) => void;
-  onPrompt?: (data: {
-    conversationId: ConversationId;
-    transcript: string;
-    userMemory?: TACMemoryResponse | undefined;
-    session?: ConversationSession | undefined;
-  }) => void;
-  onInterrupt?: (data: {
-    conversationId: ConversationId;
-    utteranceUntilInterrupt: string | undefined;
-    durationUntilInterruptMs: number | undefined;
-  }) => void;
-  onWebSocketConnected?: (data: { conversationId: ConversationId }) => void;
-  onWebSocketDisconnected?: (data: { conversationId: ConversationId }) => void;
-}
-
-/**
  * Voice Channel — Conversation mode (CR + Maestro)
  *
  * Uses CRelayVoice for WebSocket protocol handling. Always has ConversationClient.
  * Creates Maestro conversations and participants in handleIncomingCall().
+ * Emits all CR events as unified 'message' events with conversation bundle.
  */
 export class VoiceChannel implements Channel {
   protected readonly tac: TAC;
@@ -75,7 +51,6 @@ export class VoiceChannel implements Channel {
   protected readonly callbacks: ChannelEvents;
   private readonly crelayVoice: CRelayVoice;
   private readonly callSidToConversationId: Map<string, ConversationId>;
-  private readonly voiceCallbacks: VoiceChannelEvents;
 
   constructor(tac: TAC) {
     this.tac = tac;
@@ -83,7 +58,6 @@ export class VoiceChannel implements Channel {
     this.logger = tac.logger.child({ component: 'channel' });
     this.activeConversations = new Map();
     this.callbacks = {};
-    this.voiceCallbacks = {};
     this.callSidToConversationId = new Map();
 
     // Conversation mode requires ConversationClient
@@ -112,6 +86,28 @@ export class VoiceChannel implements Channel {
       this.handleInterruptFromRelay(callSid, data);
     });
 
+    this.crelayVoice.onDtmf((callSid, data) => {
+      const conversationId = this.callSidToConversationId.get(callSid as string);
+      if (conversationId) {
+        this.emitMessage(conversationId, {
+          messageType: 'system',
+          message: `User pressed ${data.digit}`,
+          metadata: { type: 'dtmf', digit: data.digit },
+        });
+      }
+    });
+
+    this.crelayVoice.onInfo((callSid, data) => {
+      const conversationId = this.callSidToConversationId.get(callSid as string);
+      if (conversationId) {
+        this.emitMessage(conversationId, {
+          messageType: 'system',
+          message: JSON.stringify(data.info ?? {}),
+          metadata: { type: 'info', info: data.info },
+        });
+      }
+    });
+
     this.crelayVoice.onSessionEnded(callSid => {
       this.handleCloseFromRelay(callSid);
     });
@@ -128,11 +124,64 @@ export class VoiceChannel implements Channel {
   }
 
   // ===========================================================================
+  // Unified Message Emission
+  // ===========================================================================
+
+  private emitMessage(
+    conversationId: ConversationId,
+    msg: {
+      messageType: 'user' | 'system';
+      message: string;
+      metadata?: Record<string, unknown> | undefined;
+      memory?: TACMemoryResponse | undefined;
+    }
+  ): void {
+    const session = this.getConversationSession(conversationId);
+
+    const channelMessage: ChannelMessage = {
+      sessionId: conversationId,
+      messageType: msg.messageType,
+      message: msg.message,
+      channel: 'voice',
+      metadata: msg.metadata,
+      conversation: session
+        ? {
+            profileId: session.profileId as ProfileId | undefined,
+            memory: msg.memory,
+            author: session.authorInfo?.address ?? 'user',
+            serviceId: session.serviceId,
+            authorInfo: session.authorInfo ? { address: session.authorInfo.address } : undefined,
+            startedAt: session.startedAt,
+          }
+        : undefined,
+    };
+
+    if (this.callbacks.onMessage) {
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err: unknown) => {
+        this.logger.error({ err, conversation_id: conversationId }, 'Error in message callback');
+      });
+    }
+  }
+
+  // ===========================================================================
   // CRelayVoice → VoiceChannel Bridge
   // ===========================================================================
 
   private handleSetupFromRelay(_callSid: CallSid, data: SetupMessage): void {
-    this.handleSetupMessage(data);
+    const conversationId = this.handleSetupMessage(data);
+
+    // Emit setup as system message
+    this.emitMessage(conversationId, {
+      messageType: 'system',
+      message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
+      metadata: {
+        type: 'setup',
+        callSid: data.callSid,
+        from: data.from,
+        to: data.to,
+        direction: data.direction,
+      },
+    });
   }
 
   private handlePromptFromRelay(callSid: CallSid, data: PromptMessage): void {
@@ -156,7 +205,24 @@ export class VoiceChannel implements Channel {
       this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in interrupt');
       return;
     }
-    this.handleInterruptMessage(conversationId, data);
+
+    const parts: string[] = ['User interrupted'];
+    if (data.durationUntilInterruptMs !== undefined) {
+      parts.push(`after ${data.durationUntilInterruptMs}ms`);
+    }
+    if (data.utteranceUntilInterrupt) {
+      parts.push(`Last heard: '${data.utteranceUntilInterrupt}'`);
+    }
+
+    this.emitMessage(conversationId, {
+      messageType: 'system',
+      message: parts.join('. '),
+      metadata: {
+        type: 'interrupt',
+        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
+        durationUntilInterruptMs: data.durationUntilInterruptMs,
+      },
+    });
   }
 
   private handleCloseFromRelay(callSid: CallSid): void {
@@ -179,9 +245,8 @@ export class VoiceChannel implements Channel {
   // ===========================================================================
 
   private handleSetupMessage(message: SetupMessage): ConversationId {
-    const { callSid, from, to, customParameters } = message;
+    const { callSid, from, customParameters } = message;
 
-    // Extract conversation ID and profile ID from custom parameters
     let conversationId: ConversationId;
     let profileId: ProfileId | undefined;
 
@@ -203,26 +268,9 @@ export class VoiceChannel implements Channel {
       profileId = customParameters.profile_id;
     }
 
-    // Store CallSid → ConversationId mapping
     this.callSidToConversationId.set(callSid, conversationId);
-
-    // Start conversation session
     const session = this.startConversation(conversationId, profileId);
-
-    // Populate authorInfo with caller's phone number
     session.authorInfo = { address: from };
-
-    // Invoke setup callback
-    this.voiceCallbacks.onSetup?.({
-      conversationId,
-      profileId: profileId ?? undefined,
-      callSid,
-      from,
-      to,
-      customParameters: customParameters as TACCustomParameters | undefined,
-    });
-
-    this.voiceCallbacks.onWebSocketConnected?.({ conversationId });
 
     return conversationId;
   }
@@ -248,24 +296,15 @@ export class VoiceChannel implements Channel {
       }
     }
 
-    this.voiceCallbacks.onPrompt?.({
-      conversationId,
-      transcript,
-      ...(userMemory !== undefined && { userMemory }),
-      ...(session !== undefined && { session }),
-    });
-  }
-
-  private handleInterruptMessage(conversationId: ConversationId, message: InterruptMessage): void {
-    this.voiceCallbacks.onInterrupt?.({
-      conversationId,
-      utteranceUntilInterrupt: message.utteranceUntilInterrupt,
-      durationUntilInterruptMs: message.durationUntilInterruptMs,
+    this.emitMessage(conversationId, {
+      messageType: 'user',
+      message: transcript,
+      metadata: { type: 'prompt', lang: message.lang, last: message.last },
+      memory: userMemory,
     });
   }
 
   private async handleWebSocketDisconnect(conversationId: ConversationId): Promise<void> {
-    // Find and remove call SID mapping
     for (const [callSid, cId] of this.callSidToConversationId.entries()) {
       if (cId === conversationId) {
         this.callSidToConversationId.delete(callSid);
@@ -273,7 +312,6 @@ export class VoiceChannel implements Channel {
       }
     }
 
-    this.voiceCallbacks.onWebSocketDisconnected?.({ conversationId });
     await this.endConversation(conversationId);
   }
 
@@ -323,20 +361,8 @@ export class VoiceChannel implements Channel {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
   public on(event: string, callback: (...args: any[]) => void): void {
     switch (event) {
-      case 'setup':
-        this.voiceCallbacks.onSetup = callback;
-        break;
-      case 'prompt':
-        this.voiceCallbacks.onPrompt = callback;
-        break;
-      case 'interrupt':
-        this.voiceCallbacks.onInterrupt = callback;
-        break;
-      case 'webSocketConnected':
-        this.voiceCallbacks.onWebSocketConnected = callback;
-        break;
-      case 'webSocketDisconnected':
-        this.voiceCallbacks.onWebSocketDisconnected = callback;
+      case 'message':
+        this.callbacks.onMessage = callback;
         break;
       case 'conversationStarted':
         this.callbacks.onConversationStarted = callback;
@@ -436,9 +462,6 @@ export class VoiceChannel implements Channel {
   // Incoming Call Handling — Maestro Only
   // ===========================================================================
 
-  /**
-   * Handle incoming voice call — create Maestro conversation, add participants, generate TwiML.
-   */
   public async handleIncomingCall(options: {
     toNumber: string;
     fromNumber: string;
@@ -448,7 +471,6 @@ export class VoiceChannel implements Channel {
   }): Promise<string> {
     const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
 
-    // Create conversation and participants via Maestro Conversations Service
     const timestamp = new Date().toISOString().replaceAll(/[-:.]/g, '').slice(0, 15) + 'Z';
     const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
 
@@ -460,7 +482,6 @@ export class VoiceChannel implements Channel {
       'Created Maestro conversation for voice call'
     );
 
-    // Add customer participant (caller)
     const customerParticipant = await this.conversationClient.addParticipant(
       conversationId,
       [{ channel: 'VOICE', address: fromNumber, channelId: callSid }],
@@ -469,7 +490,6 @@ export class VoiceChannel implements Channel {
     const profileId = customerParticipant.profileId || '';
     const customerParticipantId = customerParticipant.id;
 
-    // Add AI agent participant (Twilio number)
     const aiAgentParticipant = await this.conversationClient.addParticipant(
       conversationId,
       [{ channel: 'VOICE', address: toNumber, channelId: callSid }],
@@ -477,7 +497,6 @@ export class VoiceChannel implements Channel {
     );
     const aiAgentParticipantId = aiAgentParticipant.id;
 
-    // Generate TwiML with Maestro conversation identifiers
     return this.crelayVoice.generateTwiML(
       conversationRelayConfig,
       {
@@ -494,9 +513,6 @@ export class VoiceChannel implements Channel {
   // ConversationRelay Callback Handling
   // ===========================================================================
 
-  /**
-   * Handle ConversationRelay callback from Twilio (action URL webhook)
-   */
   public async handleConversationRelayCallback(
     payload: ConversationRelayCallbackPayload,
     handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>
@@ -506,7 +522,6 @@ export class VoiceChannel implements Channel {
       'ConversationRelay callback received'
     );
 
-    // Check for handoff condition: call in-progress with handoff data
     if (payload.CallStatus === 'in-progress' && payload.HandoffData) {
       if (handoffHandler) {
         try {
@@ -520,7 +535,6 @@ export class VoiceChannel implements Channel {
       return { status: 501, content: 'No handoff handler registered', contentType: 'text/plain' };
     }
 
-    // On call completion, close associated Maestro conversations
     if (payload.CallStatus === 'completed') {
       await this.closeConversationsForCall(payload.CallSid);
     }
@@ -549,10 +563,7 @@ export class VoiceChannel implements Channel {
         }
       }
     } catch (error) {
-      this.logger.error(
-        { err: error, call_sid: callSid },
-        'Failed to list conversations for call'
-      );
+      this.logger.error({ err: error, call_sid: callSid }, 'Failed to list conversations for call');
     }
   }
 }

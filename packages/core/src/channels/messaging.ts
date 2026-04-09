@@ -5,12 +5,14 @@ import {
   ChannelType,
   Channel,
   ChannelEvents,
+  ChannelMessage,
   isConversationId,
   isProfileId,
 } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
+import { TACMemoryResponse } from '../lib/tac-memory-response';
 import type { TAC } from '../lib/tac';
 
 /**
@@ -60,20 +62,6 @@ export interface MessagingChannelConfig {
 const DEFAULT_DEDUP_CAPACITY = 10_000;
 
 /**
- * Messaging channel event callbacks extending base callbacks
- */
-export interface MessagingChannelEvents extends ChannelEvents {
-  onMessageReceived?: (data: {
-    conversationId: ConversationId;
-    profileId: ProfileId | undefined;
-    message: string;
-    author: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Memory structure is dynamic and defined by user
-    userMemory: any;
-  }) => void;
-}
-
-/**
  * Abstract Messaging Channel base class for SMS and Chat channels
  *
  * Provides shared webhook processing logic for messaging channels
@@ -86,7 +74,6 @@ export abstract class MessagingChannel implements Channel {
   protected readonly conversationClient: ConversationClient;
   protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
-  protected readonly messagingCallbacks: MessagingChannelEvents;
   private readonly processedTokens = new Set<string>();
   private readonly maxTrackedTokens: number;
 
@@ -96,7 +83,6 @@ export abstract class MessagingChannel implements Channel {
     this.logger = tac.logger.child({ component: 'channel' });
     this.activeConversations = new Map();
     this.callbacks = {};
-    this.messagingCallbacks = {};
 
     // Messaging channels require Maestro Conversations Service
     if (!this.config.conversationServiceId) {
@@ -288,21 +274,19 @@ export abstract class MessagingChannel implements Channel {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
   public on(event: string, callback: (...args: any[]) => void): void {
-    if (event === 'messageReceived') {
-      this.messagingCallbacks.onMessageReceived = callback;
-    } else {
-      // Handle base events
-      switch (event) {
-        case 'conversationStarted':
-          this.callbacks.onConversationStarted = callback;
-          break;
-        case 'conversationEnded':
-          this.callbacks.onConversationEnded = callback;
-          break;
-        case 'error':
-          this.callbacks.onError = callback;
-          break;
-      }
+    switch (event) {
+      case 'message':
+        this.callbacks.onMessage = callback;
+        break;
+      case 'conversationStarted':
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case 'conversationEnded':
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case 'error':
+        this.callbacks.onError = callback;
+        break;
     }
   }
 
@@ -588,7 +572,7 @@ export abstract class MessagingChannel implements Channel {
     }
 
     // Retrieve user memory using tac.retrieveMemory, which handles profile lookup by address (e.g., phone number or email)
-    let userMemory;
+    let userMemory: TACMemoryResponse | undefined;
     if (session && this.tac.isMemoryEnabled()) {
       this.logger.debug({ conversation_id: conversationId, author }, 'Retrieving user memory');
       try {
@@ -605,15 +589,29 @@ export abstract class MessagingChannel implements Channel {
       }
     }
 
-    // Invoke message received callback with memory context
-    if (this.messagingCallbacks.onMessageReceived) {
-      this.logger.debug({ conversation_id: conversationId }, 'Invoking message received callback');
-      this.messagingCallbacks.onMessageReceived({
-        conversationId,
-        profileId: (session?.profileId as ProfileId | undefined) ?? profileId ?? undefined,
+    // Emit unified 'message' event with conversation bundle
+    if (this.callbacks.onMessage) {
+      this.logger.debug({ conversation_id: conversationId }, 'Emitting message event');
+      const channelMessage: ChannelMessage = {
+        sessionId: conversationId,
+        messageType: 'user',
         message,
-        author,
-        userMemory,
+        channel: this.channelType,
+        metadata: { type: 'communication_created' },
+        conversation: session
+          ? {
+              profileId: (session.profileId as ProfileId | undefined) ?? profileId ?? undefined,
+              memory: userMemory,
+              author,
+              serviceId: session.serviceId,
+              authorInfo: session.authorInfo ? { address: session.authorInfo.address } : undefined,
+              startedAt: session.startedAt,
+            }
+          : undefined,
+      };
+
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err: unknown) => {
+        this.logger.error({ err, conversation_id: conversationId }, 'Error in message callback');
       });
     }
   }

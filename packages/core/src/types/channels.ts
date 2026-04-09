@@ -5,8 +5,9 @@
  * Channels use composition instead of inheritance.
  */
 
-import type { ConversationId, ConversationSession } from './conversation';
+import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
+import type { TACMemoryResponse } from '../lib/tac-memory-response';
 
 /**
  * SessionId — the key used by the Channel interface.
@@ -21,9 +22,36 @@ export function isSessionId(value: string): value is SessionId {
 }
 
 /**
+ * Unified message shape emitted by all channels via the 'message' event.
+ *
+ * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
+ * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
+ * - metadata.type identifies the source message type for programmatic handling
+ * - conversation bundle is only present in Conversation/Passive modes (Maestro)
+ */
+export interface ChannelMessage {
+  sessionId: string;
+  messageType: 'user' | 'system';
+  message: string;
+  channel: ChannelType;
+  metadata?: Record<string, unknown> | undefined;
+  conversation?:
+    | {
+        profileId?: ProfileId | undefined;
+        memory?: TACMemoryResponse | undefined;
+        author: string;
+        serviceId?: string | undefined;
+        authorInfo?: { address: string } | undefined;
+        startedAt: Date;
+      }
+    | undefined;
+}
+
+/**
  * Base channel event callbacks
  */
 export interface ChannelEvents {
+  onMessage?: (message: ChannelMessage) => Promise<void> | void;
   onConversationStarted?: (data: { session: ConversationSession }) => void;
   onConversationEnded?: (data: { session: ConversationSession }) => Promise<void> | void;
   onError?: (data: { error: Error; context?: Record<string, unknown> }) => void;

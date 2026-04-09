@@ -6,6 +6,7 @@ import {
   ProfileResponse,
   ChannelType,
   OperatorProcessingResult,
+  ChannelMessage,
 } from '../types/index';
 import { TACMemoryResponse } from './tac-memory-response';
 import { TACConfig } from './config';
@@ -24,24 +25,12 @@ export interface TACOptions {
 /**
  * Callback function signatures for TAC events
  */
-export type MessageReadyCallback = (params: {
-  /** Generic session identifier (CallSid or ConversationId) */
-  sessionId: string;
-  profileId: ProfileId | undefined;
-  message: string;
-  author: string;
-  memory: TACMemoryResponse | undefined;
-  session: ConversationSession;
-  channel: ChannelType;
-}) => Promise<void> | void;
+export type MessageReadyCallback = (message: ChannelMessage) => Promise<void> | void;
 
-export type InterruptCallback = (params: {
-  /** Generic session identifier (CallSid or ConversationId) */
-  sessionId: string;
-  reason: string;
-  transcript: string | undefined;
-  session: ConversationSession;
-}) => Promise<void> | void;
+export type ErrorCallback = (params: {
+  error: Error;
+  context?: Record<string, unknown> | undefined;
+}) => void;
 
 export type HandoffCallback = (params: {
   /** Generic session identifier (CallSid or ConversationId) */
@@ -72,9 +61,9 @@ export class TAC {
 
   // Callback registrations
   private messageReadyCallback?: MessageReadyCallback;
-  private interruptCallback?: InterruptCallback;
   private handoffCallback?: HandoffCallback;
   private conversationEndedCallback?: ConversationEndedCallback;
+  private errorCallback?: ErrorCallback;
 
   constructor(options: TACOptions = {}) {
     // Handle config resolution:
@@ -157,93 +146,20 @@ export class TAC {
   }
 
   /**
-   * Set up event listeners for a channel
+   * Set up event listeners for a channel.
+   *
+   * All channels emit three unified events:
+   * - 'message': ChannelMessage (user or system messages)
+   * - 'conversationEnded': { session: ConversationSession }
+   * - 'error': { error: Error; context?: Record<string, unknown> }
    */
   private setupChannelEventListeners(channel: Channel): void {
-    // Handle channel errors directly
-    channel.on(
-      'error',
-      ({ error, context }: { error: Error; context?: Record<string, unknown> }) => {
-        this.logger.error({ err: error, ...context }, 'Channel error');
-      }
-    );
-
-    // Handle message received events for SMS channels
-    channel.on(
-      'messageReceived',
-      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Intentionally async callback
-      async (data: {
-        conversationId: ConversationId;
-        profileId: ProfileId | undefined;
-        message: string;
-        author: string;
-        userMemory: TACMemoryResponse | undefined;
-      }): Promise<void> => {
-        await this.handleMessageReady({ ...data, channelType: channel.channelType });
-      }
-    );
-
-    // Handle voice prompt events
-    channel.on(
-      'prompt',
-      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Intentionally async callback
-      async ({
-        conversationId,
-        transcript,
-        userMemory,
-        session,
-      }: {
-        conversationId: ConversationId;
-        transcript: string;
-        userMemory?: TACMemoryResponse;
-        session?: ConversationSession;
-      }): Promise<void> => {
-        // Use session from event if available, otherwise get from channel
-        const eventSession = session || channel.getConversationSession(conversationId);
-        if (eventSession) {
-          await this.handleMessageReady({
-            conversationId,
-            profileId: eventSession.profileId ? (eventSession.profileId as ProfileId) : undefined,
-            message: transcript,
-            author: 'user',
-            userMemory,
-            channelType: channel.channelType,
-          });
-        }
-      }
-    );
-
-    // Handle voice interrupt events
-    channel.on(
-      'interrupt',
-      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- Intentionally async event handler
-      async ({
-        conversationId,
-        reason,
-        transcript,
-      }: {
-        conversationId: ConversationId;
-        reason: string;
-        transcript: string | undefined;
-      }) => {
-        const session = channel.getConversationSession(conversationId);
-        if (session && this.interruptCallback) {
-          try {
-            await this.interruptCallback({
-              sessionId: session.sessionId,
-              reason,
-              transcript: transcript ?? undefined,
-              session,
-            });
-          } catch (error) {
-            this.logger.error(
-              { err: error, conversation_id: conversationId },
-              'Interrupt callback error'
-            );
-          }
-        }
-      }
-    );
+    // Handle unified message events from all channels
+    channel.on('message', (message: ChannelMessage) => {
+      void this.handleMessage(message).catch((err: unknown) => {
+        this.logger.error({ err, session_id: message.sessionId }, 'Message handler error');
+      });
+    });
 
     // Handle conversation ended events
     channel.on(
@@ -262,104 +178,42 @@ export class TAC {
         }
       }
     );
+
+    // Handle channel errors — log and forward to error callback
+    channel.on(
+      'error',
+      ({ error, context }: { error: Error; context?: Record<string, unknown> }) => {
+        this.logger.error({ err: error, ...context }, 'Channel error');
+        this.errorCallback?.({ error, context });
+      }
+    );
   }
 
   /**
-   * Handle message ready event from channels
+   * Handle unified message from channels — pure pass-through to developer callback
    */
-  private async handleMessageReady(data: {
-    conversationId: ConversationId;
-    profileId: ProfileId | undefined;
-    message: string;
-    author: string;
-    userMemory: TACMemoryResponse | undefined;
-    channelType: ChannelType;
-  }): Promise<void> {
-    this.logger.debug(
-      {
-        conversation_id: data.conversationId,
-        profile_id: data.profileId,
-        author: data.author,
-        message_length: data.message.length,
-        channel: data.channelType,
-        operation: 'handle_message_ready',
-      },
-      'Handling message ready'
-    );
-
+  private async handleMessage(message: ChannelMessage): Promise<void> {
     if (!this.messageReadyCallback) {
       this.logger.warn('No message ready callback registered');
       return;
     }
 
+    this.logger.debug(
+      {
+        session_id: message.sessionId,
+        message_type: message.messageType,
+        channel: message.channel,
+        metadata_type: message.metadata?.type,
+      },
+      'Forwarding message to callback'
+    );
+
     try {
-      // Use the channel type passed from the event handler, not lookup by conversation ID
-      // This ensures voice prompts use voice channel even if SMS also has this conversation
-      const channel = this.channels.get(data.channelType);
-      if (!channel) {
-        throw new Error(`No channel found for type ${data.channelType}`);
-      }
-
-      this.logger.debug(
-        { conversation_id: data.conversationId, channel: channel.channelType },
-        'Using channel for message'
-      );
-
-      const session = channel.getConversationSession(data.conversationId);
-      if (!session) {
-        throw new Error(`No session found for conversation ${data.conversationId}`);
-      }
-
-      // Get memory if not already provided, profile ID exists, and memory client is initialized
-      let memory = data.userMemory;
-      if (!memory && data.profileId && this.memoryClient && this.config.memoryStoreId) {
-        this.logger.debug(
-          { profile_id: data.profileId, operation: 'memory_retrieval' },
-          'Retrieving memory for profile'
-        );
-        try {
-          const memoryResponse = await this.memoryClient.retrieveMemories(
-            this.config.memoryStoreId,
-            data.profileId
-          );
-          memory = new TACMemoryResponse(memoryResponse);
-          this.logger.debug({ profile_id: data.profileId }, 'Memory retrieved');
-        } catch (error) {
-          this.logger.warn({ err: error, profile_id: data.profileId }, 'Failed to retrieve memory');
-        }
-      }
-
-      // Execute callback
-      this.logger.debug(
-        { conversation_id: data.conversationId },
-        'Executing message ready callback'
-      );
-      try {
-        await this.messageReadyCallback({
-          sessionId: session.sessionId,
-          profileId: data.profileId,
-          message: data.message,
-          author: data.author,
-          memory: memory ?? undefined,
-          session,
-          channel: channel.channelType,
-        });
-        this.logger.debug(
-          { conversation_id: data.conversationId },
-          'Message ready callback completed'
-        );
-      } catch (error) {
-        this.logger.error(
-          { err: error, conversation_id: data.conversationId },
-          'Message ready callback error'
-        );
-      }
-
-      this.logger.debug({ conversation_id: data.conversationId }, 'Message handling completed');
+      await this.messageReadyCallback(message);
     } catch (error) {
       this.logger.error(
-        { err: error, conversation_id: data.conversationId },
-        'Message handling error'
+        { err: error, session_id: message.sessionId },
+        'Message ready callback error'
       );
     }
   }
@@ -372,10 +226,10 @@ export class TAC {
   }
 
   /**
-   * Register callback for when user interrupts (voice channel)
+   * Register callback for channel errors
    */
-  public onInterrupt(callback: InterruptCallback): void {
-    this.interruptCallback = callback;
+  public onError(callback: ErrorCallback): void {
+    this.errorCallback = callback;
   }
 
   /**

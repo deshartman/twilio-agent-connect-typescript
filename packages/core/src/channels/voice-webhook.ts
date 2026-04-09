@@ -93,9 +93,7 @@ export class VoiceWebhookChannel extends MessagingChannel {
       const voiceParticipants = participants.filter(
         p =>
           Array.isArray(p.addresses) &&
-          p.addresses.some(
-            addr => addr.channel === 'VOICE' && addr.address === this.agentAddress
-          )
+          p.addresses.some(addr => addr.channel === 'VOICE' && addr.address === this.agentAddress)
       );
 
       // Prefer AI/HUMAN agent participants

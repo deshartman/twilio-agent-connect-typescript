@@ -10,7 +10,7 @@
 export { TAC } from './lib/tac';
 export type {
   MessageReadyCallback,
-  InterruptCallback,
+  ErrorCallback,
   HandoffCallback,
   ConversationEndedCallback,
   TACOptions,
@@ -32,7 +32,6 @@ export { KnowledgeClient } from './clients/knowledge';
 export { MessagingChannel } from './channels/messaging';
 export type {
   MessagingChannelConfig,
-  MessagingChannelEvents,
   MessagingWebhookPayload,
 } from './channels/messaging';
 
@@ -42,10 +41,8 @@ export { ChatChannel } from './channels/chat';
 export type { ChatChannelConfig } from './channels/chat';
 
 export { VoiceChannel } from './channels/voice';
-export type { VoiceChannelEvents } from './channels/voice';
 
 export { CRelayChannel } from './channels/crelay';
-export type { CRelayChannelEvents } from './channels/crelay';
 
 export { VoiceWebhookChannel } from './channels/voice-webhook';
 export type { VoiceWebhookChannelConfig } from './channels/voice-webhook';
