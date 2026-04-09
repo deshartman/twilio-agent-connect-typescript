@@ -364,6 +364,19 @@ export class TACServer {
       });
     }
 
+    // ── Silent sink for Maestro webhooks in crelay mode ────────────
+    // If the user has a Conversations Service webhook URL configured on the
+    // same domain (e.g., from testing conversation/passive mode), Maestro will
+    // still send events here. Return 200 to acknowledge silently.
+    if (mode === 'crelay') {
+      this.fastify.post(
+        this.config.webhookPaths.messaging || '/webhook',
+        async (_request: FastifyRequest, reply: FastifyReply) => {
+          await reply.code(200).send('OK');
+        }
+      );
+    }
+
     // ── Messaging webhook (conversation + passive modes) ─────────────
     if ((mode === 'conversation' || mode === 'passive') && this.messagingChannels.length > 0) {
       this.fastify.post(

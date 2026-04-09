@@ -168,7 +168,7 @@ All ConversationRelay attributes except `url` are supported (see `packages/conve
 ### Mode-Conditional Routes
 
 TACServer only registers routes needed for the active mode:
-- **crelay**: WebSocket + TwiML + ConversationRelay callback
+- **crelay**: WebSocket + TwiML + ConversationRelay callback + silent sink on `/webhook` (gracefully handles Maestro events if user has a Conversations Service webhook URL on the same domain)
 - **conversation**: WebSocket + TwiML + CR callback + messaging webhook + cintel (if configured)
 - **passive**: messaging webhook + cintel (if configured) — no WebSocket, TwiML, or CR callback
 

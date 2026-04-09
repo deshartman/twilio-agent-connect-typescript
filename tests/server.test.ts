@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TAC, TACConfig, SMSChannel, VoiceChannel } from '@twilio/tac-core'
+import { TAC, TACConfig, CRelayChannel, SMSChannel, VoiceChannel } from '@twilio/tac-core'
 import type { TACMode } from "@twilio/tac-core";;
 import { TACServer } from '@twilio/tac-server';
 
@@ -679,5 +679,54 @@ describe('TACServer with conversationRelayConfig', () => {
         }),
       })
     );
+  });
+});
+
+describe('TACServer crelay mode', () => {
+  let tac: TAC;
+  let server: TACServer;
+  let currentPort: number;
+
+  beforeEach(() => {
+    currentPort = getNextPort();
+
+    const config = new TACConfig({
+      environment: 'dev' as const,
+      tacMode: 'crelay' as TACMode,
+      twilioAccountSid: 'ACtest123456789',
+      twilioAuthToken: 'test_token_123',
+      twilioApiKey: 'test_api_key',
+      twilioApiToken: 'test_api_token',
+      twilioPhoneNumber: '+15551234567',
+    });
+    tac = new TAC({ config });
+
+    const crelayChannel = new CRelayChannel(tac.logger);
+    tac.registerChannel(crelayChannel);
+  });
+
+  afterEach(async () => {
+    if (server) {
+      await server.stop().catch(() => {});
+    }
+    tac.shutdown();
+  });
+
+  it('should return 200 for POST /webhook (silent sink)', async () => {
+    server = new TACServer(tac, {
+      development: true,
+      voice: { port: currentPort },
+    });
+
+    await server.start();
+
+    const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventType: 'CONVERSATION_UPDATED', data: {} }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('OK');
   });
 });

@@ -1,8 +1,7 @@
 import { z } from 'zod';
 export { z } from 'zod';
-import pino from 'pino';
+import pino, { Logger as Logger$1 } from 'pino';
 import { WebSocket } from 'ws';
-import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 import { FastifyServerOptions } from 'fastify';
 
 /**
@@ -10,6 +9,14 @@ import { FastifyServerOptions } from 'fastify';
  */
 declare const EnvironmentSchema: z.ZodDefault<z.ZodEnum<["dev", "stage", "prod"]>>;
 type Environment = z.infer<typeof EnvironmentSchema>;
+/**
+ * TAC Mode - determines which features are enabled
+ * - 'crelay': ConversationRelay-only mode (voice only, no Maestro)
+ * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
+ * - 'passive': Passive Maestro orchestrator (webhooks only, no ConversationRelay)
+ */
+declare const TACModeSchema: z.ZodEnum<["crelay", "conversation", "passive"]>;
+type TACMode = z.infer<typeof TACModeSchema>;
 /**
  * Channel types supported by the framework
  */
@@ -20,6 +27,7 @@ type ChannelType = z.infer<typeof ChannelTypeSchema>;
  */
 declare const TACConfigSchema: z.ZodObject<{
     environment: z.ZodDefault<z.ZodEnum<["dev", "stage", "prod"]>>;
+    tacMode: z.ZodEnum<["crelay", "conversation", "passive"]>;
     twilioAccountSid: z.ZodString;
     twilioAuthToken: z.ZodString;
     twilioApiKey: z.ZodString;
@@ -27,35 +35,37 @@ declare const TACConfigSchema: z.ZodObject<{
     twilioPhoneNumber: z.ZodString;
     memoryStoreId: z.ZodOptional<z.ZodString>;
     traitGroups: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    conversationServiceId: z.ZodString;
+    conversationServiceId: z.ZodOptional<z.ZodString>;
     voicePublicDomain: z.ZodOptional<z.ZodString>;
     cintelConfigurationId: z.ZodOptional<z.ZodString>;
     cintelObservationOperatorSid: z.ZodOptional<z.ZodString>;
     cintelSummaryOperatorSid: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     environment: "dev" | "stage" | "prod";
+    tacMode: "crelay" | "conversation" | "passive";
     twilioAccountSid: string;
     twilioAuthToken: string;
     twilioApiKey: string;
     twilioApiToken: string;
     twilioPhoneNumber: string;
-    conversationServiceId: string;
     memoryStoreId?: string | undefined;
     traitGroups?: string[] | undefined;
+    conversationServiceId?: string | undefined;
     voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
 }, {
+    tacMode: "crelay" | "conversation" | "passive";
     twilioAccountSid: string;
     twilioAuthToken: string;
     twilioApiKey: string;
     twilioApiToken: string;
     twilioPhoneNumber: string;
-    conversationServiceId: string;
     environment?: "dev" | "stage" | "prod" | undefined;
     memoryStoreId?: string | undefined;
     traitGroups?: string[] | undefined;
+    conversationServiceId?: string | undefined;
     voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
@@ -67,6 +77,7 @@ type TACConfigData = z.infer<typeof TACConfigSchema>;
  */
 declare const EnvironmentVariables: {
     readonly ENVIRONMENT: "ENVIRONMENT";
+    readonly TAC_MODE: "TAC_MODE";
     readonly TWILIO_ACCOUNT_SID: "TWILIO_ACCOUNT_SID";
     readonly TWILIO_AUTH_TOKEN: "TWILIO_AUTH_TOKEN";
     readonly TWILIO_API_KEY: "TWILIO_API_KEY";
@@ -791,6 +802,37 @@ declare const CreateConversationSummariesResponseSchema: z.ZodObject<{
 type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSummariesResponseSchema>;
 
 /**
+ * Session Types
+ *
+ * Generic session abstractions that work with any identifier (CallSid, ConversationId, etc.)
+ */
+
+/**
+ * Base session context - works with any session identifier
+ *
+ * This minimal interface supports both CR-only mode (CallSid) and
+ * Maestro mode (ConversationId) without forcing conversation concepts.
+ */
+interface SessionContext {
+    /**
+     * Session identifier - generic string that can be CallSid, ConversationId, or any identifier
+     */
+    sessionId: string;
+    /**
+     * Channel type for this session
+     */
+    channel: ChannelType;
+    /**
+     * When the session started
+     */
+    startedAt: Date;
+    /**
+     * Arbitrary metadata for this session
+     */
+    metadata: Record<string, unknown>;
+}
+
+/**
  * Participant address type for different communication channels
  */
 declare const ParticipantAddressTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
@@ -1357,13 +1399,16 @@ interface Profile {
 }
 /**
  * Conversation session context
+ *
+ * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
  */
 declare const ConversationSessionSchema: z.ZodObject<{
-    conversationId: z.ZodString;
-    profileId: z.ZodOptional<z.ZodString>;
-    serviceId: z.ZodOptional<z.ZodString>;
+    sessionId: z.ZodString;
     channel: z.ZodEnum<["sms", "voice", "chat"]>;
     startedAt: z.ZodDate;
+    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+    profileId: z.ZodOptional<z.ZodString>;
+    serviceId: z.ZodOptional<z.ZodString>;
     authorInfo: z.ZodOptional<z.ZodObject<{
         address: z.ZodString;
         participantId: z.ZodOptional<z.ZodString>;
@@ -1375,10 +1420,9 @@ declare const ConversationSessionSchema: z.ZodObject<{
         participantId?: string | undefined;
     }>>;
     profile: z.ZodOptional<z.ZodType<Profile, z.ZodTypeDef, Profile>>;
-    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
 }, "strip", z.ZodTypeAny, {
     channel: "sms" | "voice" | "chat";
-    conversationId: string;
+    sessionId: string;
     startedAt: Date;
     metadata: Record<string, unknown>;
     profileId?: string | undefined;
@@ -1390,8 +1434,9 @@ declare const ConversationSessionSchema: z.ZodObject<{
     profile?: Profile | undefined;
 }, {
     channel: "sms" | "voice" | "chat";
-    conversationId: string;
+    sessionId: string;
     startedAt: Date;
+    metadata?: Record<string, unknown> | undefined;
     profileId?: string | undefined;
     serviceId?: string | undefined;
     authorInfo?: {
@@ -1399,7 +1444,6 @@ declare const ConversationSessionSchema: z.ZodObject<{
         participantId?: string | undefined;
     } | undefined;
     profile?: Profile | undefined;
-    metadata?: Record<string, unknown> | undefined;
 }>;
 type ConversationSession = z.infer<typeof ConversationSessionSchema>;
 /**
@@ -1742,16 +1786,21 @@ declare const ConversationConfigurationSchema: z.ZodObject<{
 type ConversationConfiguration = z.infer<typeof ConversationConfigurationSchema>;
 
 /**
- * ConversationRelay API Types
+ * ConversationRelay Type Definitions
  *
- * Zod schemas are the single source of truth for runtime validation. Types are
- * inferred from schemas via z.infer. Compile-time drift guards (type assertions
- * against VoiceResponse.ConversationRelayAttributes / LanguageAttributes) ensure
- * that if the Twilio SDK types change, `npm run typecheck` will fail immediately.
+ * Single source of truth for all ConversationRelay types and Zod schemas.
+ * Compile-time SDK drift guards ensure schemas stay in sync with the Twilio SDK.
  *
  * @see https://www.twilio.com/docs/voice/conversationrelay
  * @see https://www.twilio.com/docs/voice/conversationrelay/conversationrelay-noun
  */
+
+/**
+ * CallSid - Twilio call identifier (branded for type safety)
+ */
+type CallSid = string & {
+    readonly _brand: 'CallSid';
+};
 /**
  * Language configuration for multi-language ConversationRelay support
  * @see https://www.twilio.com/docs/voice/conversationrelay/conversationrelay-noun#language-attributes
@@ -1883,220 +1932,6 @@ declare const ConversationRelayAttributesSchema: z.ZodObject<{
 }>;
 type ConversationRelayAttributes = z.infer<typeof ConversationRelayAttributesSchema>;
 /**
- * @internal Compile-time SDK drift guards — do not use directly.
- * If the Twilio SDK updates VoiceResponse.ConversationRelayAttributes or
- * VoiceResponse.LanguageAttributes, these checks will fail during typecheck,
- * signaling that our Zod schemas need to be updated to match.
- */
-type _SDKDriftGuards = {
-    langCompat: LanguageAttributes extends VoiceResponse.LanguageAttributes ? true : never;
-    langKeys: keyof VoiceResponse.LanguageAttributes extends keyof LanguageAttributes ? true : never;
-    crelayCompat: ConversationRelayAttributes extends VoiceResponse.ConversationRelayAttributes ? true : never;
-    crelayKeys: keyof VoiceResponse.ConversationRelayAttributes extends keyof ConversationRelayAttributes ? true : never;
-};
-/**
- * Custom parameters passed via TwiML
- */
-declare const CustomParametersSchema: z.ZodObject<{
-    conversation_id: z.ZodOptional<z.ZodString>;
-    profile_id: z.ZodOptional<z.ZodString>;
-    customer_participant_id: z.ZodOptional<z.ZodString>;
-    ai_agent_participant_id: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    profile_id?: string | undefined;
-    conversation_id?: string | undefined;
-    customer_participant_id?: string | undefined;
-    ai_agent_participant_id?: string | undefined;
-}, {
-    profile_id?: string | undefined;
-    conversation_id?: string | undefined;
-    customer_participant_id?: string | undefined;
-    ai_agent_participant_id?: string | undefined;
-}>;
-type CustomParameters = z.infer<typeof CustomParametersSchema>;
-/**
- * WebSocket setup message from ConversationRelay
- */
-declare const SetupMessageSchema: z.ZodObject<{
-    type: z.ZodLiteral<"setup">;
-    sessionId: z.ZodString;
-    callSid: z.ZodString;
-    parentCallSid: z.ZodOptional<z.ZodString>;
-    from: z.ZodString;
-    to: z.ZodString;
-    forwardedFrom: z.ZodOptional<z.ZodString>;
-    callerName: z.ZodOptional<z.ZodString>;
-    direction: z.ZodString;
-    callType: z.ZodString;
-    callStatus: z.ZodString;
-    accountSid: z.ZodString;
-    customParameters: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-}, "strip", z.ZodTypeAny, {
-    type: "setup";
-    direction: string;
-    from: string;
-    to: string;
-    sessionId: string;
-    callSid: string;
-    callType: string;
-    callStatus: string;
-    accountSid: string;
-    parentCallSid?: string | undefined;
-    forwardedFrom?: string | undefined;
-    callerName?: string | undefined;
-    customParameters?: Record<string, unknown> | undefined;
-}, {
-    type: "setup";
-    direction: string;
-    from: string;
-    to: string;
-    sessionId: string;
-    callSid: string;
-    callType: string;
-    callStatus: string;
-    accountSid: string;
-    parentCallSid?: string | undefined;
-    forwardedFrom?: string | undefined;
-    callerName?: string | undefined;
-    customParameters?: Record<string, unknown> | undefined;
-}>;
-type SetupMessage = z.infer<typeof SetupMessageSchema>;
-/**
- * WebSocket prompt message (user speech)
- */
-declare const PromptMessageSchema: z.ZodObject<{
-    type: z.ZodLiteral<"prompt">;
-    voicePrompt: z.ZodString;
-    lang: z.ZodOptional<z.ZodString>;
-    last: z.ZodOptional<z.ZodBoolean>;
-    agentSpeaking: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "prompt";
-    voicePrompt: string;
-    lang?: string | undefined;
-    last?: boolean | undefined;
-    agentSpeaking?: string | undefined;
-}, {
-    type: "prompt";
-    voicePrompt: string;
-    lang?: string | undefined;
-    last?: boolean | undefined;
-    agentSpeaking?: string | undefined;
-}>;
-type PromptMessage = z.infer<typeof PromptMessageSchema>;
-/**
- * WebSocket interrupt message (user interruption)
- */
-declare const InterruptMessageSchema: z.ZodObject<{
-    type: z.ZodLiteral<"interrupt">;
-    reason: z.ZodOptional<z.ZodString>;
-    transcript: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "interrupt";
-    reason?: string | undefined;
-    transcript?: string | undefined;
-}, {
-    type: "interrupt";
-    reason?: string | undefined;
-    transcript?: string | undefined;
-}>;
-type InterruptMessage = z.infer<typeof InterruptMessageSchema>;
-/**
- * Union of all WebSocket message types
- */
-declare const WebSocketMessageSchema: z.ZodUnion<[z.ZodObject<{
-    type: z.ZodLiteral<"setup">;
-    sessionId: z.ZodString;
-    callSid: z.ZodString;
-    parentCallSid: z.ZodOptional<z.ZodString>;
-    from: z.ZodString;
-    to: z.ZodString;
-    forwardedFrom: z.ZodOptional<z.ZodString>;
-    callerName: z.ZodOptional<z.ZodString>;
-    direction: z.ZodString;
-    callType: z.ZodString;
-    callStatus: z.ZodString;
-    accountSid: z.ZodString;
-    customParameters: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-}, "strip", z.ZodTypeAny, {
-    type: "setup";
-    direction: string;
-    from: string;
-    to: string;
-    sessionId: string;
-    callSid: string;
-    callType: string;
-    callStatus: string;
-    accountSid: string;
-    parentCallSid?: string | undefined;
-    forwardedFrom?: string | undefined;
-    callerName?: string | undefined;
-    customParameters?: Record<string, unknown> | undefined;
-}, {
-    type: "setup";
-    direction: string;
-    from: string;
-    to: string;
-    sessionId: string;
-    callSid: string;
-    callType: string;
-    callStatus: string;
-    accountSid: string;
-    parentCallSid?: string | undefined;
-    forwardedFrom?: string | undefined;
-    callerName?: string | undefined;
-    customParameters?: Record<string, unknown> | undefined;
-}>, z.ZodObject<{
-    type: z.ZodLiteral<"prompt">;
-    voicePrompt: z.ZodString;
-    lang: z.ZodOptional<z.ZodString>;
-    last: z.ZodOptional<z.ZodBoolean>;
-    agentSpeaking: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "prompt";
-    voicePrompt: string;
-    lang?: string | undefined;
-    last?: boolean | undefined;
-    agentSpeaking?: string | undefined;
-}, {
-    type: "prompt";
-    voicePrompt: string;
-    lang?: string | undefined;
-    last?: boolean | undefined;
-    agentSpeaking?: string | undefined;
-}>, z.ZodObject<{
-    type: z.ZodLiteral<"interrupt">;
-    reason: z.ZodOptional<z.ZodString>;
-    transcript: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "interrupt";
-    reason?: string | undefined;
-    transcript?: string | undefined;
-}, {
-    type: "interrupt";
-    reason?: string | undefined;
-    transcript?: string | undefined;
-}>]>;
-type WebSocketMessage = z.infer<typeof WebSocketMessageSchema>;
-/**
- * Text Token Message to send back via WebSocket
- * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-tokens-message
- */
-declare const TextTokenMessageSchema: z.ZodObject<{
-    type: z.ZodLiteral<"text">;
-    token: z.ZodString;
-    last: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
-}, "strip", z.ZodTypeAny, {
-    type: "text";
-    last: boolean;
-    token: string;
-}, {
-    type: "text";
-    token: string;
-    last?: boolean | undefined;
-}>;
-type TextTokenMessage = z.infer<typeof TextTokenMessageSchema>;
-/**
  * Extended ConversationRelay configuration that includes child elements.
  * Includes all ConversationRelayAttributes fields plus support for languages array.
  *
@@ -2109,7 +1944,6 @@ interface ConversationRelayConfig extends ConversationRelayAttributes {
     /** Optional language configurations as child <Language> elements */
     languages?: LanguageAttributes[] | undefined;
 }
-declare const ConversationRelayConfigSchema: z.ZodType<ConversationRelayConfig>;
 /**
  * ConversationRelay callback payload from Twilio webhook
  *
@@ -2138,8 +1972,8 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
     SessionDuration: z.ZodOptional<z.ZodString>;
     HandoffData: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    AccountSid: string;
     CallSid: string;
+    AccountSid: string;
     CallStatus: "queued" | "initiated" | "ringing" | "in-progress" | "completed" | "busy" | "no-answer" | "failed" | "canceled";
     From: string;
     To: string;
@@ -2154,8 +1988,8 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
     SessionDuration?: string | undefined;
     HandoffData?: string | undefined;
 }, {
-    AccountSid: string;
     CallSid: string;
+    AccountSid: string;
     CallStatus: "queued" | "initiated" | "ringing" | "in-progress" | "completed" | "busy" | "no-answer" | "failed" | "canceled";
     From: string;
     To: string;
@@ -2171,23 +2005,542 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
     HandoffData?: string | undefined;
 }>;
 type ConversationRelayCallbackPayload = z.infer<typeof ConversationRelayCallbackPayloadSchema>;
+
 /**
- * Handoff data for Flex escalation
+ * Channel type for communications
  */
-declare const HandoffDataSchema: z.ZodObject<{
-    reason: z.ZodString;
-    call_summary: z.ZodString;
-    sentiment: z.ZodString;
+declare const TACChannelTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+type TACChannelType = z.infer<typeof TACChannelTypeSchema>;
+/**
+ * Delivery status for communications
+ */
+declare const TACDeliveryStatusSchema: z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>;
+type TACDeliveryStatus = z.infer<typeof TACDeliveryStatusSchema>;
+/**
+ * Participant type
+ */
+declare const TACParticipantTypeSchema: z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>;
+type TACParticipantType = z.infer<typeof TACParticipantTypeSchema>;
+/**
+ * Unified author model with all fields from both Memory and Maestro APIs.
+ *
+ * Fields not available from a particular API will be undefined.
+ */
+declare const TACCommunicationAuthorSchema: z.ZodObject<{
+    address: z.ZodString;
+    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+    participantId: z.ZodOptional<z.ZodString>;
+    deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+    id: z.ZodOptional<z.ZodString>;
+    name: z.ZodOptional<z.ZodString>;
+    type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
+    profileId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    reason: string;
-    call_summary: string;
-    sentiment: string;
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+    id?: string | undefined;
+    name?: string | undefined;
+    participantId?: string | undefined;
+    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    profileId?: string | undefined;
 }, {
-    reason: string;
-    call_summary: string;
-    sentiment: string;
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+    id?: string | undefined;
+    name?: string | undefined;
+    participantId?: string | undefined;
+    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    profileId?: string | undefined;
 }>;
-type HandoffData = z.infer<typeof HandoffDataSchema>;
+type TACCommunicationAuthor = z.infer<typeof TACCommunicationAuthorSchema>;
+/**
+ * Unified content model with all fields from both Memory and Maestro APIs.
+ */
+declare const TACCommunicationContentSchema: z.ZodObject<{
+    type: z.ZodOptional<z.ZodEnum<["TEXT", "TRANSCRIPTION"]>>;
+    text: z.ZodOptional<z.ZodString>;
+    transcription: z.ZodOptional<z.ZodObject<{
+        channel: z.ZodOptional<z.ZodNumber>;
+        confidence: z.ZodOptional<z.ZodNumber>;
+        engine: z.ZodOptional<z.ZodString>;
+        words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            text: z.ZodString;
+            startTime: z.ZodOptional<z.ZodString>;
+            endTime: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }, {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    }, {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    type?: "TEXT" | "TRANSCRIPTION" | undefined;
+    text?: string | undefined;
+    transcription?: {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}, {
+    type?: "TEXT" | "TRANSCRIPTION" | undefined;
+    text?: string | undefined;
+    transcription?: {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}>;
+type TACCommunicationContent = z.infer<typeof TACCommunicationContentSchema>;
+/**
+ * Unified communication model with all fields from both Memory and Maestro APIs.
+ *
+ * Provides complete access to all communication fields regardless of the source.
+ * Fields not available from a particular API will be undefined.
+ */
+declare const TACCommunicationSchema: z.ZodObject<{
+    id: z.ZodString;
+    author: z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodOptional<z.ZodString>;
+        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+        id: z.ZodOptional<z.ZodString>;
+        name: z.ZodOptional<z.ZodString>;
+        type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
+        profileId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }>;
+    content: z.ZodObject<{
+        type: z.ZodOptional<z.ZodEnum<["TEXT", "TRANSCRIPTION"]>>;
+        text: z.ZodOptional<z.ZodString>;
+        transcription: z.ZodOptional<z.ZodObject<{
+            channel: z.ZodOptional<z.ZodNumber>;
+            confidence: z.ZodOptional<z.ZodNumber>;
+            engine: z.ZodOptional<z.ZodString>;
+            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                text: z.ZodString;
+                startTime: z.ZodOptional<z.ZodString>;
+                endTime: z.ZodOptional<z.ZodString>;
+            }, "strip", z.ZodTypeAny, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        type?: "TEXT" | "TRANSCRIPTION" | undefined;
+        text?: string | undefined;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }, {
+        type?: "TEXT" | "TRANSCRIPTION" | undefined;
+        text?: string | undefined;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }>;
+    recipients: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodOptional<z.ZodString>;
+        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+        id: z.ZodOptional<z.ZodString>;
+        name: z.ZodOptional<z.ZodString>;
+        type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
+        profileId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }>, "many">>;
+    channelId: z.ZodOptional<z.ZodString>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    updatedAt: z.ZodOptional<z.ZodString>;
+    conversationId: z.ZodOptional<z.ZodString>;
+    accountId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    };
+    content: {
+        type?: "TEXT" | "TRANSCRIPTION" | undefined;
+        text?: string | undefined;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }[];
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    channelId?: string | undefined;
+    conversationId?: string | undefined;
+    accountId?: string | undefined;
+}, {
+    id: string;
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    };
+    content: {
+        type?: "TEXT" | "TRANSCRIPTION" | undefined;
+        text?: string | undefined;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients?: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+        id?: string | undefined;
+        name?: string | undefined;
+        participantId?: string | undefined;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+        profileId?: string | undefined;
+    }[] | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    channelId?: string | undefined;
+    conversationId?: string | undefined;
+    accountId?: string | undefined;
+}>;
+type TACCommunication = z.infer<typeof TACCommunicationSchema>;
+
+/**
+ * Unified response wrapper for TAC.retrieveMemory().
+ *
+ * Provides a consistent interface for accessing memory data regardless of whether
+ * Memory API is configured or falling back to Maestro Communications API.
+ *
+ * Memory configured:
+ * - observations, summaries, communications all populated
+ * - communications include Memory-specific fields (author id, name, type, profileId)
+ *
+ * Maestro fallback:
+ * - observations and summaries are empty arrays
+ * - communications include Maestro-specific fields (conversationId, accountId, etc.)
+ */
+declare class TACMemoryResponse {
+    private readonly _data;
+    private readonly _communications;
+    /**
+     * Initialize wrapper with either Memory or Maestro data.
+     *
+     * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Maestro)
+     */
+    constructor(data: MemoryRetrievalResponse | Communication[]);
+    /**
+     * Get observation memories.
+     *
+     * @returns List of observations if Memory is configured, empty array for Maestro fallback
+     */
+    get observations(): ObservationInfo[];
+    /**
+     * Get summary memories.
+     *
+     * @returns List of summaries if Memory is configured, empty array for Maestro fallback
+     */
+    get summaries(): SummaryInfo[];
+    /**
+     * Get communications in unified format with all available fields.
+     *
+     * Communications are converted to a common format during initialization that includes
+     * all fields from both Memory and Maestro APIs. Fields not available from a particular
+     * API will be undefined.
+     *
+     * @returns List of unified communications with all available fields
+     */
+    get communications(): TACCommunication[];
+    /**
+     * Check if Memory API is configured and providing full features.
+     *
+     * @returns true if Memory is configured (observations/summaries available),
+     *          false if using Maestro fallback (only communications available)
+     */
+    get hasMemoryFeatures(): boolean;
+    /**
+     * Access raw underlying data for advanced use cases.
+     *
+     * Use this when you need access to all fields from the original API responses,
+     * not just the unified common fields.
+     *
+     * @returns Either MemoryRetrievalResponse or Communication[] depending on configuration
+     */
+    get rawData(): MemoryRetrievalResponse | Communication[];
+}
+
+/**
+ * Channel interface definitions
+ *
+ * Minimal contract that TAC requires from all channel implementations.
+ * Channels use composition instead of inheritance.
+ */
+
+/**
+ * SessionId — the key used by the Channel interface.
+ *
+ * In CR-only mode this is a CallSid; in Conversation/Passive mode it's a Maestro ConversationId.
+ */
+type SessionId = CallSid | ConversationId;
+declare function isSessionId(value: string): value is SessionId;
+/**
+ * Unified message shape emitted by all channels via the 'message' event.
+ *
+ * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
+ * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
+ * - metadata.type identifies the source message type for programmatic handling
+ * - conversation bundle is only present in Conversation/Passive modes (Maestro)
+ */
+interface ChannelMessage {
+    sessionId: SessionId;
+    messageType: 'user' | 'system';
+    message: string;
+    channel: ChannelType;
+    metadata?: Record<string, unknown> | undefined;
+    conversation?: {
+        profileId?: ProfileId | undefined;
+        memory?: TACMemoryResponse | undefined;
+        author: string;
+        serviceId?: string | undefined;
+        authorInfo?: {
+            address: string;
+        } | undefined;
+        startedAt: Date;
+    } | undefined;
+}
+/**
+ * Function that retrieves memory for a conversation session.
+ * Injected into Maestro channels (VoiceChannel, MessagingChannel subclasses)
+ * to decouple them from the TAC instance.
+ */
+type MemoryRetriever = (session: ConversationSession, query?: string) => Promise<TACMemoryResponse | undefined>;
+/**
+ * Base channel event callbacks
+ */
+interface ChannelEvents {
+    onMessage?: (message: ChannelMessage) => Promise<void> | void;
+    onConversationStarted?: (data: {
+        session: ConversationSession;
+    }) => void;
+    onConversationEnded?: (data: {
+        session: ConversationSession;
+    }) => Promise<void> | void;
+    onError?: (data: {
+        error: Error;
+        context?: Record<string, unknown>;
+    }) => void;
+}
+/**
+ * Base interface for all channel implementations
+ *
+ * Defines the minimal contract that TAC requires:
+ * - Send responses to users
+ * - Register event callbacks
+ * - Provide session lookup
+ * - Lifecycle management
+ */
+interface Channel {
+    /**
+     * Channel type identifier
+     */
+    readonly channelType: ChannelType;
+    /**
+     * Send a response message to the user
+     *
+     * @param sessionId - Channel session identifier (CallSid or ConversationId)
+     * @param message - The message text to send
+     * @param metadata - Optional metadata to include
+     */
+    sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Register event callback for TAC integration
+     *
+     * @param event - Event name (e.g., 'prompt', 'interrupt', 'conversationEnded')
+     * @param callback - Event handler function
+     */
+    on(event: string, callback: (...args: any[]) => void): void;
+    /**
+     * Get conversation session by identifier
+     *
+     * @param sessionId - Channel session identifier
+     * @returns Session if active, undefined otherwise
+     */
+    getConversationSession(sessionId: SessionId): ConversationSession | undefined;
+    /**
+     * Check if conversation is active
+     *
+     * @param sessionId - Channel session identifier
+     * @returns True if conversation is active
+     */
+    isConversationActive(sessionId: SessionId): boolean;
+    /**
+     * Shutdown channel and cleanup resources
+     */
+    shutdown(): void;
+}
+
+/**
+ * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
+ *
+ * These are TAC's own structured parameters for bridging ConversationRelay calls
+ * to Maestro Conversations. NOT generic CR parameters (those live in the CR package).
+ */
+declare const TACCustomParametersSchema: z.ZodObject<{
+    conversation_id: z.ZodOptional<z.ZodString>;
+    profile_id: z.ZodOptional<z.ZodString>;
+    customer_participant_id: z.ZodOptional<z.ZodString>;
+    ai_agent_participant_id: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    profile_id?: string | undefined;
+    conversation_id?: string | undefined;
+    customer_participant_id?: string | undefined;
+    ai_agent_participant_id?: string | undefined;
+}, {
+    profile_id?: string | undefined;
+    conversation_id?: string | undefined;
+    customer_participant_id?: string | undefined;
+    ai_agent_participant_id?: string | undefined;
+}>;
+type TACCustomParameters = z.infer<typeof TACCustomParametersSchema>;
 
 /**
  * JSON Schema definition for tool parameters
@@ -2322,13 +2675,13 @@ declare const ToolExecutionResultSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     success: boolean;
     metadata?: Record<string, unknown> | undefined;
-    data?: any;
     error?: string | undefined;
+    data?: any;
 }, {
     success: boolean;
     metadata?: Record<string, unknown> | undefined;
-    data?: any;
     error?: string | undefined;
+    data?: any;
 }>;
 type ToolExecutionResult = z.infer<typeof ToolExecutionResultSchema>;
 /**
@@ -2720,345 +3073,6 @@ declare const ConversationSummaryItemSchema: z.ZodObject<{
 type ConversationSummaryItem = z.infer<typeof ConversationSummaryItemSchema>;
 
 /**
- * Channel type for communications
- */
-declare const TACChannelTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-type TACChannelType = z.infer<typeof TACChannelTypeSchema>;
-/**
- * Delivery status for communications
- */
-declare const TACDeliveryStatusSchema: z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>;
-type TACDeliveryStatus = z.infer<typeof TACDeliveryStatusSchema>;
-/**
- * Participant type
- */
-declare const TACParticipantTypeSchema: z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>;
-type TACParticipantType = z.infer<typeof TACParticipantTypeSchema>;
-/**
- * Unified author model with all fields from both Memory and Maestro APIs.
- *
- * Fields not available from a particular API will be undefined.
- */
-declare const TACCommunicationAuthorSchema: z.ZodObject<{
-    address: z.ZodString;
-    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-    participantId: z.ZodOptional<z.ZodString>;
-    deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-    id: z.ZodOptional<z.ZodString>;
-    name: z.ZodOptional<z.ZodString>;
-    type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
-    profileId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-    id?: string | undefined;
-    name?: string | undefined;
-    participantId?: string | undefined;
-    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    profileId?: string | undefined;
-}, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-    id?: string | undefined;
-    name?: string | undefined;
-    participantId?: string | undefined;
-    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    profileId?: string | undefined;
-}>;
-type TACCommunicationAuthor = z.infer<typeof TACCommunicationAuthorSchema>;
-/**
- * Unified content model with all fields from both Memory and Maestro APIs.
- */
-declare const TACCommunicationContentSchema: z.ZodObject<{
-    type: z.ZodOptional<z.ZodEnum<["TEXT", "TRANSCRIPTION"]>>;
-    text: z.ZodOptional<z.ZodString>;
-    transcription: z.ZodOptional<z.ZodObject<{
-        channel: z.ZodOptional<z.ZodNumber>;
-        confidence: z.ZodOptional<z.ZodNumber>;
-        engine: z.ZodOptional<z.ZodString>;
-        words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            text: z.ZodString;
-            startTime: z.ZodOptional<z.ZodString>;
-            endTime: z.ZodOptional<z.ZodString>;
-        }, "strip", z.ZodTypeAny, {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }, {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }>, "many">>;
-    }, "strip", z.ZodTypeAny, {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    }, {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    type?: "TEXT" | "TRANSCRIPTION" | undefined;
-    text?: string | undefined;
-    transcription?: {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}, {
-    type?: "TEXT" | "TRANSCRIPTION" | undefined;
-    text?: string | undefined;
-    transcription?: {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}>;
-type TACCommunicationContent = z.infer<typeof TACCommunicationContentSchema>;
-/**
- * Unified communication model with all fields from both Memory and Maestro APIs.
- *
- * Provides complete access to all communication fields regardless of the source.
- * Fields not available from a particular API will be undefined.
- */
-declare const TACCommunicationSchema: z.ZodObject<{
-    id: z.ZodString;
-    author: z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodOptional<z.ZodString>;
-        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-        id: z.ZodOptional<z.ZodString>;
-        name: z.ZodOptional<z.ZodString>;
-        type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
-        profileId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }>;
-    content: z.ZodObject<{
-        type: z.ZodOptional<z.ZodEnum<["TEXT", "TRANSCRIPTION"]>>;
-        text: z.ZodOptional<z.ZodString>;
-        transcription: z.ZodOptional<z.ZodObject<{
-            channel: z.ZodOptional<z.ZodNumber>;
-            confidence: z.ZodOptional<z.ZodNumber>;
-            engine: z.ZodOptional<z.ZodString>;
-            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                text: z.ZodString;
-                startTime: z.ZodOptional<z.ZodString>;
-                endTime: z.ZodOptional<z.ZodString>;
-            }, "strip", z.ZodTypeAny, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }>, "many">>;
-        }, "strip", z.ZodTypeAny, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        type?: "TEXT" | "TRANSCRIPTION" | undefined;
-        text?: string | undefined;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }, {
-        type?: "TEXT" | "TRANSCRIPTION" | undefined;
-        text?: string | undefined;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }>;
-    recipients: z.ZodDefault<z.ZodArray<z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodOptional<z.ZodString>;
-        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-        id: z.ZodOptional<z.ZodString>;
-        name: z.ZodOptional<z.ZodString>;
-        type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
-        profileId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }>, "many">>;
-    channelId: z.ZodOptional<z.ZodString>;
-    createdAt: z.ZodOptional<z.ZodString>;
-    updatedAt: z.ZodOptional<z.ZodString>;
-    conversationId: z.ZodOptional<z.ZodString>;
-    accountId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    };
-    content: {
-        type?: "TEXT" | "TRANSCRIPTION" | undefined;
-        text?: string | undefined;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }[];
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    channelId?: string | undefined;
-    conversationId?: string | undefined;
-    accountId?: string | undefined;
-}, {
-    id: string;
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    };
-    content: {
-        type?: "TEXT" | "TRANSCRIPTION" | undefined;
-        text?: string | undefined;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients?: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-        id?: string | undefined;
-        name?: string | undefined;
-        participantId?: string | undefined;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-        profileId?: string | undefined;
-    }[] | undefined;
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    channelId?: string | undefined;
-    conversationId?: string | undefined;
-    accountId?: string | undefined;
-}>;
-type TACCommunication = z.infer<typeof TACCommunicationSchema>;
-
-/**
  * Knowledge base status enum
  */
 declare const KnowledgeBaseStatusSchema: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
@@ -3150,69 +3164,6 @@ declare const KnowledgeSearchResponseSchema: z.ZodObject<{
 type KnowledgeSearchResponse = z.infer<typeof KnowledgeSearchResponseSchema>;
 
 /**
- * Unified response wrapper for TAC.retrieveMemory().
- *
- * Provides a consistent interface for accessing memory data regardless of whether
- * Memory API is configured or falling back to Maestro Communications API.
- *
- * Memory configured:
- * - observations, summaries, communications all populated
- * - communications include Memory-specific fields (author id, name, type, profileId)
- *
- * Maestro fallback:
- * - observations and summaries are empty arrays
- * - communications include Maestro-specific fields (conversationId, accountId, etc.)
- */
-declare class TACMemoryResponse {
-    private readonly _data;
-    private readonly _communications;
-    /**
-     * Initialize wrapper with either Memory or Maestro data.
-     *
-     * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Maestro)
-     */
-    constructor(data: MemoryRetrievalResponse | Communication[]);
-    /**
-     * Get observation memories.
-     *
-     * @returns List of observations if Memory is configured, empty array for Maestro fallback
-     */
-    get observations(): ObservationInfo[];
-    /**
-     * Get summary memories.
-     *
-     * @returns List of summaries if Memory is configured, empty array for Maestro fallback
-     */
-    get summaries(): SummaryInfo[];
-    /**
-     * Get communications in unified format with all available fields.
-     *
-     * Communications are converted to a common format during initialization that includes
-     * all fields from both Memory and Maestro APIs. Fields not available from a particular
-     * API will be undefined.
-     *
-     * @returns List of unified communications with all available fields
-     */
-    get communications(): TACCommunication[];
-    /**
-     * Check if Memory API is configured and providing full features.
-     *
-     * @returns true if Memory is configured (observations/summaries available),
-     *          false if using Maestro fallback (only communications available)
-     */
-    get hasMemoryFeatures(): boolean;
-    /**
-     * Access raw underlying data for advanced use cases.
-     *
-     * Use this when you need access to all fields from the original API responses,
-     * not just the unified common fields.
-     *
-     * @returns Either MemoryRetrievalResponse or Communication[] depending on configuration
-     */
-    get rawData(): MemoryRetrievalResponse | Communication[];
-}
-
-/**
  * TAC Configuration class with Python-like static factory methods
  *
  * Example usage:
@@ -3230,6 +3181,7 @@ declare class TACMemoryResponse {
  */
 declare class TACConfig {
     readonly environment: Environment;
+    readonly tacMode: TACMode;
     readonly twilioAccountSid: string;
     readonly twilioAuthToken: string;
     readonly twilioApiKey: string;
@@ -3237,7 +3189,7 @@ declare class TACConfig {
     readonly twilioPhoneNumber: string;
     readonly memoryStoreId?: string;
     readonly traitGroups?: string[];
-    readonly conversationServiceId: string;
+    readonly conversationServiceId?: string;
     readonly voicePublicDomain?: string;
     readonly cintelConfigurationId?: string;
     readonly cintelObservationOperatorSid?: string;
@@ -3251,6 +3203,7 @@ declare class TACConfig {
      *
      * Loads configuration from the following environment variables:
      * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
+     * - TAC_MODE: Operating mode - 'crelay' or 'conversation' (required)
      * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
      * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
      * - TWILIO_API_KEY: Twilio API Key (required)
@@ -3258,7 +3211,7 @@ declare class TACConfig {
      * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
      * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
      * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-     * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required)
+     * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required if TAC_MODE=conversation)
      * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
      *
      * @throws Error if required environment variables are not set or invalid
@@ -3507,93 +3460,6 @@ declare class KnowledgeClient {
     private logResponse;
 }
 
-/**
- * Base channel event callbacks
- */
-interface BaseChannelEvents {
-    onConversationStarted?: (data: {
-        session: ConversationSession;
-    }) => void;
-    onConversationEnded?: (data: {
-        session: ConversationSession;
-    }) => Promise<void> | void;
-    onError?: (data: {
-        error: Error;
-        context?: Record<string, unknown>;
-    }) => void;
-}
-/**
- * Abstract base class for all channel implementations
- *
- * Provides common functionality for conversation lifecycle management,
- * session tracking, and shared utilities across different channel types.
- */
-declare abstract class BaseChannel {
-    protected readonly tac: TAC;
-    protected readonly config: TACConfig;
-    protected readonly logger: Logger;
-    protected readonly conversationClient: ConversationClient;
-    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
-    protected readonly callbacks: BaseChannelEvents;
-    constructor(tac: TAC);
-    /**
-     * Get the channel type (implemented by subclasses)
-     */
-    abstract get channelType(): ChannelType;
-    /**
-     * Register event callbacks
-     */
-    on(event: string, callback: (...args: any[]) => void): void;
-    /**
-     * Process incoming webhook data (implemented by subclasses)
-     */
-    abstract processWebhook(payload: unknown): Promise<void>;
-    /**
-     * Send a response back to the user (implemented by subclasses)
-     */
-    abstract sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Start a new conversation session
-     */
-    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
-    /**
-     * End a conversation session.
-     *
-     * Triggers the onConversationEnded callback BEFORE removing the session,
-     * so the callback receives the full ConversationSession data.
-     * Errors in the callback do not prevent session cleanup.
-     */
-    protected endConversation(conversationId: ConversationId): Promise<void>;
-    /**
-     * Get an active conversation session
-     */
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    /**
-     * Check if a conversation is active
-     */
-    isConversationActive(conversationId: ConversationId): boolean;
-    /**
-     * Handle errors with proper context
-     */
-    protected handleError(error: Error, context?: Record<string, unknown>): void;
-    /**
-     * Validate webhook payload (override in subclasses for specific validation)
-     */
-    protected validateWebhookPayload(payload: unknown): boolean;
-    /**
-     * Extract conversation ID from webhook payload (implemented by subclasses)
-     */
-    protected abstract extractConversationId(payload: unknown): ConversationId | null;
-    /**
-     * Extract profile ID from webhook payload (implemented by subclasses)
-     */
-    protected abstract extractProfileId(payload: unknown): ProfileId | null;
-    /**
-     * Cleanup resources when shutting down
-     */
-    shutdown(): void;
-}
-
 interface TACOptions {
     config?: TACConfig | TACConfigData;
     logger?: Logger;
@@ -3601,23 +3467,14 @@ interface TACOptions {
 /**
  * Callback function signatures for TAC events
  */
-type MessageReadyCallback = (params: {
-    conversationId: ConversationId;
-    profileId: ProfileId | undefined;
-    message: string;
-    author: string;
-    memory: TACMemoryResponse | undefined;
-    session: ConversationSession;
-    channel: ChannelType;
-}) => Promise<void> | void;
-type InterruptCallback = (params: {
-    conversationId: ConversationId;
-    reason: string;
-    transcript: string | undefined;
-    session: ConversationSession;
-}) => Promise<void> | void;
+type MessageReadyCallback = (message: ChannelMessage) => Promise<void> | void;
+type ErrorCallback = (params: {
+    error: Error;
+    context?: Record<string, unknown> | undefined;
+}) => void;
 type HandoffCallback = (params: {
-    conversationId: ConversationId;
+    /** Generic session identifier (CallSid or ConversationId) */
+    sessionId: string;
     profileId: ProfileId | undefined;
     reason: string;
     session: ConversationSession;
@@ -3636,34 +3493,39 @@ declare class TAC {
     readonly logger: Logger;
     private readonly memoryClient?;
     private readonly knowledgeClient?;
-    private readonly conversationClient;
+    private readonly conversationClient?;
     private readonly channels;
     private readonly cintelProcessor?;
     private messageReadyCallback?;
-    private interruptCallback?;
     private handoffCallback?;
     private conversationEndedCallback?;
+    private errorCallback?;
     constructor(options?: TACOptions);
     /**
      * Register a channel with the framework
      */
-    registerChannel(channel: BaseChannel): void;
+    registerChannel(channel: Channel): void;
     /**
-     * Set up event listeners for a channel
+     * Set up event listeners for a channel.
+     *
+     * All channels emit three unified events:
+     * - 'message': ChannelMessage (user or system messages)
+     * - 'conversationEnded': { session: ConversationSession }
+     * - 'error': { error: Error; context?: Record<string, unknown> }
      */
     private setupChannelEventListeners;
     /**
-     * Handle message ready event from channels
+     * Handle unified message from channels — pure pass-through to developer callback
      */
-    private handleMessageReady;
+    private handleMessage;
     /**
      * Register callback for when messages are ready to be processed
      */
     onMessageReady(callback: MessageReadyCallback): void;
     /**
-     * Register callback for when user interrupts (voice channel)
+     * Register callback for channel errors
      */
-    onInterrupt(callback: InterruptCallback): void;
+    onError(callback: ErrorCallback): void;
     /**
      * Register callback for human handoff
      */
@@ -3680,15 +3542,15 @@ declare class TAC {
     /**
      * Trigger handoff callback
      */
-    triggerHandoff(conversationId: ConversationId, reason: string): Promise<void>;
+    triggerHandoff(sessionId: SessionId, reason: string): Promise<void>;
     /**
-     * Get channel by conversation ID
+     * Get channel by session ID (CallSid or ConversationId)
      */
-    private getChannelByConversationId;
+    private getChannelBySessionId;
     /**
      * Get registered channel by type
      */
-    getChannel<T extends BaseChannel>(channelType: ChannelType): T | undefined;
+    getChannel<T extends Channel>(channelType: ChannelType): T | undefined;
     /**
      * Get configuration
      */
@@ -3705,8 +3567,24 @@ declare class TAC {
     getKnowledgeClient(): KnowledgeClient | undefined;
     /**
      * Get conversation client for advanced conversation operations
+     * Returns undefined in crelay mode
      */
-    getConversationClient(): ConversationClient;
+    getConversationClient(): ConversationClient | undefined;
+    /**
+     * Create a MemoryRetriever function for channel dependency injection.
+     * Returns undefined if memory is not configured.
+     */
+    createMemoryRetriever(): MemoryRetriever | undefined;
+    /**
+     * Get channel dependencies for creating Maestro channels (VoiceChannel, MessagingChannel subclasses).
+     * Throws if ConversationClient is not available (crelay mode).
+     */
+    getChannelDeps(): {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever | undefined;
+    };
     /**
      * Check if Twilio Memory functionality is enabled
      *
@@ -3802,19 +3680,7 @@ interface MessagingWebhookPayload {
  */
 interface MessagingChannelConfig {
     /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
-    dedupCapacity?: number;
-}
-/**
- * Messaging channel event callbacks extending base callbacks
- */
-interface MessagingChannelEvents extends BaseChannelEvents {
-    onMessageReceived?: (data: {
-        conversationId: ConversationId;
-        profileId: ProfileId | undefined;
-        message: string;
-        author: string;
-        userMemory: any;
-    }) => void;
+    dedupCapacity?: number | undefined;
 }
 /**
  * Abstract Messaging Channel base class for SMS and Chat channels
@@ -3822,11 +3688,21 @@ interface MessagingChannelEvents extends BaseChannelEvents {
  * Provides shared webhook processing logic for messaging channels
  * (SMS and Chat) that use the Conversations Service webhooks.
  */
-declare abstract class MessagingChannel extends BaseChannel {
-    protected readonly messagingCallbacks: MessagingChannelEvents;
+declare abstract class MessagingChannel implements Channel {
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger;
+    protected readonly conversationClient: ConversationClient;
+    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+    protected readonly callbacks: ChannelEvents;
+    private readonly memoryRetriever?;
     private readonly processedTokens;
     private readonly maxTrackedTokens;
-    constructor(tac: TAC, config?: MessagingChannelConfig);
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever?: MemoryRetriever | undefined;
+    }, channelConfig?: MessagingChannelConfig);
     /**
      * Check if a webhook has already been processed, and if not, record the token immediately.
      * This is intentionally a single synchronous check-and-record to prevent race conditions
@@ -3839,6 +3715,42 @@ declare abstract class MessagingChannel extends BaseChannel {
      * Subclasses implement channel-specific filtering (e.g., by phone number or agent address)
      */
     protected abstract isOwnMessage(authorAddress: string): boolean;
+    /**
+     * Get the channel type (implemented by subclasses)
+     */
+    abstract get channelType(): ChannelType;
+    /**
+     * Send a response back to the user (implemented by subclasses)
+     */
+    abstract sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Start a new conversation session
+     */
+    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
+    /**
+     * End a conversation session.
+     *
+     * Triggers the onConversationEnded callback BEFORE removing the session,
+     * so the callback receives the full ConversationSession data.
+     * Errors in the callback do not prevent session cleanup.
+     */
+    protected endConversation(conversationId: ConversationId): Promise<void>;
+    /**
+     * Get an active conversation session
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if a conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Handle errors with proper context
+     */
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
+    /**
+     * Cleanup resources when shutting down
+     */
+    shutdown(): void;
     /**
      * Register event callbacks (override for messaging-specific events)
      */
@@ -3903,9 +3815,11 @@ declare class SMSChannel extends MessagingChannel {
 /**
  * Chat channel configuration options
  */
-interface ChatChannelConfig extends MessagingChannelConfig {
+interface ChatChannelConfig {
     /** Chat agent identity string (defaults to 'ai-assistant') */
-    agentAddress?: string;
+    agentAddress?: string | undefined;
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+    dedupCapacity?: number | undefined;
 }
 /**
  * Chat Channel implementation for Twilio Conversations Service
@@ -3916,7 +3830,12 @@ interface ChatChannelConfig extends MessagingChannelConfig {
  */
 declare class ChatChannel extends MessagingChannel {
     private readonly agentAddress;
-    constructor(tac: TAC, config?: ChatChannelConfig);
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever?: MemoryRetriever | undefined;
+    }, config?: ChatChannelConfig);
     get channelType(): ChannelType;
     /**
      * Check if a message is from the bot itself (by agent address)
@@ -3929,92 +3848,56 @@ declare class ChatChannel extends MessagingChannel {
 }
 
 /**
- * Voice channel event callbacks extending base callbacks
- */
-interface VoiceChannelEvents extends BaseChannelEvents {
-    onSetup?: (data: {
-        conversationId: ConversationId;
-        profileId: ProfileId | undefined;
-        callSid: string;
-        from: string;
-        to: string;
-        customParameters: CustomParameters | undefined;
-    }) => void;
-    onPrompt?: (data: {
-        conversationId: ConversationId;
-        transcript: string;
-        userMemory?: TACMemoryResponse;
-        session?: ConversationSession;
-    }) => void;
-    onInterrupt?: (data: {
-        conversationId: ConversationId;
-        reason: string;
-        transcript: string | undefined;
-    }) => void;
-    onWebSocketConnected?: (data: {
-        conversationId: ConversationId;
-    }) => void;
-    onWebSocketDisconnected?: (data: {
-        conversationId: ConversationId;
-    }) => void;
-}
-/**
- * Voice Channel implementation for Twilio ConversationRelay
+ * VoiceChannel — CR + Maestro voice channel (TAC_MODE=conversation)
  *
- * Handles voice conversations through WebSocket connections.
- * Manages real-time audio streaming and conversation state.
+ * Handles voice conversations using ConversationRelay WebSocket protocol
+ * WITH full Maestro Conversations Service integration. Always has ConversationClient.
+ * Uses CRelayVoice from the CR package for WebSocket protocol handling.
+ *
+ * All CR events are emitted as unified 'message' events with conversation bundle.
  */
-declare class VoiceChannel extends BaseChannel {
-    private readonly webSocketConnections;
+
+/**
+ * Voice Channel — Conversation mode (CR + Maestro)
+ *
+ * Uses CRelayVoice for WebSocket protocol handling. Always has ConversationClient.
+ * Creates Maestro conversations and participants in handleIncomingCall().
+ * Emits all CR events as unified 'message' events with conversation bundle.
+ */
+declare class VoiceChannel implements Channel {
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger;
+    protected readonly conversationClient: ConversationClient;
+    protected readonly activeConversations: Map<ConversationId, ConversationSession>;
+    protected readonly callbacks: ChannelEvents;
+    private readonly crelayVoice;
     private readonly callSidToConversationId;
-    private readonly voiceCallbacks;
-    private readonly streamTasks;
-    private readonly promptQueues;
-    constructor(tac: TAC);
+    private readonly memoryRetriever?;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever?: MemoryRetriever | undefined;
+    });
     get channelType(): ChannelType;
-    /**
-     * Register event callbacks (override for Voice-specific events)
-     */
-    on(event: string, callback: (...args: any[]) => void): void;
-    /**
-     * Process webhook - Voice channel doesn't use traditional webhooks,
-     * but this method is required by the base class
-     */
-    processWebhook(_payload: unknown): Promise<void>;
-    /**
-     * Get active WebSocket connection for a conversation
-     */
-    getWebsocket(conversationId: ConversationId): WebSocket | null;
-    /**
-     * Handle WebSocket connection from ConversationRelay
-     */
-    handleWebSocketConnection(ws: WebSocket): void;
-    /**
-     * Handle WebSocket setup message
-     */
+    private emitMessage;
+    private handleSetupFromRelay;
+    private handlePromptFromRelay;
+    private handleInterruptFromRelay;
+    private handleCloseFromRelay;
     private handleSetupMessage;
-    /**
-     * Handle WebSocket prompt message (user speech)
-     */
     private handlePromptMessage;
-    /**
-     * Handle WebSocket interrupt message
-     */
-    private handleInterruptMessage;
-    /**
-     * Handle WebSocket disconnection
-     */
     private handleWebSocketDisconnect;
-    /**
-     * Send voice response via WebSocket
-     */
+    getWebsocket(conversationId: ConversationId): WebSocket | null;
     sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Handle incoming voice call - create conversation, add participants, generate TwiML
-     *
-     * @param options - Options for handling the incoming call
-     * @returns TwiML XML string with ConversationRelay configuration
-     */
+    on(event: string, callback: (...args: any[]) => void): void;
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    isConversationActive(conversationId: ConversationId): boolean;
+    shutdown(): void;
+    handleWebSocketConnection(ws: WebSocket): void;
+    protected startConversation(conversationId: ConversationId, profileId?: ProfileId): ConversationSession;
+    protected endConversation(conversationId: ConversationId): Promise<void>;
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
     handleIncomingCall(options: {
         toNumber: string;
         fromNumber: string;
@@ -4022,82 +3905,101 @@ declare class VoiceChannel extends BaseChannel {
         actionUrl?: string;
         conversationRelayConfig: ConversationRelayConfig;
     }): Promise<string>;
-    /**
-     * Handle ConversationRelay callback from Twilio
-     *
-     * @param payload - Callback payload from Twilio
-     * @param handoffHandler - Optional handler for handoff requests
-     * @returns Response with status, content, and content type
-     */
     handleConversationRelayCallback(payload: ConversationRelayCallbackPayload, handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>): Promise<{
         status: number;
         content: string;
         contentType: string;
     }>;
-    /**
-     * Close all conversations associated with a call
-     */
     private closeConversationsForCall;
-    /**
-     * Start tracking a streaming task for a conversation
-     *
-     * @param conversationId - The conversation ID
-     * @returns AbortController for the task
-     */
-    startStreamTask(conversationId: ConversationId): AbortController;
-    /**
-     * Cancel an active streaming task
-     *
-     * @param conversationId - The conversation ID
-     * @returns true if a task was cancelled, false otherwise
-     */
-    cancelStreamTask(conversationId: ConversationId): boolean;
-    /**
-     * Complete a streaming task (remove from tracking)
-     *
-     * @param conversationId - The conversation ID
-     */
-    completeStreamTask(conversationId: ConversationId): void;
-    /**
-     * Check if a stream task is active
-     *
-     * @param conversationId - The conversation ID
-     * @returns true if an active task exists
-     */
-    hasActiveStreamTask(conversationId: ConversationId): boolean;
-    /**
-     * Generate TwiML to connect a call to ConversationRelay.
-     * Validates configuration with Zod before generating TwiML.
-     *
-     * @param config - ConversationRelay configuration (url, transcription, TTS, etc.)
-     * @param parameters - Optional custom parameters to pass via TwiML <Parameter> elements
-     * @param options - Optional settings for the Connect verb (e.g., actionUrl)
-     * @returns TwiML XML string
-     * @throws {Error} if config validation fails
-     */
-    connectConversationRelay(config: ConversationRelayConfig, parameters?: CustomParameters, options?: {
+}
+
+/**
+ * CRelayChannel — CR-only voice channel (TAC_MODE=crelay)
+ *
+ * Thin adapter wrapping CRelayVoice from the CR package.
+ * No Maestro. No memory. No ConversationClient.
+ * Uses CallSid as session identifier.
+ *
+ * All CR events (setup, prompt, interrupt, dtmf, info) are emitted as
+ * unified 'message' events with messageType 'user' or 'system'.
+ */
+
+/**
+ * CR-only voice channel adapter.
+ *
+ * Wraps CRelayVoice for WebSocket protocol handling, maps CRelaySession
+ * to ConversationSession, and exposes the Channel interface for TAC.
+ * Emits all CR events as unified 'message' events.
+ */
+declare class CRelayChannel implements Channel {
+    readonly channelType: ChannelType;
+    private readonly logger;
+    private readonly crelayVoice;
+    private readonly activeConversations;
+    private readonly callbacks;
+    constructor(logger: Logger$1);
+    private wireCRelayEvents;
+    private emitMessage;
+    sendResponse(sessionId: SessionId, message: string, _metadata?: Record<string, unknown>): Promise<void>;
+    on(event: string, callback: (...args: any[]) => void): void;
+    getConversationSession(sessionId: SessionId): ConversationSession | undefined;
+    isConversationActive(sessionId: SessionId): boolean;
+    shutdown(): void;
+    handleWebSocketConnection(ws: WebSocket): void;
+    handleIncomingCall(options: {
+        callSid: string;
+        conversationRelayConfig: ConversationRelayConfig;
         actionUrl?: string;
     }): string;
+}
+
+/**
+ * VoiceWebhookChannel — Passive mode voice channel (TAC_MODE=passive)
+ *
+ * Handles voice conversations via Maestro webhooks ONLY (no ConversationRelay).
+ * Customer has their own CR server; TAC handles Maestro orchestration.
+ * Follows the same MessagingChannel pattern as SMSChannel and ChatChannel.
+ *
+ * Messages arrive as transcribed text via COMMUNICATION_CREATED with author.channel='VOICE'.
+ * Responses are sent via Maestro Send API with channel='VOICE'.
+ */
+
+/**
+ * VoiceWebhookChannel configuration options
+ */
+interface VoiceWebhookChannelConfig {
+    /** Voice agent address identifier (defaults to the configured Twilio phone number) */
+    agentAddress?: string | undefined;
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+    dedupCapacity?: number | undefined;
+}
+/**
+ * Voice Webhook Channel — passive mode (Maestro webhooks only, no CR)
+ *
+ * Extends MessagingChannel with channelType='voice' and filters for
+ * author.channel='VOICE' in webhook events. Responses use Maestro Send API.
+ */
+declare class VoiceWebhookChannel extends MessagingChannel {
+    private readonly agentAddress;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever?: MemoryRetriever | undefined;
+    }, config?: VoiceWebhookChannelConfig);
+    get channelType(): ChannelType;
     /**
-     * Filter out undefined values from configuration object.
-     * Keeps null, false, 0, and empty strings as they are valid values.
+     * Check if a message is from the bot itself (by agent address/phone number)
      */
-    private filterUnsetValues;
+    protected isOwnMessage(authorAddress: string): boolean;
     /**
-     * Extract conversation ID - Not applicable for Voice channel
-     */
-    protected extractConversationId(_payload: unknown): ConversationId | null;
-    /**
-     * Extract profile ID - Not applicable for Voice channel
-     */
-    protected extractProfileId(_payload: unknown): ProfileId | null;
-    /**
-     * Cleanup channel state on shutdown
+     * Send voice response using Maestro Send API.
      *
-     * Note: WebSocket connections are managed by the server and closed there.
-     * This method only cleans up internal channel state.
+     * In passive mode, the Send API records the communication in Maestro.
+     * The customer's own CR server is responsible for actual TTS playback.
+     * channelId (CallSid) is required for VOICE participants.
      */
-    shutdown(): void;
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
 }
 
 /**
@@ -4225,7 +4127,7 @@ interface SendMessageResult {
 /**
  * Create send message tool
  */
-declare function createSendMessageTool(channel: BaseChannel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
+declare function createSendMessageTool(channel: Channel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
 /**
  * Create factory function for messaging tools
  */
@@ -4233,7 +4135,7 @@ declare function createMessagingTools(): {
     /**
      * Create send message tool for specific channel and conversation
      */
-    forConversation: (channel: BaseChannel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
+    forConversation: (channel: Channel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
 };
 
 /**
@@ -4347,8 +4249,10 @@ interface TACServerConfig {
     development?: boolean;
     /** Enable Twilio webhook signature validation (default: true) */
     validateWebhooks?: boolean;
-    /** Voice channel instance (alternative to registering on TAC) */
+    /** Voice channel instance for conversation mode (alternative to registering on TAC) */
     voiceChannel?: VoiceChannel;
+    /** CRelay channel instance for crelay mode (alternative to registering on TAC) */
+    crelayChannel?: CRelayChannel;
     /** Messaging channel instances — webhooks are fanned out to all (alternative to registering on TAC) */
     messagingChannels?: MessagingChannel[];
 }
@@ -4364,8 +4268,10 @@ declare class TACServer {
     private readonly config;
     /** All enabled messaging channels — webhooks are fanned out to each one */
     private readonly messagingChannels;
-    /** Voice channel instance */
+    /** Voice channel instance (conversation mode) */
     private readonly voiceChannel;
+    /** CRelay channel instance (crelay mode) */
+    private readonly crelayChannel;
     constructor(tac: TAC, config?: TACServerConfig);
     /**
      * Get the full URL for webhook validation
@@ -4377,7 +4283,11 @@ declare class TACServer {
      */
     private registerWebhookValidation;
     /**
-     * Setup routes
+     * Setup routes — only registers routes needed for the active TAC_MODE.
+     *
+     * crelay:       WS + TwiML + CR callback
+     * conversation: WS + TwiML + CR callback + messaging webhook + cintel
+     * passive:      messaging webhook + cintel
      */
     private setupRoutes;
     /**
@@ -4394,4 +4304,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type AuthorInfo, AuthorInfoSchema, BaseChannel, type BaseChannelEvents, type BuiltInToolName, BuiltInTools, type CaptureRule, CaptureRuleSchema, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationRelayAttributes, ConversationRelayAttributesSchema, type ConversationRelayCallbackPayload, ConversationRelayCallbackPayloadSchema, type ConversationRelayConfig, ConversationRelayConfigSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, type CustomParameters, CustomParametersSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type HandoffData, HandoffDataSchema, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type InterruptCallback, type InterruptMessage, InterruptMessageSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type LanguageAttributes, LanguageAttributesSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingChannelEvents, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, type PromptMessage, PromptMessageSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SetupMessage, SetupMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type TextTokenMessage, TextTokenMessageSchema, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelEvents, type VoiceServerConfig, VoiceServerConfigSchema, type WebSocketMessage, WebSocketMessageSchema, type _SDKDriftGuards, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId };
+export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, CRelayChannel, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionId, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACMode, TACModeSchema, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceServerConfig, VoiceServerConfigSchema, VoiceWebhookChannel, type VoiceWebhookChannelConfig, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId, isSessionId };

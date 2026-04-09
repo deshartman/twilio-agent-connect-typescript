@@ -23,8 +23,18 @@ import { config } from 'dotenv';
 import OpenAI from 'openai';
 import { TAC, TACConfig, CRelayChannel, TACServer } from 'twilio-agent-connect';
 
-// Load environment variables from parent directory
+// Default to crelay mode before dotenv loads (dotenv won't override existing vars).
+// If your .env has a different TAC_MODE, this example overrides it to 'crelay'.
+const tacModeWasSet = !!process.env.TAC_MODE;
+process.env.TAC_MODE ??= 'crelay';
 config({ path: '../.env' });
+
+if (!tacModeWasSet) {
+  console.log(
+    'TAC_MODE defaulted to "crelay" for this example. ' +
+      'Set TAC_MODE=crelay in your .env to make this explicit.'
+  );
+}
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -131,7 +141,9 @@ const server = new TACServer(tac, {
     port: 8000,
   },
   conversationRelayConfig: {
-    welcomeGreeting: 'Hello! How can I help you today?',
+    welcomeGreeting: 'Hello! What can I tell you about Conversation Relay today?',
+    ttsProvider: 'ElevenLabs',
+    voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
   development: true,
 });
