@@ -6,6 +6,7 @@ import {
   ConversationIntelligenceConfig,
   ProfileId,
   ConversationId,
+  MemoryStoreId,
 } from '../types/index';
 import { MemoryClient } from '../clients/memory';
 import { Logger, createLogger } from './logger';
@@ -342,7 +343,7 @@ export class OperatorResultProcessor {
       for (const observation of observations) {
         try {
           await this.memoryClient.createObservation(
-            event.memoryStoreId!,
+            event.memoryStoreId! as MemoryStoreId,
             profileId as ProfileId,
             observation,
             'conversation-intelligence',
@@ -426,7 +427,7 @@ export class OperatorResultProcessor {
         }));
 
         await this.memoryClient.createConversationSummaries(
-          event.memoryStoreId!,
+          event.memoryStoreId! as MemoryStoreId,
           profileId as ProfileId,
           summaryItems
         );

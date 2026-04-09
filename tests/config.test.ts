@@ -11,7 +11,7 @@ describe('TACConfig', () => {
     twilioApiKey: 'SKtest123456789',
     twilioApiToken: 'test_api_token_123',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
@@ -28,7 +28,7 @@ describe('TACConfig', () => {
       expect(config.twilioAccountSid).toBe('ACtest123456789');
       expect(config.twilioAuthToken).toBe('test_token_123');
       expect(config.twilioPhoneNumber).toBe('+15551234567');
-      expect(config.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
+      expect(config.memoryStoreId).toBe('mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
       expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
@@ -151,7 +151,7 @@ describe('TACConfig', () => {
       vi.stubEnv('TWILIO_API_KEY', 'SKtest123');
       vi.stubEnv('TWILIO_API_TOKEN', 'test_api_token');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '+1234567890');
-      vi.stubEnv('MEMORY_STORE_ID', 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
+      vi.stubEnv('MEMORY_STORE_ID', 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
       vi.stubEnv('CONVERSATION_SERVICE_ID', 'conv_configuration_01testconfigabc123xyzabcde');
     };
 
@@ -164,7 +164,7 @@ describe('TACConfig', () => {
       expect(config.twilioAccountSid).toBe('ACtest123');
       expect(config.twilioAuthToken).toBe('test_auth_token');
       expect(config.twilioPhoneNumber).toBe('+1234567890');
-      expect(config.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
+      expect(config.memoryStoreId).toBe('mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
       expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 

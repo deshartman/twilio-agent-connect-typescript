@@ -25,7 +25,7 @@ describe('Memory Functionality', () => {
 
   const getTestConfigWithMemory = () => ({
     ...getTestConfigWithoutMemory(),
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
   });
 
   describe('isMemoryEnabled()', () => {
@@ -81,7 +81,7 @@ describe('Memory Functionality', () => {
       expect(result.hasMemoryFeatures).toBe(true);
       expect(result.rawData).toEqual(mockMemoryResponse);
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'mem_profile_existing',
         { query: 'test query' }
       );
@@ -129,7 +129,7 @@ describe('Memory Functionality', () => {
 
       // Verify profile was looked up
       expect(memoryClient!.lookupProfile).toHaveBeenCalledWith(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'phone',
         '+1 (317) 555-6789'
       );
@@ -139,7 +139,7 @@ describe('Memory Functionality', () => {
 
       // Verify memory was retrieved with the looked up profile_id
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'mem_profile_00000000000000000000000001',
         { query: 'test query' }
       );
@@ -192,7 +192,7 @@ describe('Memory Functionality', () => {
       // Verify first profile was used
       expect(session.profileId).toBe('mem_profile_00000000000000000000000001');
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'mem_profile_00000000000000000000000001',
         { query: undefined }
       );
@@ -454,7 +454,7 @@ describe('Memory Functionality', () => {
 
       expect(result).toEqual(mockProfileResponse);
       expect(memoryClient!.getProfile).toHaveBeenCalledWith(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         undefined
       );

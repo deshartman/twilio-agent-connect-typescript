@@ -4,6 +4,7 @@ import {
   BuiltInTools,
   MemoryClient,
   ProfileId,
+  MemoryStoreId,
 } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
@@ -24,7 +25,7 @@ interface MemoryRetrievalParams {
  */
 export function createMemoryRetrievalTool(
   memoryClient: MemoryClient,
-  serviceSid: string,
+  memoryStoreId: string,
   profileId?: string
 ): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse> {
   return defineTool(
@@ -75,7 +76,11 @@ export function createMemoryRetrievalTool(
         session_limit: params.session_limit ?? 3,
       };
 
-      return memoryClient.retrieveMemories(serviceSid, profileId as ProfileId, request);
+      return memoryClient.retrieveMemories(
+        memoryStoreId as MemoryStoreId,
+        profileId as ProfileId,
+        request
+      );
     }
   );
 }
@@ -85,7 +90,7 @@ export function createMemoryRetrievalTool(
  */
 export function createMemoryTools(
   memoryClient: MemoryClient,
-  serviceSid: string
+  memoryStoreId: string
 ): {
   forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
   forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
@@ -95,12 +100,12 @@ export function createMemoryTools(
      * Create memory tool for specific profile
      */
     forProfile: (profileId: string) =>
-      createMemoryRetrievalTool(memoryClient, serviceSid, profileId),
+      createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
 
     /**
      * Create memory tool for current session
      */
     forSession: (profileId?: string) =>
-      createMemoryRetrievalTool(memoryClient, serviceSid, profileId),
+      createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
   };
 }

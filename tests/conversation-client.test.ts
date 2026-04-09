@@ -384,7 +384,7 @@ describe('ConversationClient', () => {
         displayName: 'Test Configuration',
         description: 'A test conversation configuration',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         channelSettings: {
           SMS: {
             statusTimeouts: {
@@ -417,7 +417,7 @@ describe('ConversationClient', () => {
       const result = await conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde');
 
       expect(result.id).toBe('conv_configuration_01testconfigabc123xyzabcde');
-      expect(result.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
+      expect(result.memoryStoreId).toBe('mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
       expect(result.conversationGroupingType).toBe('GROUP_BY_PARTICIPANT_ADDRESSES');
       expect(result.channelSettings?.SMS).toBeDefined();
       expect(result.statusCallbacks).toHaveLength(1);
@@ -437,7 +437,7 @@ describe('ConversationClient', () => {
         id: 'conv_configuration_minimal',
         description: 'Minimal configuration',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE',
-        memoryStoreId: 'mem_service_minimal',
+        memoryStoreId: 'mem_store_minimal',
       };
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockConfiguration, { ok: true }));
@@ -445,7 +445,7 @@ describe('ConversationClient', () => {
       const result = await conversationClient.getConfiguration('conv_configuration_minimal');
 
       expect(result.id).toBe('conv_configuration_minimal');
-      expect(result.memoryStoreId).toBe('mem_service_minimal');
+      expect(result.memoryStoreId).toBe('mem_store_minimal');
       expect(result.displayName).toBeUndefined();
       expect(result.channelSettings).toBeUndefined();
     });
@@ -477,7 +477,7 @@ describe('ConversationClient', () => {
         id: 'conv_configuration_01testconfigabc123xyzabcde',
         description: 'Config with invalid URL',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         statusCallbacks: [
           {
             url: 'not-a-valid-url',

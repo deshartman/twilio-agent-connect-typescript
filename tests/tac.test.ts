@@ -81,7 +81,7 @@ describe('TAC Core', () => {
     it('should initialize memory client when memoryStoreId is provided', () => {
       const configWithMemory = {
         ...getTestConfig(),
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
       };
       const config = new TACConfig(configWithMemory);
       const tac = new TAC({ config });

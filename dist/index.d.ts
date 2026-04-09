@@ -833,959 +833,6 @@ interface SessionContext {
 }
 
 /**
- * Participant address type for different communication channels
- */
-declare const ParticipantAddressTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-type ParticipantAddressType = z.infer<typeof ParticipantAddressTypeSchema>;
-/**
- * Participant address containing channel and address
- */
-declare const ParticipantAddressSchema: z.ZodObject<{
-    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-    address: z.ZodString;
-    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    channelId?: string | null | undefined;
-}, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    channelId?: string | null | undefined;
-}>;
-type ParticipantAddress = z.infer<typeof ParticipantAddressSchema>;
-/**
- * Communication participant for Conversations Service API (Maestro).
- *
- * Note: participantId is required for SDK validation when creating communications.
- */
-declare const CommunicationParticipantSchema: z.ZodObject<{
-    address: z.ZodString;
-    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-    participantId: z.ZodString;
-    deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    participantId: string;
-    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-}, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    participantId: string;
-    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-}>;
-type CommunicationParticipant = z.infer<typeof CommunicationParticipantSchema>;
-/**
- * Word-level transcription data with timing information.
- */
-declare const TranscriptionWordSchema: z.ZodObject<{
-    text: z.ZodString;
-    startTime: z.ZodOptional<z.ZodString>;
-    endTime: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    text: string;
-    startTime?: string | undefined;
-    endTime?: string | undefined;
-}, {
-    text: string;
-    startTime?: string | undefined;
-    endTime?: string | undefined;
-}>;
-type TranscriptionWord = z.infer<typeof TranscriptionWordSchema>;
-/**
- * Transcription metadata for communication content.
- */
-declare const TranscriptionSchema: z.ZodObject<{
-    channel: z.ZodOptional<z.ZodNumber>;
-    confidence: z.ZodOptional<z.ZodNumber>;
-    engine: z.ZodOptional<z.ZodString>;
-    words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-        text: z.ZodString;
-        startTime: z.ZodOptional<z.ZodString>;
-        endTime: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        text: string;
-        startTime?: string | undefined;
-        endTime?: string | undefined;
-    }, {
-        text: string;
-        startTime?: string | undefined;
-        endTime?: string | undefined;
-    }>, "many">>;
-}, "strip", z.ZodTypeAny, {
-    channel?: number | undefined;
-    confidence?: number | undefined;
-    engine?: string | undefined;
-    words?: {
-        text: string;
-        startTime?: string | undefined;
-        endTime?: string | undefined;
-    }[] | undefined;
-}, {
-    channel?: number | undefined;
-    confidence?: number | undefined;
-    engine?: string | undefined;
-    words?: {
-        text: string;
-        startTime?: string | undefined;
-        endTime?: string | undefined;
-    }[] | undefined;
-}>;
-type Transcription = z.infer<typeof TranscriptionSchema>;
-/**
- * Communication content (ContentText or ContentTranscription).
- *
- * Note: In Maestro API, both `type` and `text` are required fields.
- */
-declare const CommunicationContentSchema: z.ZodObject<{
-    type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
-    text: z.ZodString;
-    transcription: z.ZodOptional<z.ZodObject<{
-        channel: z.ZodOptional<z.ZodNumber>;
-        confidence: z.ZodOptional<z.ZodNumber>;
-        engine: z.ZodOptional<z.ZodString>;
-        words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            text: z.ZodString;
-            startTime: z.ZodOptional<z.ZodString>;
-            endTime: z.ZodOptional<z.ZodString>;
-        }, "strip", z.ZodTypeAny, {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }, {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }>, "many">>;
-    }, "strip", z.ZodTypeAny, {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    }, {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    type: "TEXT" | "TRANSCRIPTION";
-    text: string;
-    transcription?: {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}, {
-    type: "TEXT" | "TRANSCRIPTION";
-    text: string;
-    transcription?: {
-        channel?: number | undefined;
-        confidence?: number | undefined;
-        engine?: string | undefined;
-        words?: {
-            text: string;
-            startTime?: string | undefined;
-            endTime?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}>;
-type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
-/**
- * Communication from Conversations Service API (Maestro).
- *
- * Note: `createdAt` is optional per API spec.
- */
-declare const CommunicationSchema: z.ZodObject<{
-    id: z.ZodString;
-    conversationId: z.ZodString;
-    accountId: z.ZodString;
-    author: z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodString;
-        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }>;
-    content: z.ZodObject<{
-        type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
-        text: z.ZodString;
-        transcription: z.ZodOptional<z.ZodObject<{
-            channel: z.ZodOptional<z.ZodNumber>;
-            confidence: z.ZodOptional<z.ZodNumber>;
-            engine: z.ZodOptional<z.ZodString>;
-            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                text: z.ZodString;
-                startTime: z.ZodOptional<z.ZodString>;
-                endTime: z.ZodOptional<z.ZodString>;
-            }, "strip", z.ZodTypeAny, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }>, "many">>;
-        }, "strip", z.ZodTypeAny, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }, {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }>;
-    recipients: z.ZodArray<z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodString;
-        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }>, "many">;
-    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    createdAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    updatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    occurredAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    };
-    content: {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }[];
-    conversationId: string;
-    accountId: string;
-    createdAt?: string | null | undefined;
-    occurredAt?: string | null | undefined;
-    updatedAt?: string | null | undefined;
-    channelId?: string | null | undefined;
-}, {
-    id: string;
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    };
-    content: {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId: string;
-        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
-    }[];
-    conversationId: string;
-    accountId: string;
-    createdAt?: string | null | undefined;
-    occurredAt?: string | null | undefined;
-    updatedAt?: string | null | undefined;
-    channelId?: string | null | undefined;
-}>;
-type Communication = z.infer<typeof CommunicationSchema>;
-/**
- * Send API author/recipient address (ParticipantAddress)
- */
-declare const SendCommunicationParticipantAddressSchema: z.ZodObject<{
-    address: z.ZodString;
-    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-    participantId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    participantId?: string | undefined;
-}, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    participantId?: string | undefined;
-}>;
-type SendCommunicationParticipantAddress = z.infer<typeof SendCommunicationParticipantAddressSchema>;
-/**
- * Send API request fields for POST /v2/Communications.
- * Note: conversationId is supplied separately as a parameter to sendCommunication()
- * and merged into the JSON payload by the client before sending.
- */
-declare const SendCommunicationRequestSchema: z.ZodObject<{
-    author: z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }>;
-    content: z.ZodObject<{
-        type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
-        text: z.ZodString;
-        transcription: z.ZodOptional<z.ZodObject<{
-            channel: z.ZodOptional<z.ZodNumber>;
-            confidence: z.ZodOptional<z.ZodNumber>;
-            engine: z.ZodOptional<z.ZodString>;
-            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                text: z.ZodString;
-                startTime: z.ZodOptional<z.ZodString>;
-                endTime: z.ZodOptional<z.ZodString>;
-            }, "strip", z.ZodTypeAny, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }, {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }>, "many">>;
-        }, "strip", z.ZodTypeAny, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }, {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }, {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }>;
-    recipients: z.ZodArray<z.ZodObject<{
-        address: z.ZodString;
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        participantId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }>, "many">;
-    channelId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    };
-    content: {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }[];
-    channelId?: string | undefined;
-}, {
-    author: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    };
-    content: {
-        type: "TEXT" | "TRANSCRIPTION";
-        text: string;
-        transcription?: {
-            channel?: number | undefined;
-            confidence?: number | undefined;
-            engine?: string | undefined;
-            words?: {
-                text: string;
-                startTime?: string | undefined;
-                endTime?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    };
-    recipients: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        participantId?: string | undefined;
-    }[];
-    channelId?: string | undefined;
-}>;
-type SendCommunicationRequest = z.infer<typeof SendCommunicationRequestSchema>;
-/**
- * Send API response from POST /v2/Communications endpoint
- * Returns 202 Accepted with async job status.
- * The Communication record is created asynchronously after message delivery.
- * Listen for COMMUNICATION_CREATED webhook to get the full Communication.
- */
-declare const SendCommunicationResponseSchema: z.ZodObject<{
-    message: z.ZodString;
-    conversationId: z.ZodString;
-    channelId: z.ZodNullable<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    channelId: string | null;
-    conversationId: string;
-}, {
-    message: string;
-    channelId: string | null;
-    conversationId: string;
-}>;
-type SendCommunicationResponse = z.infer<typeof SendCommunicationResponseSchema>;
-/**
- * Author information for a conversation session
- */
-declare const AuthorInfoSchema: z.ZodObject<{
-    address: z.ZodString;
-    participantId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    participantId?: string | undefined;
-}, {
-    address: string;
-    participantId?: string | undefined;
-}>;
-type AuthorInfo = z.infer<typeof AuthorInfoSchema>;
-/**
- * Profile information for a conversation participant
- */
-interface Profile {
-    profileId: string;
-    traits?: Record<string, unknown>;
-}
-/**
- * Conversation session context
- *
- * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
- */
-declare const ConversationSessionSchema: z.ZodObject<{
-    sessionId: z.ZodString;
-    channel: z.ZodEnum<["sms", "voice", "chat"]>;
-    startedAt: z.ZodDate;
-    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
-    profileId: z.ZodOptional<z.ZodString>;
-    serviceId: z.ZodOptional<z.ZodString>;
-    authorInfo: z.ZodOptional<z.ZodObject<{
-        address: z.ZodString;
-        participantId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        participantId?: string | undefined;
-    }, {
-        address: string;
-        participantId?: string | undefined;
-    }>>;
-    profile: z.ZodOptional<z.ZodType<Profile, z.ZodTypeDef, Profile>>;
-}, "strip", z.ZodTypeAny, {
-    channel: "sms" | "voice" | "chat";
-    sessionId: string;
-    startedAt: Date;
-    metadata: Record<string, unknown>;
-    profileId?: string | undefined;
-    serviceId?: string | undefined;
-    authorInfo?: {
-        address: string;
-        participantId?: string | undefined;
-    } | undefined;
-    profile?: Profile | undefined;
-}, {
-    channel: "sms" | "voice" | "chat";
-    sessionId: string;
-    startedAt: Date;
-    metadata?: Record<string, unknown> | undefined;
-    profileId?: string | undefined;
-    serviceId?: string | undefined;
-    authorInfo?: {
-        address: string;
-        participantId?: string | undefined;
-    } | undefined;
-    profile?: Profile | undefined;
-}>;
-type ConversationSession = z.infer<typeof ConversationSessionSchema>;
-/**
- * Branded types for type safety
- */
-type ConversationId = string & {
-    readonly _brand: 'ConversationId';
-};
-type ProfileId = string & {
-    readonly _brand: 'ProfileId';
-};
-type ParticipantId = string & {
-    readonly _brand: 'ParticipantId';
-};
-/**
- * Type guards for branded types
- */
-declare function isConversationId(value: string): value is ConversationId;
-declare function isProfileId(value: string): value is ProfileId;
-declare function isParticipantId(value: string): value is ParticipantId;
-/**
- * Conversation response from Conversations Service API
- */
-declare const ConversationResponseSchema: z.ZodObject<{
-    id: z.ZodString;
-    accountId: z.ZodString;
-    status: z.ZodOptional<z.ZodString>;
-    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    configurationId: z.ZodOptional<z.ZodString>;
-    createdAt: z.ZodOptional<z.ZodString>;
-    updatedAt: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    accountId: string;
-    status?: string | undefined;
-    name?: string | null | undefined;
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    configurationId?: string | undefined;
-}, {
-    id: string;
-    accountId: string;
-    status?: string | undefined;
-    name?: string | null | undefined;
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    configurationId?: string | undefined;
-}>;
-type ConversationResponse = z.infer<typeof ConversationResponseSchema>;
-/**
- * Participant address from Conversations Service API (camelCase format)
- */
-declare const ConversationAddressSchema: z.ZodObject<{
-    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-    address: z.ZodString;
-    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, "strip", z.ZodTypeAny, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    channelId?: string | null | undefined;
-}, {
-    address: string;
-    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-    channelId?: string | null | undefined;
-}>;
-type ConversationAddress = z.infer<typeof ConversationAddressSchema>;
-/**
- * Participant response from Conversations Service API
- */
-declare const ConversationParticipantSchema: z.ZodObject<{
-    id: z.ZodString;
-    conversationId: z.ZodString;
-    accountId: z.ZodString;
-    name: z.ZodOptional<z.ZodString>;
-    type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
-    profileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    addresses: z.ZodDefault<z.ZodArray<z.ZodObject<{
-        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
-        address: z.ZodString;
-        channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        channelId?: string | null | undefined;
-    }, {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        channelId?: string | null | undefined;
-    }>, "many">>;
-    createdAt: z.ZodOptional<z.ZodString>;
-    updatedAt: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    conversationId: string;
-    accountId: string;
-    addresses: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        channelId?: string | null | undefined;
-    }[];
-    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-    name?: string | undefined;
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    profileId?: string | null | undefined;
-}, {
-    id: string;
-    conversationId: string;
-    accountId: string;
-    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
-    name?: string | undefined;
-    createdAt?: string | undefined;
-    updatedAt?: string | undefined;
-    profileId?: string | null | undefined;
-    addresses?: {
-        address: string;
-        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
-        channelId?: string | null | undefined;
-    }[] | undefined;
-}>;
-type ConversationParticipant = z.infer<typeof ConversationParticipantSchema>;
-/**
- * Timeout settings for channel status transitions
- */
-declare const StatusTimeoutsSchema: z.ZodObject<{
-    inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    closed: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    closed: number;
-    inactive?: number | null | undefined;
-}, {
-    closed: number;
-    inactive?: number | null | undefined;
-}>;
-type StatusTimeouts = z.infer<typeof StatusTimeoutsSchema>;
-/**
- * Capture rule with from/to addresses and optional metadata
- */
-declare const CaptureRuleSchema: z.ZodObject<{
-    from: z.ZodString;
-    to: z.ZodString;
-    metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
-}, "strip", z.ZodTypeAny, {
-    from: string;
-    to: string;
-    metadata?: Record<string, string> | null | undefined;
-}, {
-    from: string;
-    to: string;
-    metadata?: Record<string, string> | null | undefined;
-}>;
-type CaptureRule = z.infer<typeof CaptureRuleSchema>;
-/**
- * Configuration settings for a specific channel type
- */
-declare const ChannelSettingsSchema: z.ZodObject<{
-    statusTimeouts: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        closed: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        closed: number;
-        inactive?: number | null | undefined;
-    }, {
-        closed: number;
-        inactive?: number | null | undefined;
-    }>>>;
-    captureRules: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-        from: z.ZodString;
-        to: z.ZodString;
-        metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
-    }, "strip", z.ZodTypeAny, {
-        from: string;
-        to: string;
-        metadata?: Record<string, string> | null | undefined;
-    }, {
-        from: string;
-        to: string;
-        metadata?: Record<string, string> | null | undefined;
-    }>, "many">>>;
-}, "strip", z.ZodTypeAny, {
-    statusTimeouts?: {
-        closed: number;
-        inactive?: number | null | undefined;
-    } | null | undefined;
-    captureRules?: {
-        from: string;
-        to: string;
-        metadata?: Record<string, string> | null | undefined;
-    }[] | null | undefined;
-}, {
-    statusTimeouts?: {
-        closed: number;
-        inactive?: number | null | undefined;
-    } | null | undefined;
-    captureRules?: {
-        from: string;
-        to: string;
-        metadata?: Record<string, string> | null | undefined;
-    }[] | null | undefined;
-}>;
-type ChannelSettings = z.infer<typeof ChannelSettingsSchema>;
-/**
- * Webhook configuration for status callbacks
- */
-declare const StatusCallbackSchema: z.ZodObject<{
-    url: z.ZodString;
-    method: z.ZodDefault<z.ZodOptional<z.ZodEnum<["POST", "GET", "PUT", "DELETE", "PATCH"]>>>;
-}, "strip", z.ZodTypeAny, {
-    url: string;
-    method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
-}, {
-    url: string;
-    method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
-}>;
-type StatusCallback = z.infer<typeof StatusCallbackSchema>;
-/**
- * Conversation grouping type
- */
-declare const ConversationGroupingTypeSchema: z.ZodEnum<["GROUP_BY_PARTICIPANT_ADDRESSES", "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"]>;
-type ConversationGroupingType = z.infer<typeof ConversationGroupingTypeSchema>;
-/**
- * Configuration settings for a conversation
- */
-declare const ConversationConfigurationSchema: z.ZodObject<{
-    id: z.ZodString;
-    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    description: z.ZodString;
-    conversationGroupingType: z.ZodEnum<["GROUP_BY_PARTICIPANT_ADDRESSES", "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"]>;
-    memoryStoreId: z.ZodString;
-    channelSettings: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-        statusTimeouts: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-            closed: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            closed: number;
-            inactive?: number | null | undefined;
-        }, {
-            closed: number;
-            inactive?: number | null | undefined;
-        }>>>;
-        captureRules: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-            from: z.ZodString;
-            to: z.ZodString;
-            metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
-        }, "strip", z.ZodTypeAny, {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }, {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }>, "many">>>;
-    }, "strip", z.ZodTypeAny, {
-        statusTimeouts?: {
-            closed: number;
-            inactive?: number | null | undefined;
-        } | null | undefined;
-        captureRules?: {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }[] | null | undefined;
-    }, {
-        statusTimeouts?: {
-            closed: number;
-            inactive?: number | null | undefined;
-        } | null | undefined;
-        captureRules?: {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }[] | null | undefined;
-    }>>>>;
-    statusCallbacks: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-        url: z.ZodString;
-        method: z.ZodDefault<z.ZodOptional<z.ZodEnum<["POST", "GET", "PUT", "DELETE", "PATCH"]>>>;
-    }, "strip", z.ZodTypeAny, {
-        url: string;
-        method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
-    }, {
-        url: string;
-        method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
-    }>, "many">>>;
-    intelligenceConfigurationIds: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString, "many">>>;
-    createdAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    updatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    version: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-}, "strip", z.ZodTypeAny, {
-    memoryStoreId: string;
-    id: string;
-    description: string;
-    conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
-    createdAt?: string | null | undefined;
-    updatedAt?: string | null | undefined;
-    displayName?: string | null | undefined;
-    channelSettings?: Record<string, {
-        statusTimeouts?: {
-            closed: number;
-            inactive?: number | null | undefined;
-        } | null | undefined;
-        captureRules?: {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }[] | null | undefined;
-    }> | null | undefined;
-    statusCallbacks?: {
-        url: string;
-        method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
-    }[] | null | undefined;
-    intelligenceConfigurationIds?: string[] | null | undefined;
-    version?: number | null | undefined;
-}, {
-    memoryStoreId: string;
-    id: string;
-    description: string;
-    conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
-    createdAt?: string | null | undefined;
-    updatedAt?: string | null | undefined;
-    displayName?: string | null | undefined;
-    channelSettings?: Record<string, {
-        statusTimeouts?: {
-            closed: number;
-            inactive?: number | null | undefined;
-        } | null | undefined;
-        captureRules?: {
-            from: string;
-            to: string;
-            metadata?: Record<string, string> | null | undefined;
-        }[] | null | undefined;
-    }> | null | undefined;
-    statusCallbacks?: {
-        url: string;
-        method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
-    }[] | null | undefined;
-    intelligenceConfigurationIds?: string[] | null | undefined;
-    version?: number | null | undefined;
-}>;
-type ConversationConfiguration = z.infer<typeof ConversationConfigurationSchema>;
-
-/**
  * ConversationRelay Type Definitions
  *
  * Single source of truth for all ConversationRelay types and Zod schemas.
@@ -2519,6 +1566,973 @@ interface Channel {
 }
 
 /**
+ * Participant address type for different communication channels
+ */
+declare const ParticipantAddressTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+type ParticipantAddressType = z.infer<typeof ParticipantAddressTypeSchema>;
+/**
+ * Participant address containing channel and address
+ */
+declare const ParticipantAddressSchema: z.ZodObject<{
+    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+    address: z.ZodString;
+    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    channelId?: string | null | undefined;
+}, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    channelId?: string | null | undefined;
+}>;
+type ParticipantAddress = z.infer<typeof ParticipantAddressSchema>;
+/**
+ * Communication participant for Conversations Service API (Maestro).
+ *
+ * Note: participantId is required for SDK validation when creating communications.
+ */
+declare const CommunicationParticipantSchema: z.ZodObject<{
+    address: z.ZodString;
+    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+    participantId: z.ZodString;
+    deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+}, "strip", z.ZodTypeAny, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    participantId: string;
+    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+}, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    participantId: string;
+    deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+}>;
+type CommunicationParticipant = z.infer<typeof CommunicationParticipantSchema>;
+/**
+ * Word-level transcription data with timing information.
+ */
+declare const TranscriptionWordSchema: z.ZodObject<{
+    text: z.ZodString;
+    startTime: z.ZodOptional<z.ZodString>;
+    endTime: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    text: string;
+    startTime?: string | undefined;
+    endTime?: string | undefined;
+}, {
+    text: string;
+    startTime?: string | undefined;
+    endTime?: string | undefined;
+}>;
+type TranscriptionWord = z.infer<typeof TranscriptionWordSchema>;
+/**
+ * Transcription metadata for communication content.
+ */
+declare const TranscriptionSchema: z.ZodObject<{
+    channel: z.ZodOptional<z.ZodNumber>;
+    confidence: z.ZodOptional<z.ZodNumber>;
+    engine: z.ZodOptional<z.ZodString>;
+    words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        text: z.ZodString;
+        startTime: z.ZodOptional<z.ZodString>;
+        endTime: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        text: string;
+        startTime?: string | undefined;
+        endTime?: string | undefined;
+    }, {
+        text: string;
+        startTime?: string | undefined;
+        endTime?: string | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    channel?: number | undefined;
+    confidence?: number | undefined;
+    engine?: string | undefined;
+    words?: {
+        text: string;
+        startTime?: string | undefined;
+        endTime?: string | undefined;
+    }[] | undefined;
+}, {
+    channel?: number | undefined;
+    confidence?: number | undefined;
+    engine?: string | undefined;
+    words?: {
+        text: string;
+        startTime?: string | undefined;
+        endTime?: string | undefined;
+    }[] | undefined;
+}>;
+type Transcription = z.infer<typeof TranscriptionSchema>;
+/**
+ * Communication content (ContentText or ContentTranscription).
+ *
+ * Note: In Maestro API, both `type` and `text` are required fields.
+ */
+declare const CommunicationContentSchema: z.ZodObject<{
+    type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
+    text: z.ZodString;
+    transcription: z.ZodOptional<z.ZodObject<{
+        channel: z.ZodOptional<z.ZodNumber>;
+        confidence: z.ZodOptional<z.ZodNumber>;
+        engine: z.ZodOptional<z.ZodString>;
+        words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            text: z.ZodString;
+            startTime: z.ZodOptional<z.ZodString>;
+            endTime: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }, {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    }, {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    type: "TEXT" | "TRANSCRIPTION";
+    text: string;
+    transcription?: {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}, {
+    type: "TEXT" | "TRANSCRIPTION";
+    text: string;
+    transcription?: {
+        channel?: number | undefined;
+        confidence?: number | undefined;
+        engine?: string | undefined;
+        words?: {
+            text: string;
+            startTime?: string | undefined;
+            endTime?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}>;
+type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
+/**
+ * Communication from Conversations Service API (Maestro).
+ *
+ * Note: `createdAt` is optional per API spec.
+ */
+declare const CommunicationSchema: z.ZodObject<{
+    id: z.ZodString;
+    conversationId: z.ZodString;
+    accountId: z.ZodString;
+    author: z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodString;
+        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }>;
+    content: z.ZodObject<{
+        type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
+        text: z.ZodString;
+        transcription: z.ZodOptional<z.ZodObject<{
+            channel: z.ZodOptional<z.ZodNumber>;
+            confidence: z.ZodOptional<z.ZodNumber>;
+            engine: z.ZodOptional<z.ZodString>;
+            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                text: z.ZodString;
+                startTime: z.ZodOptional<z.ZodString>;
+                endTime: z.ZodOptional<z.ZodString>;
+            }, "strip", z.ZodTypeAny, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }, {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }>;
+    recipients: z.ZodArray<z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodString;
+        deliveryStatus: z.ZodOptional<z.ZodEnum<["INITIATED", "IN_PROGRESS", "DELIVERED", "COMPLETED", "FAILED"]>>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }>, "many">;
+    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    createdAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    updatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    occurredAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    };
+    content: {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }[];
+    conversationId: string;
+    accountId: string;
+    createdAt?: string | null | undefined;
+    occurredAt?: string | null | undefined;
+    updatedAt?: string | null | undefined;
+    channelId?: string | null | undefined;
+}, {
+    id: string;
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    };
+    content: {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId: string;
+        deliveryStatus?: "INITIATED" | "IN_PROGRESS" | "DELIVERED" | "COMPLETED" | "FAILED" | undefined;
+    }[];
+    conversationId: string;
+    accountId: string;
+    createdAt?: string | null | undefined;
+    occurredAt?: string | null | undefined;
+    updatedAt?: string | null | undefined;
+    channelId?: string | null | undefined;
+}>;
+type Communication = z.infer<typeof CommunicationSchema>;
+/**
+ * Send API author/recipient address (ParticipantAddress)
+ */
+declare const SendCommunicationParticipantAddressSchema: z.ZodObject<{
+    address: z.ZodString;
+    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+    participantId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    participantId?: string | undefined;
+}, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    participantId?: string | undefined;
+}>;
+type SendCommunicationParticipantAddress = z.infer<typeof SendCommunicationParticipantAddressSchema>;
+/**
+ * Send API request fields for POST /v2/Communications.
+ * Note: conversationId is supplied separately as a parameter to sendCommunication()
+ * and merged into the JSON payload by the client before sending.
+ */
+declare const SendCommunicationRequestSchema: z.ZodObject<{
+    author: z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }>;
+    content: z.ZodObject<{
+        type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
+        text: z.ZodString;
+        transcription: z.ZodOptional<z.ZodObject<{
+            channel: z.ZodOptional<z.ZodNumber>;
+            confidence: z.ZodOptional<z.ZodNumber>;
+            engine: z.ZodOptional<z.ZodString>;
+            words: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                text: z.ZodString;
+                startTime: z.ZodOptional<z.ZodString>;
+                endTime: z.ZodOptional<z.ZodString>;
+            }, "strip", z.ZodTypeAny, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }, {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }, {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }, {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }>;
+    recipients: z.ZodArray<z.ZodObject<{
+        address: z.ZodString;
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        participantId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }>, "many">;
+    channelId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    };
+    content: {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }[];
+    channelId?: string | undefined;
+}, {
+    author: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    };
+    content: {
+        type: "TEXT" | "TRANSCRIPTION";
+        text: string;
+        transcription?: {
+            channel?: number | undefined;
+            confidence?: number | undefined;
+            engine?: string | undefined;
+            words?: {
+                text: string;
+                startTime?: string | undefined;
+                endTime?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    };
+    recipients: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        participantId?: string | undefined;
+    }[];
+    channelId?: string | undefined;
+}>;
+type SendCommunicationRequest = z.infer<typeof SendCommunicationRequestSchema>;
+/**
+ * Send API response from POST /v2/Communications endpoint
+ * Returns 202 Accepted with async job status.
+ * The Communication record is created asynchronously after message delivery.
+ * Listen for COMMUNICATION_CREATED webhook to get the full Communication.
+ */
+declare const SendCommunicationResponseSchema: z.ZodObject<{
+    message: z.ZodString;
+    conversationId: z.ZodString;
+    channelId: z.ZodNullable<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    channelId: string | null;
+    conversationId: string;
+}, {
+    message: string;
+    channelId: string | null;
+    conversationId: string;
+}>;
+type SendCommunicationResponse = z.infer<typeof SendCommunicationResponseSchema>;
+/**
+ * Author information for a conversation session
+ */
+declare const AuthorInfoSchema: z.ZodObject<{
+    address: z.ZodString;
+    participantId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    address: string;
+    participantId?: string | undefined;
+}, {
+    address: string;
+    participantId?: string | undefined;
+}>;
+type AuthorInfo = z.infer<typeof AuthorInfoSchema>;
+/**
+ * Profile information for a conversation participant
+ */
+interface Profile {
+    profileId: string;
+    traits?: Record<string, unknown>;
+}
+/**
+ * Conversation session context
+ *
+ * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
+ */
+declare const ConversationSessionSchema: z.ZodObject<{
+    sessionId: z.ZodString;
+    channel: z.ZodEnum<["sms", "voice", "chat"]>;
+    startedAt: z.ZodDate;
+    metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
+    profileId: z.ZodOptional<z.ZodString>;
+    serviceId: z.ZodOptional<z.ZodString>;
+    authorInfo: z.ZodOptional<z.ZodObject<{
+        address: z.ZodString;
+        participantId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        participantId?: string | undefined;
+    }, {
+        address: string;
+        participantId?: string | undefined;
+    }>>;
+    profile: z.ZodOptional<z.ZodType<Profile, z.ZodTypeDef, Profile>>;
+}, "strip", z.ZodTypeAny, {
+    channel: "sms" | "voice" | "chat";
+    sessionId: string;
+    startedAt: Date;
+    metadata: Record<string, unknown>;
+    profileId?: string | undefined;
+    serviceId?: string | undefined;
+    authorInfo?: {
+        address: string;
+        participantId?: string | undefined;
+    } | undefined;
+    profile?: Profile | undefined;
+}, {
+    channel: "sms" | "voice" | "chat";
+    sessionId: string;
+    startedAt: Date;
+    profileId?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
+    serviceId?: string | undefined;
+    authorInfo?: {
+        address: string;
+        participantId?: string | undefined;
+    } | undefined;
+    profile?: Profile | undefined;
+}>;
+/**
+ * ConversationSession type with branded IDs
+ *
+ * Note: Zod schema validates as plain strings, but TypeScript type uses branded types.
+ * Cast at parse boundaries: ConversationSessionSchema.parse(data) as ConversationSession
+ */
+type ConversationSession = Omit<z.infer<typeof ConversationSessionSchema>, 'sessionId' | 'profileId' | 'serviceId'> & {
+    sessionId: SessionId;
+    profileId?: ProfileId | undefined;
+    serviceId?: string | undefined;
+};
+/**
+ * Branded types for type safety
+ */
+type ConversationId = string & {
+    readonly _brand: 'ConversationId';
+};
+type ProfileId = string & {
+    readonly _brand: 'ProfileId';
+};
+type ParticipantId = string & {
+    readonly _brand: 'ParticipantId';
+};
+type MemoryStoreId = string & {
+    readonly _brand: 'MemoryStoreId';
+};
+/**
+ * Type guards for branded types
+ */
+declare function isConversationId(value: string): value is ConversationId;
+declare function isProfileId(value: string): value is ProfileId;
+declare function isParticipantId(value: string): value is ParticipantId;
+declare function isMemoryStoreId(value: string): value is MemoryStoreId;
+/**
+ * Conversation response from Conversations Service API
+ */
+declare const ConversationResponseSchema: z.ZodObject<{
+    id: z.ZodString;
+    accountId: z.ZodString;
+    status: z.ZodOptional<z.ZodString>;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    configurationId: z.ZodOptional<z.ZodString>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    updatedAt: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    accountId: string;
+    status?: string | undefined;
+    name?: string | null | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    configurationId?: string | undefined;
+}, {
+    id: string;
+    accountId: string;
+    status?: string | undefined;
+    name?: string | null | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    configurationId?: string | undefined;
+}>;
+type ConversationResponse = z.infer<typeof ConversationResponseSchema>;
+/**
+ * Participant address from Conversations Service API (camelCase format)
+ */
+declare const ConversationAddressSchema: z.ZodObject<{
+    channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+    address: z.ZodString;
+    channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    channelId?: string | null | undefined;
+}, {
+    address: string;
+    channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+    channelId?: string | null | undefined;
+}>;
+type ConversationAddress = z.infer<typeof ConversationAddressSchema>;
+/**
+ * Participant response from Conversations Service API
+ */
+declare const ConversationParticipantSchema: z.ZodObject<{
+    id: z.ZodString;
+    conversationId: z.ZodString;
+    accountId: z.ZodString;
+    name: z.ZodOptional<z.ZodString>;
+    type: z.ZodOptional<z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>>;
+    profileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    addresses: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        channel: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
+        address: z.ZodString;
+        channelId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, "strip", z.ZodTypeAny, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        channelId?: string | null | undefined;
+    }, {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        channelId?: string | null | undefined;
+    }>, "many">>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    updatedAt: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    conversationId: string;
+    accountId: string;
+    addresses: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        channelId?: string | null | undefined;
+    }[];
+    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+    name?: string | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    profileId?: string | null | undefined;
+}, {
+    id: string;
+    conversationId: string;
+    accountId: string;
+    type?: "HUMAN_AGENT" | "CUSTOMER" | "AI_AGENT" | undefined;
+    name?: string | undefined;
+    createdAt?: string | undefined;
+    updatedAt?: string | undefined;
+    profileId?: string | null | undefined;
+    addresses?: {
+        address: string;
+        channel: "VOICE" | "SMS" | "RCS" | "EMAIL" | "WHATSAPP" | "CHAT" | "API" | "SYSTEM";
+        channelId?: string | null | undefined;
+    }[] | undefined;
+}>;
+type ConversationParticipant = z.infer<typeof ConversationParticipantSchema>;
+/**
+ * Timeout settings for channel status transitions
+ */
+declare const StatusTimeoutsSchema: z.ZodObject<{
+    inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    closed: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    closed: number;
+    inactive?: number | null | undefined;
+}, {
+    closed: number;
+    inactive?: number | null | undefined;
+}>;
+type StatusTimeouts = z.infer<typeof StatusTimeoutsSchema>;
+/**
+ * Capture rule with from/to addresses and optional metadata
+ */
+declare const CaptureRuleSchema: z.ZodObject<{
+    from: z.ZodString;
+    to: z.ZodString;
+    metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
+}, "strip", z.ZodTypeAny, {
+    from: string;
+    to: string;
+    metadata?: Record<string, string> | null | undefined;
+}, {
+    from: string;
+    to: string;
+    metadata?: Record<string, string> | null | undefined;
+}>;
+type CaptureRule = z.infer<typeof CaptureRuleSchema>;
+/**
+ * Configuration settings for a specific channel type
+ */
+declare const ChannelSettingsSchema: z.ZodObject<{
+    statusTimeouts: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        closed: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        closed: number;
+        inactive?: number | null | undefined;
+    }, {
+        closed: number;
+        inactive?: number | null | undefined;
+    }>>>;
+    captureRules: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+        from: z.ZodString;
+        to: z.ZodString;
+        metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
+    }, "strip", z.ZodTypeAny, {
+        from: string;
+        to: string;
+        metadata?: Record<string, string> | null | undefined;
+    }, {
+        from: string;
+        to: string;
+        metadata?: Record<string, string> | null | undefined;
+    }>, "many">>>;
+}, "strip", z.ZodTypeAny, {
+    statusTimeouts?: {
+        closed: number;
+        inactive?: number | null | undefined;
+    } | null | undefined;
+    captureRules?: {
+        from: string;
+        to: string;
+        metadata?: Record<string, string> | null | undefined;
+    }[] | null | undefined;
+}, {
+    statusTimeouts?: {
+        closed: number;
+        inactive?: number | null | undefined;
+    } | null | undefined;
+    captureRules?: {
+        from: string;
+        to: string;
+        metadata?: Record<string, string> | null | undefined;
+    }[] | null | undefined;
+}>;
+type ChannelSettings = z.infer<typeof ChannelSettingsSchema>;
+/**
+ * Webhook configuration for status callbacks
+ */
+declare const StatusCallbackSchema: z.ZodObject<{
+    url: z.ZodString;
+    method: z.ZodDefault<z.ZodOptional<z.ZodEnum<["POST", "GET", "PUT", "DELETE", "PATCH"]>>>;
+}, "strip", z.ZodTypeAny, {
+    url: string;
+    method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
+}, {
+    url: string;
+    method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
+}>;
+type StatusCallback = z.infer<typeof StatusCallbackSchema>;
+/**
+ * Conversation grouping type
+ */
+declare const ConversationGroupingTypeSchema: z.ZodEnum<["GROUP_BY_PARTICIPANT_ADDRESSES", "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"]>;
+type ConversationGroupingType = z.infer<typeof ConversationGroupingTypeSchema>;
+/**
+ * Configuration settings for a conversation
+ */
+declare const ConversationConfigurationSchema: z.ZodObject<{
+    id: z.ZodString;
+    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    description: z.ZodString;
+    conversationGroupingType: z.ZodEnum<["GROUP_BY_PARTICIPANT_ADDRESSES", "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"]>;
+    memoryStoreId: z.ZodString;
+    channelSettings: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+        statusTimeouts: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            inactive: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+            closed: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            closed: number;
+            inactive?: number | null | undefined;
+        }, {
+            closed: number;
+            inactive?: number | null | undefined;
+        }>>>;
+        captureRules: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            to: z.ZodString;
+            metadata: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodString>>>;
+        }, "strip", z.ZodTypeAny, {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }, {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }>, "many">>>;
+    }, "strip", z.ZodTypeAny, {
+        statusTimeouts?: {
+            closed: number;
+            inactive?: number | null | undefined;
+        } | null | undefined;
+        captureRules?: {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }[] | null | undefined;
+    }, {
+        statusTimeouts?: {
+            closed: number;
+            inactive?: number | null | undefined;
+        } | null | undefined;
+        captureRules?: {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }[] | null | undefined;
+    }>>>>;
+    statusCallbacks: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+        url: z.ZodString;
+        method: z.ZodDefault<z.ZodOptional<z.ZodEnum<["POST", "GET", "PUT", "DELETE", "PATCH"]>>>;
+    }, "strip", z.ZodTypeAny, {
+        url: string;
+        method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
+    }, {
+        url: string;
+        method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
+    }>, "many">>>;
+    intelligenceConfigurationIds: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString, "many">>>;
+    createdAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    updatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    version: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+}, "strip", z.ZodTypeAny, {
+    memoryStoreId: string;
+    id: string;
+    description: string;
+    conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
+    createdAt?: string | null | undefined;
+    updatedAt?: string | null | undefined;
+    displayName?: string | null | undefined;
+    channelSettings?: Record<string, {
+        statusTimeouts?: {
+            closed: number;
+            inactive?: number | null | undefined;
+        } | null | undefined;
+        captureRules?: {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }[] | null | undefined;
+    }> | null | undefined;
+    statusCallbacks?: {
+        url: string;
+        method: "POST" | "GET" | "PUT" | "DELETE" | "PATCH";
+    }[] | null | undefined;
+    intelligenceConfigurationIds?: string[] | null | undefined;
+    version?: number | null | undefined;
+}, {
+    memoryStoreId: string;
+    id: string;
+    description: string;
+    conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
+    createdAt?: string | null | undefined;
+    updatedAt?: string | null | undefined;
+    displayName?: string | null | undefined;
+    channelSettings?: Record<string, {
+        statusTimeouts?: {
+            closed: number;
+            inactive?: number | null | undefined;
+        } | null | undefined;
+        captureRules?: {
+            from: string;
+            to: string;
+            metadata?: Record<string, string> | null | undefined;
+        }[] | null | undefined;
+    }> | null | undefined;
+    statusCallbacks?: {
+        url: string;
+        method?: "POST" | "GET" | "PUT" | "DELETE" | "PATCH" | undefined;
+    }[] | null | undefined;
+    intelligenceConfigurationIds?: string[] | null | undefined;
+    version?: number | null | undefined;
+}>;
+type ConversationConfiguration = z.infer<typeof ConversationConfigurationSchema>;
+
+/**
  * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
  *
  * These are TAC's own structured parameters for bridging ConversationRelay calls
@@ -2674,13 +2688,13 @@ declare const ToolExecutionResultSchema: z.ZodObject<{
     metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, "strip", z.ZodTypeAny, {
     success: boolean;
-    metadata?: Record<string, unknown> | undefined;
     error?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
     data?: any;
 }, {
     success: boolean;
-    metadata?: Record<string, unknown> | undefined;
     error?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
     data?: any;
 }>;
 type ToolExecutionResult = z.infer<typeof ToolExecutionResultSchema>;
@@ -3093,16 +3107,16 @@ declare const KnowledgeBaseSchema: z.ZodObject<{
     id: string;
     createdAt: string;
     updatedAt: string;
-    displayName: string;
     description: string;
+    displayName: string;
     version: number;
 }, {
     status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
     id: string;
     createdAt: string;
     updatedAt: string;
-    displayName: string;
     description: string;
+    displayName: string;
     version: number;
 }>;
 type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
@@ -3203,7 +3217,7 @@ declare class TACConfig {
      *
      * Loads configuration from the following environment variables:
      * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-     * - TAC_MODE: Operating mode - 'crelay' or 'conversation' (required)
+     * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (required)
      * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
      * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
      * - TWILIO_API_KEY: Twilio API Key (required)
@@ -3211,7 +3225,7 @@ declare class TACConfig {
      * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
      * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
      * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-     * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required if TAC_MODE=conversation)
+     * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required for conversation and passive modes)
      * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
      *
      * @throws Error if required environment variables are not set or invalid
@@ -3265,34 +3279,34 @@ declare class MemoryClient {
     /**
      * Retrieve memories for a specific profile
      *
-     * @param serviceSid - The memory service SID
+     * @param memoryStoreId - The memory store ID
      * @param profileId - The profile ID to retrieve memories for
      * @param request - Optional request parameters for filtering results
      * @returns Promise containing memory retrieval response
      */
-    retrieveMemories(serviceSid: string, profileId: string, request?: Partial<MemoryRetrievalRequest>): Promise<MemoryRetrievalResponse>;
+    retrieveMemories(memoryStoreId: MemoryStoreId, profileId: ProfileId, request?: Partial<MemoryRetrievalRequest>): Promise<MemoryRetrievalResponse>;
     /**
      * Find profiles that contain a specific identifier value
      *
-     * @param serviceSid - The memory service SID
+     * @param memoryStoreId - The memory store ID
      * @param idType - Identifier type (e.g., 'phone', 'email')
      * @param value - Raw value captured for the identifier
      * @returns Promise containing profile lookup response with normalized value and matching profile IDs
      */
-    lookupProfile(serviceSid: string, idType: string, value: string): Promise<ProfileLookupResponse>;
+    lookupProfile(memoryStoreId: MemoryStoreId, idType: string, value: string): Promise<ProfileLookupResponse>;
     /**
      * Fetch profile information with traits
      *
-     * @param serviceSid - The memory service SID
+     * @param memoryStoreId - The memory store ID
      * @param profileId - The profile ID to fetch
      * @param traitGroups - Optional list of trait group names to include
      * @returns Promise containing profile response with ID, created timestamp, and traits
      */
-    getProfile(serviceSid: string, profileId: string, traitGroups?: string[]): Promise<ProfileResponse>;
+    getProfile(memoryStoreId: MemoryStoreId, profileId: ProfileId, traitGroups?: string[]): Promise<ProfileResponse>;
     /**
      * Create an observation for a profile
      *
-     * @param serviceSid - The memory service SID
+     * @param memoryStoreId - The memory store ID
      * @param profileId - The profile ID to create the observation for
      * @param content - The observation content
      * @param source - Source of the observation (default: 'conversation-intelligence')
@@ -3300,18 +3314,18 @@ declare class MemoryClient {
      * @param occurredAt - Optional timestamp when the observation occurred
      * @returns Promise containing the created observation
      */
-    createObservation(serviceSid: string, profileId: string, content: string, source?: string, conversationIds?: string[], occurredAt?: string): Promise<CreateObservationResponse>;
+    createObservation(memoryStoreId: MemoryStoreId, profileId: ProfileId, content: string, source?: string, conversationIds?: ConversationId[], occurredAt?: string): Promise<CreateObservationResponse>;
     /**
      * Create conversation summaries for a profile
      *
-     * @param serviceSid - The memory service SID
+     * @param memoryStoreId - The memory store ID
      * @param profileId - The profile ID to create summaries for
      * @param summaries - Array of summary items to create
      * @returns Promise containing a success message for the created conversation summaries
      */
-    createConversationSummaries(serviceSid: string, profileId: string, summaries: Array<{
+    createConversationSummaries(memoryStoreId: MemoryStoreId, profileId: ProfileId, summaries: Array<{
         content: string;
-        conversationId: string;
+        conversationId: ConversationId;
         occurredAt: string;
         source?: string;
     }>): Promise<CreateConversationSummariesResponse>;
@@ -3344,18 +3358,18 @@ declare class ConversationClient {
     /**
      * Send a communication using the Conversation Orchestrator Send API
      *
-     * @param conversationId - The conversation ID
+     * @param sessionId - The session ID (internally cast to ConversationId)
      * @param request - Send communication request
      * @returns Promise containing communication response
      */
-    sendCommunication(conversationId: string, request: SendCommunicationRequest): Promise<SendCommunicationResponse>;
+    sendCommunication(sessionId: SessionId, request: SendCommunicationRequest): Promise<SendCommunicationResponse>;
     /**
      * List communications for a conversation
      *
-     * @param conversationId - The conversation ID
+     * @param sessionId - The session ID (internally cast to ConversationId)
      * @returns Promise containing array of communications
      */
-    listCommunications(conversationId: string): Promise<Communication[]>;
+    listCommunications(sessionId: SessionId): Promise<Communication[]>;
     /**
      * Create a new conversation
      *
@@ -3366,19 +3380,19 @@ declare class ConversationClient {
     /**
      * Add a participant to a conversation
      *
-     * @param conversationId - The conversation ID
+     * @param sessionId - The session ID (internally cast to ConversationId)
      * @param addresses - Array of participant addresses
      * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
      * @returns Promise containing participant response
      */
-    addParticipant(conversationId: string, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
+    addParticipant(sessionId: SessionId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
     /**
      * List participants in a conversation
      *
-     * @param conversationId - The conversation ID
+     * @param sessionId - The session ID (internally cast to ConversationId)
      * @returns Promise containing array of participants
      */
-    listParticipants(conversationId: string): Promise<ConversationParticipant[]>;
+    listParticipants(sessionId: SessionId): Promise<ConversationParticipant[]>;
     /**
      * List conversations with optional filters
      *
@@ -3392,11 +3406,11 @@ declare class ConversationClient {
     /**
      * Update conversation status
      *
-     * @param conversationId - The conversation ID
+     * @param sessionId - The session ID (internally cast to ConversationId)
      * @param status - New status (ACTIVE, INACTIVE, CLOSED)
      * @returns Promise containing updated conversation
      */
-    updateConversation(conversationId: string, status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'): Promise<ConversationResponse>;
+    updateConversation(sessionId: SessionId, status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'): Promise<ConversationResponse>;
     /**
      * Retrieve the details for a single configuration
      *
@@ -3474,7 +3488,7 @@ type ErrorCallback = (params: {
 }) => void;
 type HandoffCallback = (params: {
     /** Generic session identifier (CallSid or ConversationId) */
-    sessionId: string;
+    sessionId: SessionId;
     profileId: ProfileId | undefined;
     reason: string;
     session: ConversationSession;
@@ -3633,7 +3647,7 @@ declare class TAC {
      * @param profileId - Profile ID to fetch
      * @returns Promise containing profile response or undefined if not available
      */
-    fetchProfile(profileId: string): Promise<ProfileResponse | undefined>;
+    fetchProfile(profileId: ProfileId): Promise<ProfileResponse | undefined>;
     /**
      * Shutdown TAC and cleanup resources
      */
@@ -4100,11 +4114,11 @@ interface MemoryRetrievalParams {
 /**
  * Create memory retrieval tool
  */
-declare function createMemoryRetrievalTool(memoryClient: MemoryClient, serviceSid: string, profileId?: string): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: string, profileId?: string): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 /**
  * Create factory function for memory tools
  */
-declare function createMemoryTools(memoryClient: MemoryClient, serviceSid: string): {
+declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: string): {
     forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
     forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 };
@@ -4304,4 +4318,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, CRelayChannel, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionId, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACMode, TACModeSchema, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceServerConfig, VoiceServerConfigSchema, VoiceWebhookChannel, type VoiceWebhookChannelConfig, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId, isSessionId };
+export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, CRelayChannel, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionId, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACMode, TACModeSchema, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceServerConfig, VoiceServerConfigSchema, VoiceWebhookChannel, type VoiceWebhookChannelConfig, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };

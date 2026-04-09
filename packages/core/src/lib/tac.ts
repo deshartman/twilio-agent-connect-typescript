@@ -8,6 +8,7 @@ import {
   OperatorProcessingResult,
   ChannelMessage,
   MemoryRetriever,
+  MemoryStoreId,
 } from '../types/index';
 import { TACMemoryResponse } from './tac-memory-response';
 import { TACConfig } from './config';
@@ -465,7 +466,7 @@ export class TAC {
         try {
           // Lookup profile using appropriate identity type
           const lookupResponse = await this.memoryClient.lookupProfile(
-            this.config.memoryStoreId,
+            this.config.memoryStoreId as MemoryStoreId,
             identityType,
             session.authorInfo.address
           );
@@ -493,7 +494,7 @@ export class TAC {
       try {
         // At this point, profileId is guaranteed to be defined (either provided or looked up)
         const memoryResponse = await this.memoryClient.retrieveMemories(
-          this.config.memoryStoreId,
+          this.config.memoryStoreId as MemoryStoreId,
           session.profileId,
           { query }
         );
@@ -553,7 +554,7 @@ export class TAC {
 
       // Fetch profile
       const profileResponse = await this.memoryClient.getProfile(
-        this.config.memoryStoreId,
+        this.config.memoryStoreId as MemoryStoreId,
         profileId,
         traitGroups
       );

@@ -28,7 +28,7 @@ describe('MemoryClient', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
@@ -56,14 +56,14 @@ describe('MemoryClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await memoryClient.lookupProfile(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'phone',
         '+1 (317) 555-6789'
       );
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/Lookup'),
+        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/Lookup'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -85,7 +85,7 @@ describe('MemoryClient', () => {
 
       await expect(
         memoryClient.lookupProfile(
-          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
           'phone',
           '+13175556789'
         )
@@ -107,13 +107,13 @@ describe('MemoryClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await memoryClient.getProfile(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123'
       );
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123'),
+        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123'),
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -135,7 +135,7 @@ describe('MemoryClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await memoryClient.getProfile(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         ['basic_info', 'preferences']
       );
@@ -155,7 +155,7 @@ describe('MemoryClient', () => {
         );
 
       await expect(
-        memoryClient.getProfile('mem_service_01kbjqhhdpft0tbp21jt4ktbxg', 'profile_123')
+        memoryClient.getProfile('mem_store_01kbjqhhdpft0tbp21jt4ktbxg', 'profile_123')
       ).rejects.toThrow('Failed to get profile: 500 Internal Server Error');
     });
   });

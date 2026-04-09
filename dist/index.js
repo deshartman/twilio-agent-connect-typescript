@@ -25,12 +25,9 @@ var TACConfigSchema = z.object({
   twilioApiKey: z.string().min(1, "Twilio API Key is required"),
   twilioApiToken: z.string().min(1, "Twilio API Token is required"),
   twilioPhoneNumber: z.string().min(1, "Twilio Phone Number is required"),
-  memoryStoreId: z.string().regex(/^mem_(service|store)_[0-9a-z]{26}$/, "Invalid Memory Store ID format").optional(),
+  memoryStoreId: z.string().regex(/^mem_store_[0-9a-z]{26}$/, "Invalid Memory Store ID format").optional(),
   traitGroups: z.array(z.string()).optional(),
-  conversationServiceId: z.string().regex(
-    /^(comms_service|conv_configuration)_[0-9a-z]{26}$/,
-    "Invalid Conversation Configuration ID format"
-  ).optional(),
+  conversationServiceId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format").optional(),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
@@ -171,6 +168,9 @@ function isProfileId(value) {
 }
 function isParticipantId(value) {
   return value.length > 0;
+}
+function isMemoryStoreId(value) {
+  return /^mem_store_[0-9a-z]{26}$/.test(value);
 }
 var ConversationResponseSchema = z.object({
   id: z.string(),
@@ -677,7 +677,7 @@ var TACConfig = class _TACConfig {
    *
    * Loads configuration from the following environment variables:
    * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-   * - TAC_MODE: Operating mode - 'crelay' or 'conversation' (required)
+   * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (required)
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -685,7 +685,7 @@ var TACConfig = class _TACConfig {
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required if TAC_MODE=conversation)
+   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required for conversation and passive modes)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    *
    * @throws Error if required environment variables are not set or invalid
@@ -778,17 +778,17 @@ var MemoryClient = class {
   /**
    * Retrieve memories for a specific profile
    *
-   * @param serviceSid - The memory service SID
+   * @param memoryStoreId - The memory store ID
    * @param profileId - The profile ID to retrieve memories for
    * @param request - Optional request parameters for filtering results
    * @returns Promise containing memory retrieval response
    */
-  async retrieveMemories(serviceSid, profileId, request = {}) {
+  async retrieveMemories(memoryStoreId, profileId, request = {}) {
     try {
-      const url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}/Recall`;
+      const url = `${this.baseUrl}/v1/Stores/${memoryStoreId}/Profiles/${profileId}/Recall`;
       this.logger.debug(
         {
-          memory_store_id: serviceSid,
+          memory_store_id: memoryStoreId,
           profile_id: profileId,
           request
         },
@@ -822,7 +822,7 @@ var MemoryClient = class {
             http_status: response.status,
             status_text: response.statusText,
             profile_id: profileId,
-            memory_store_id: serviceSid
+            memory_store_id: memoryStoreId
           },
           "Memory retrieval failed"
         );
@@ -831,7 +831,7 @@ var MemoryClient = class {
       const data = await response.json();
       this.logger.debug(
         {
-          memory_store_id: serviceSid,
+          memory_store_id: memoryStoreId,
           profile_id: profileId
         },
         "Raw memory response received"
@@ -841,7 +841,7 @@ var MemoryClient = class {
         this.logger.warn(
           {
             profile_id: profileId,
-            memory_store_id: serviceSid,
+            memory_store_id: memoryStoreId,
             validation_errors: validatedResponse.error.errors
           },
           "Invalid memory response format"
@@ -850,7 +850,7 @@ var MemoryClient = class {
       }
       this.logger.debug(
         {
-          memory_store_id: serviceSid,
+          memory_store_id: memoryStoreId,
           profile_id: profileId,
           observation_count: validatedResponse.data.observations.length,
           summary_count: validatedResponse.data.summaries.length
@@ -863,7 +863,7 @@ var MemoryClient = class {
         {
           err: error,
           profile_id: profileId,
-          memory_store_id: serviceSid
+          memory_store_id: memoryStoreId
         },
         "Memory retrieval error"
       );
@@ -873,13 +873,13 @@ var MemoryClient = class {
   /**
    * Find profiles that contain a specific identifier value
    *
-   * @param serviceSid - The memory service SID
+   * @param memoryStoreId - The memory store ID
    * @param idType - Identifier type (e.g., 'phone', 'email')
    * @param value - Raw value captured for the identifier
    * @returns Promise containing profile lookup response with normalized value and matching profile IDs
    */
-  async lookupProfile(serviceSid, idType, value) {
-    const url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/Lookup`;
+  async lookupProfile(memoryStoreId, idType, value) {
+    const url = `${this.baseUrl}/v1/Stores/${memoryStoreId}/Profiles/Lookup`;
     const requestBody = {
       idType,
       value
@@ -904,13 +904,13 @@ var MemoryClient = class {
   /**
    * Fetch profile information with traits
    *
-   * @param serviceSid - The memory service SID
+   * @param memoryStoreId - The memory store ID
    * @param profileId - The profile ID to fetch
    * @param traitGroups - Optional list of trait group names to include
    * @returns Promise containing profile response with ID, created timestamp, and traits
    */
-  async getProfile(serviceSid, profileId, traitGroups) {
-    let url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}`;
+  async getProfile(memoryStoreId, profileId, traitGroups) {
+    let url = `${this.baseUrl}/v1/Stores/${memoryStoreId}/Profiles/${profileId}`;
     if (traitGroups && traitGroups.length > 0) {
       url += `?traitGroups=${traitGroups.join(",")}`;
     }
@@ -932,7 +932,7 @@ var MemoryClient = class {
   /**
    * Create an observation for a profile
    *
-   * @param serviceSid - The memory service SID
+   * @param memoryStoreId - The memory store ID
    * @param profileId - The profile ID to create the observation for
    * @param content - The observation content
    * @param source - Source of the observation (default: 'conversation-intelligence')
@@ -940,8 +940,8 @@ var MemoryClient = class {
    * @param occurredAt - Optional timestamp when the observation occurred
    * @returns Promise containing the created observation
    */
-  async createObservation(serviceSid, profileId, content, source = "conversation-intelligence", conversationIds, occurredAt) {
-    const url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}/Observations`;
+  async createObservation(memoryStoreId, profileId, content, source = "conversation-intelligence", conversationIds, occurredAt) {
+    const url = `${this.baseUrl}/v1/Stores/${memoryStoreId}/Profiles/${profileId}/Observations`;
     const requestBody = {
       content,
       source
@@ -972,13 +972,13 @@ var MemoryClient = class {
   /**
    * Create conversation summaries for a profile
    *
-   * @param serviceSid - The memory service SID
+   * @param memoryStoreId - The memory store ID
    * @param profileId - The profile ID to create summaries for
    * @param summaries - Array of summary items to create
    * @returns Promise containing a success message for the created conversation summaries
    */
-  async createConversationSummaries(serviceSid, profileId, summaries) {
-    const url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}/ConversationSummaries`;
+  async createConversationSummaries(memoryStoreId, profileId, summaries) {
+    const url = `${this.baseUrl}/v1/Stores/${memoryStoreId}/Profiles/${profileId}/ConversationSummaries`;
     const requestBody = {
       summaries: summaries.map((s) => ({
         content: s.content,
@@ -1073,11 +1073,12 @@ var ConversationClient = class {
   /**
    * Send a communication using the Conversation Orchestrator Send API
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param request - Send communication request
    * @returns Promise containing communication response
    */
-  async sendCommunication(conversationId, request) {
+  async sendCommunication(sessionId, request) {
+    const conversationId = sessionId;
     const url = `${this.baseUrl}/v2/Communications`;
     const requestBody = {
       conversationId,
@@ -1119,10 +1120,11 @@ var ConversationClient = class {
   /**
    * List communications for a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @returns Promise containing array of communications
    */
-  async listCommunications(conversationId) {
+  async listCommunications(sessionId) {
+    const conversationId = sessionId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Communications`;
     const options = {
       method: "GET",
@@ -1178,12 +1180,13 @@ var ConversationClient = class {
   /**
    * Add a participant to a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param addresses - Array of participant addresses
    * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
    * @returns Promise containing participant response
    */
-  async addParticipant(conversationId, addresses, participantType) {
+  async addParticipant(sessionId, addresses, participantType) {
+    const conversationId = sessionId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
     const requestBody = {
       type: participantType,
@@ -1209,10 +1212,11 @@ var ConversationClient = class {
   /**
    * List participants in a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @returns Promise containing array of participants
    */
-  async listParticipants(conversationId) {
+  async listParticipants(sessionId) {
+    const conversationId = sessionId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
     const options = {
       method: "GET",
@@ -1271,11 +1275,12 @@ var ConversationClient = class {
   /**
    * Update conversation status
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param status - New status (ACTIVE, INACTIVE, CLOSED)
    * @returns Promise containing updated conversation
    */
-  async updateConversation(conversationId, status) {
+  async updateConversation(sessionId, status) {
+    const conversationId = sessionId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}`;
     const requestBody = { status };
     const options = {
@@ -2005,7 +2010,7 @@ var TAC = class {
     try {
       await this.handoffCallback({
         sessionId: session.sessionId,
-        profileId: session.profileId ? session.profileId : void 0,
+        profileId: session.profileId,
         reason,
         session
       });
@@ -3802,7 +3807,10 @@ var VoiceChannel = class {
       );
       for (const conversation of conversations) {
         try {
-          await this.conversationClient.updateConversation(conversation.id, "CLOSED");
+          await this.conversationClient.updateConversation(
+            conversation.id,
+            "CLOSED"
+          );
           this.logger.debug({ conversation_id: conversation.id }, "Closed conversation");
         } catch (error) {
           this.logger.error(
@@ -4196,7 +4204,7 @@ function defineTool(name, description, parameters, implementation) {
 }
 
 // packages/tools/src/built-in/memory.ts
-function createMemoryRetrievalTool(memoryClient, serviceSid, profileId) {
+function createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId) {
   return defineTool(
     BuiltInTools.RETRIEVE_MEMORY,
     "Retrieve user memories including observations, summaries, and conversation history",
@@ -4244,20 +4252,24 @@ function createMemoryRetrievalTool(memoryClient, serviceSid, profileId) {
         summary_limit: params.summary_limit ?? 5,
         session_limit: params.session_limit ?? 3
       };
-      return memoryClient.retrieveMemories(serviceSid, profileId, request);
+      return memoryClient.retrieveMemories(
+        memoryStoreId,
+        profileId,
+        request
+      );
     }
   );
 }
-function createMemoryTools(memoryClient, serviceSid) {
+function createMemoryTools(memoryClient, memoryStoreId) {
   return {
     /**
      * Create memory tool for specific profile
      */
-    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, serviceSid, profileId),
+    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
     /**
      * Create memory tool for current session
      */
-    forSession: (profileId) => createMemoryRetrievalTool(memoryClient, serviceSid, profileId)
+    forSession: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId)
   };
 }
 
@@ -4844,6 +4856,6 @@ var TACServer = class {
   }
 };
 
-export { AuthorInfoSchema, BuiltInTools, CRelayChannel, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACModeSchema, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId, isSessionId };
+export { AuthorInfoSchema, BuiltInTools, CRelayChannel, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACModeSchema, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

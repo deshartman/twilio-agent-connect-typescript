@@ -203,6 +203,7 @@ export type ConversationSession = Omit<
 export type ConversationId = string & { readonly _brand: 'ConversationId' };
 export type ProfileId = string & { readonly _brand: 'ProfileId' };
 export type ParticipantId = string & { readonly _brand: 'ParticipantId' };
+export type MemoryStoreId = string & { readonly _brand: 'MemoryStoreId' };
 
 /**
  * Type guards for branded types
@@ -217,6 +218,10 @@ export function isProfileId(value: string): value is ProfileId {
 
 export function isParticipantId(value: string): value is ParticipantId {
   return value.length > 0;
+}
+
+export function isMemoryStoreId(value: string): value is MemoryStoreId {
+  return /^mem_store_[0-9a-z]{26}$/.test(value);
 }
 
 /**

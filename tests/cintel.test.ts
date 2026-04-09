@@ -35,7 +35,7 @@ describe('Conversation Intelligence Types', () => {
       const validEvent = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY123',
           friendlyName: 'Test Config',
@@ -175,7 +175,7 @@ describe('OperatorResultProcessor', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
@@ -213,7 +213,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'DIFFERENT_CONFIG',
         },
@@ -231,7 +231,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -262,7 +262,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -292,7 +292,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -331,7 +331,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -368,7 +368,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -404,7 +404,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -443,7 +443,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -513,7 +513,7 @@ describe('Memory Client Write Methods', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
@@ -542,7 +542,7 @@ describe('Memory Client Write Methods', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await memoryClient.createObservation(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         'Test observation',
         'conversation-intelligence',
@@ -552,7 +552,7 @@ describe('Memory Client Write Methods', () => {
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'),
+        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -571,7 +571,7 @@ describe('Memory Client Write Methods', () => {
 
       await expect(
         memoryClient.createObservation(
-          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           'Test observation'
         )
@@ -585,7 +585,7 @@ describe('Memory Client Write Methods', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await memoryClient.createConversationSummaries(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         [
           {
@@ -599,7 +599,7 @@ describe('Memory Client Write Methods', () => {
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'),
+        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -617,7 +617,7 @@ describe('Memory Client Write Methods', () => {
 
       await expect(
         memoryClient.createConversationSummaries(
-          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           [
             {
