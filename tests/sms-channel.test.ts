@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SMSChannel, TAC, ConversationSession } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import {
+  SMSChannel,
+  TACConfig,
+  createLogger,
+  ConversationClient,
+} from '@twilio/tac-core';
+import type { ChannelMessage } from '@twilio/tac-core';
 
 describe('SMS Channel', () => {
   let originalFetch: typeof global.fetch;
@@ -13,9 +18,10 @@ describe('SMS Channel', () => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
-  const getTestConfig = () => ({
-    environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
+
+  const config = new TACConfig({
+    environment: 'prod',
+    tacMode: 'conversation',
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -23,13 +29,17 @@ describe('SMS Channel', () => {
     twilioPhoneNumber: '+15551234567',
     conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
+  const logger = createLogger({ name: 'test', level: 'silent' });
+  const conversationClient = {
+    listParticipants: vi.fn(),
+    sendCommunication: vi.fn(),
+    addParticipant: vi.fn(),
+  } as unknown as ConversationClient;
 
   let channel: SMSChannel;
-  let tac: TAC;
 
   beforeEach(() => {
-    tac = new TAC({ config: getTestConfig() });
-    channel = new SMSChannel(tac);
+    channel = new SMSChannel({ config, logger, conversationClient });
   });
 
   describe('initialization', () => {
@@ -43,21 +53,21 @@ describe('SMS Channel', () => {
     });
 
     it('should reject zero dedupCapacity', () => {
-      expect(() => new SMSChannel(tac, { dedupCapacity: 0 })).toThrow(
-        'dedupCapacity must be a positive integer'
-      );
+      expect(
+        () => new SMSChannel({ config, logger, conversationClient }, { dedupCapacity: 0 })
+      ).toThrow('dedupCapacity must be a positive integer');
     });
 
     it('should reject negative dedupCapacity', () => {
-      expect(() => new SMSChannel(tac, { dedupCapacity: -1 })).toThrow(
-        'dedupCapacity must be a positive integer'
-      );
+      expect(
+        () => new SMSChannel({ config, logger, conversationClient }, { dedupCapacity: -1 })
+      ).toThrow('dedupCapacity must be a positive integer');
     });
 
     it('should reject non-integer dedupCapacity', () => {
-      expect(() => new SMSChannel(tac, { dedupCapacity: 1.5 })).toThrow(
-        'dedupCapacity must be a positive integer'
-      );
+      expect(
+        () => new SMSChannel({ config, logger, conversationClient }, { dedupCapacity: 1.5 })
+      ).toThrow('dedupCapacity must be a positive integer');
     });
   });
 
@@ -78,11 +88,11 @@ describe('SMS Channel', () => {
     });
 
     it('should process communication.created event', async () => {
-      let capturedMessage: any = null;
+      let capturedMessage: ChannelMessage | null = null;
 
-      // Set up message received callback
-      channel.on('messageReceived', data => {
-        capturedMessage = data;
+      // Set up message callback
+      channel.on('message', (msg: ChannelMessage) => {
+        capturedMessage = msg;
       });
 
       const webhookPayload = {
@@ -107,14 +117,14 @@ describe('SMS Channel', () => {
 
       // Should have triggered message callback
       expect(capturedMessage).not.toBeNull();
-      expect(capturedMessage.conversationId).toBe('CHtest123456789');
-      expect(capturedMessage.message).toBe('Hello world');
-      expect(capturedMessage.author).toBe('+15559876543');
+      expect(capturedMessage!.sessionId).toBe('CHtest123456789');
+      expect(capturedMessage!.message).toBe('Hello world');
+      expect(capturedMessage!.conversation?.author).toBe('+15559876543');
     });
 
     it('should skip events with unexpected eventType format', async () => {
       const callback = vi.fn();
-      channel.on('messageReceived', callback);
+      channel.on('message', callback);
 
       await channel.processWebhook({
         eventType: 'communication.created', // already normalized format
@@ -154,7 +164,7 @@ describe('SMS Channel', () => {
     it('should ignore empty messages', async () => {
       let messageReceived = false;
 
-      channel.on('messageReceived', () => {
+      channel.on('message', () => {
         messageReceived = true;
       });
 
@@ -180,10 +190,10 @@ describe('SMS Channel', () => {
     });
 
     it('should auto-initialize conversation on first message', async () => {
-      let capturedMessage: any = null;
+      let capturedMessage: ChannelMessage | null = null;
 
-      channel.on('messageReceived', data => {
-        capturedMessage = data;
+      channel.on('message', (msg: ChannelMessage) => {
+        capturedMessage = msg;
       });
 
       const webhookPayload = {
@@ -209,7 +219,7 @@ describe('SMS Channel', () => {
       // Should auto-initialize and process message
       expect(channel.isConversationActive('CHtest123456789')).toBe(true);
       expect(capturedMessage).not.toBeNull();
-      expect(capturedMessage.message).toBe('First message');
+      expect(capturedMessage!.message).toBe('First message');
     });
   });
 
@@ -245,13 +255,12 @@ describe('SMS Channel', () => {
   });
 
   describe('conversation ended callback', () => {
-    it('should fire onConversationEnded callback with full session on close', async () => {
-      const captured: ConversationSession[] = [];
+    it('should fire conversationEnded callback with full session on close', async () => {
+      const captured: { sessionId: string; channel: string }[] = [];
 
-      tac.onConversationEnded(({ session }) => {
-        captured.push(session);
+      channel.on('conversationEnded', ({ session }) => {
+        captured.push({ sessionId: session.sessionId, channel: session.channel });
       });
-      tac.registerChannel(channel);
 
       // Start conversation
       await channel.processWebhook({
@@ -271,10 +280,9 @@ describe('SMS Channel', () => {
     });
 
     it('should still clean up session if callback throws', async () => {
-      tac.onConversationEnded(() => {
+      channel.on('conversationEnded', () => {
         throw new Error('boom');
       });
-      tac.registerChannel(channel);
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
@@ -291,12 +299,11 @@ describe('SMS Channel', () => {
     });
 
     it('should support async callback', async () => {
-      const captured: ConversationSession[] = [];
+      const captured: { sessionId: string }[] = [];
 
-      tac.onConversationEnded(async ({ session }) => {
-        captured.push(session);
+      channel.on('conversationEnded', async ({ session }) => {
+        captured.push({ sessionId: session.sessionId });
       });
-      tac.registerChannel(channel);
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
@@ -347,7 +354,7 @@ describe('SMS Channel', () => {
   describe('idempotency token deduplication', () => {
     it('should skip duplicate webhooks with the same idempotency token', async () => {
       const callback = vi.fn();
-      channel.on('messageReceived', callback);
+      channel.on('message', callback);
 
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
@@ -366,7 +373,7 @@ describe('SMS Channel', () => {
 
     it('should process webhooks with different idempotency tokens', async () => {
       const callback = vi.fn();
-      channel.on('messageReceived', callback);
+      channel.on('message', callback);
 
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
@@ -385,7 +392,7 @@ describe('SMS Channel', () => {
 
     it('should always process webhooks without an idempotency token', async () => {
       const callback = vi.fn();
-      channel.on('messageReceived', callback);
+      channel.on('message', callback);
 
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
@@ -403,9 +410,12 @@ describe('SMS Channel', () => {
     });
 
     it('should evict oldest tokens when capacity is reached', async () => {
-      const smallChannel = new SMSChannel(tac, { dedupCapacity: 2 });
+      const smallChannel = new SMSChannel(
+        { config, logger, conversationClient },
+        { dedupCapacity: 2 }
+      );
       const callback = vi.fn();
-      smallChannel.on('messageReceived', callback);
+      smallChannel.on('message', callback);
 
       const makePayload = (text: string) => ({
         eventType: 'COMMUNICATION_CREATED',
@@ -436,7 +446,7 @@ describe('SMS Channel', () => {
 
     it('should allow retry when processing fails', async () => {
       let callCount = 0;
-      channel.on('messageReceived', () => {
+      channel.on('message', () => {
         callCount++;
         if (callCount === 1) {
           throw new Error('transient failure');
@@ -463,7 +473,7 @@ describe('SMS Channel', () => {
 
     it('should block concurrent duplicates while first request is in-flight', async () => {
       const callback = vi.fn();
-      channel.on('messageReceived', callback);
+      channel.on('message', callback);
 
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
@@ -485,78 +495,6 @@ describe('SMS Channel', () => {
   });
 
   describe('sendResponse', () => {
-    beforeEach(() => {
-      global.fetch = vi.fn().mockImplementation(async (url: string) => {
-        // Mock listParticipants call
-        if (url.includes('/Participants')) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              participants: [
-                {
-                  id: 'PA111',
-                  conversationId: 'CHtest123456789',
-                  accountId: 'ACtest123456789',
-                  type: 'HUMAN_AGENT',
-                  addresses: [{ channel: 'SMS', address: '+15551234567' }],
-                },
-                {
-                  id: 'PA123',
-                  conversationId: 'CHtest123456789',
-                  accountId: 'ACtest123456789',
-                  type: 'CUSTOMER',
-                  addresses: [{ channel: 'SMS', address: '+15559876543' }],
-                },
-              ],
-            }),
-            clone: function () {
-              return this;
-            },
-            text: async () =>
-              JSON.stringify({
-                participants: [
-                  {
-                    id: 'PA111',
-                    conversationId: 'CHtest123456789',
-                    accountId: 'ACtest123456789',
-                    type: 'HUMAN_AGENT',
-                    addresses: [{ channel: 'SMS', address: '+15551234567' }],
-                  },
-                  {
-                    id: 'PA123',
-                    conversationId: 'CHtest123456789',
-                    accountId: 'ACtest123456789',
-                    type: 'CUSTOMER',
-                    addresses: [{ channel: 'SMS', address: '+15559876543' }],
-                  },
-                ],
-              }),
-          };
-        }
-
-        // Mock sendCommunication call (returns 202 Accepted)
-        return {
-          ok: true,
-          status: 202,
-          json: async () => ({
-            message: 'Conversation setup complete',
-            conversationId: 'CHtest123456789',
-            channelId: 'SM123abc',
-          }),
-          clone: function () {
-            return this;
-          },
-          text: async () =>
-            JSON.stringify({
-              message: 'Conversation setup complete',
-              conversationId: 'CHtest123456789',
-              channelId: 'SM123abc',
-            }),
-        };
-      });
-    });
-
     it('should send SMS via Send API', async () => {
       // Start conversation and receive message to populate author_info
       await channel.processWebhook({
@@ -582,44 +520,49 @@ describe('SMS Channel', () => {
         },
       });
 
+      // Mock conversationClient methods (channel calls these directly)
+      vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
+        {
+          id: 'PA111',
+          conversationId: 'CHtest123456789',
+          accountId: 'ACtest123456789',
+          type: 'HUMAN_AGENT',
+          addresses: [{ channel: 'SMS', address: '+15551234567' }],
+        },
+        {
+          id: 'PA123',
+          conversationId: 'CHtest123456789',
+          accountId: 'ACtest123456789',
+          type: 'CUSTOMER',
+          addresses: [{ channel: 'SMS', address: '+15559876543' }],
+        },
+      ] as any);
+      vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
+
       await channel.sendResponse('CHtest123456789', 'Hello back!');
 
-      // Should have called listParticipants first
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Conversations/CHtest123456789/Participants'),
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith('CHtest123456789');
+      expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
+        'CHtest123456789',
         expect.objectContaining({
-          method: 'GET',
+          author: {
+            address: '+15551234567',
+            channel: 'SMS',
+            participantId: 'PA111',
+          },
+          recipients: [
+            {
+              address: '+15559876543',
+              channel: 'SMS',
+              participantId: 'PA123',
+            },
+          ],
+          content: {
+            type: 'TEXT',
+            text: 'Hello back!',
+          },
         })
       );
-
-      // Then called sendCommunication
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Communications'),
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            'Content-Type': 'application/json',
-            Authorization: expect.stringContaining('Basic'),
-          }),
-          body: expect.stringContaining('+15559876543'),
-        })
-      );
-
-      // Find the sendCommunication call (not the listParticipants call)
-      const sendCommCall = (global.fetch as any).mock.calls.find(
-        (call: any) => call[1]?.method === 'POST'
-      );
-      const body = JSON.parse(sendCommCall[1].body);
-      expect(body.conversationId).toBe('CHtest123456789');
-      expect(body.author.address).toBe('+15551234567');
-      expect(body.author.channel).toBe('SMS');
-      expect(body.author.participantId).toBe('PA111');
-      expect(body.recipients).toHaveLength(1);
-      expect(body.recipients[0].address).toBe('+15559876543');
-      expect(body.recipients[0].channel).toBe('SMS');
-      expect(body.recipients[0].participantId).toBe('PA123');
-      expect(body.content.type).toBe('TEXT');
-      expect(body.content.text).toBe('Hello back!');
     });
 
     it('should throw error when no session exists', async () => {

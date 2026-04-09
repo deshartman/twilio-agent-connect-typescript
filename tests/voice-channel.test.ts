@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { VoiceChannel, TAC, TACConfig, ConversationSession, TACMode } from '@twilio/tac-core';
+import {
+  VoiceChannel,
+  TAC,
+  TACConfig,
+  ConversationSession,
+  TACMode,
+  createLogger,
+  ConversationClient,
+} from '@twilio/tac-core';
 
 describe('VoiceChannel', () => {
   const getTestConfig = () => ({
@@ -13,252 +21,68 @@ describe('VoiceChannel', () => {
     conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
-  describe('connectConversationRelay()', () => {
-    it('should generate TwiML without welcomeGreeting', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+  const createVoiceChannel = (overrides?: {
+    conversationClient?: Partial<ConversationClient>;
+  }) => {
+    const config = new TACConfig(getTestConfig());
+    const logger = createLogger({ name: 'test', level: 'silent' });
+    const conversationClient = {
+      createConversation: vi.fn(),
+      addParticipant: vi.fn(),
+      listConversations: vi.fn(),
+      updateConversation: vi.fn(),
+      listParticipants: vi.fn(),
+      sendCommunication: vi.fn(),
+      listCommunications: vi.fn(),
+      ...overrides?.conversationClient,
+    } as unknown as ConversationClient;
 
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-      });
-
-      expect(twiml).toContain('url="wss://example.com/conversation-relay"');
-      expect(twiml).not.toContain('welcomeGreeting');
-    });
-
-    it('should generate TwiML with welcomeGreeting', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        welcomeGreeting: 'Hello! How can I help you today?',
-      });
-
-      expect(twiml).toContain('url="wss://example.com/conversation-relay"');
-      expect(twiml).toContain('welcomeGreeting="Hello! How can I help you today?"');
-    });
-
-    it('should include custom parameters in TwiML', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay(
-        {
-          url: 'wss://example.com/conversation-relay',
-        },
-        {
-          conversation_id: 'CH123',
-          profile_id: 'mem_profile_123',
-        }
-      );
-
-      expect(twiml).toContain('name="conversation_id" value="CH123"');
-      expect(twiml).toContain('name="profile_id" value="mem_profile_123"');
-    });
-
-    it('should handle undefined welcomeGreeting', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        welcomeGreeting: undefined,
-      });
-
-      expect(twiml).toContain('url="wss://example.com/conversation-relay"');
-      expect(twiml).not.toContain('welcomeGreeting');
-    });
-  });
+    const channel = new VoiceChannel({ config, logger, conversationClient });
+    return { channel, config, logger, conversationClient };
+  };
 
   describe('getWebsocket()', () => {
     it('should return null for unknown conversation', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const ws = voiceChannel.getWebsocket('CA_unknown' as any);
-
+      const { channel } = createVoiceChannel();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ws = channel.getWebsocket('CA_unknown' as any);
       expect(ws).toBeNull();
     });
   });
 
   describe('isConversationActive()', () => {
     it('should return false for unknown conversation', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const isActive = voiceChannel.isConversationActive('CA_unknown' as any);
-
+      const { channel } = createVoiceChannel();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isActive = channel.isConversationActive('CA_unknown' as any);
       expect(isActive).toBe(false);
     });
   });
 
   describe('shutdown()', () => {
     it('should clear WebSocket references on shutdown', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      // Start with no WebSocket connections
-      expect(voiceChannel.getWebsocket('CH_test' as any)).toBeNull();
-
-      // After shutdown, should still return null (cleared state)
-      voiceChannel.shutdown();
-      expect(voiceChannel.getWebsocket('CH_test' as any)).toBeNull();
+      const { channel } = createVoiceChannel();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(channel.getWebsocket('CH_test' as any)).toBeNull();
+      channel.shutdown();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(channel.getWebsocket('CH_test' as any)).toBeNull();
     });
   });
 
-  describe('ConversationRelay attributes', () => {
-    it('should apply transcription configuration', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        transcriptionProvider: 'Deepgram',
-        transcriptionLanguage: 'en-AU',
-        speechModel: 'nova-3-general',
-      });
-
-      expect(twiml).toContain('transcriptionProvider="Deepgram"');
-      expect(twiml).toContain('transcriptionLanguage="en-AU"');
-      expect(twiml).toContain('speechModel="nova-3-general"');
-    });
-
-    it('should apply TTS configuration', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        ttsProvider: 'Google',
-        ttsLanguage: 'en-US',
-        voice: 'en-US-Journey-O',
-      });
-
-      expect(twiml).toContain('ttsProvider="Google"');
-      expect(twiml).toContain('voice="en-US-Journey-O"');
-    });
-
-    it('should apply interaction configuration', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        interruptible: 'any',
-        interruptSensitivity: 'high',
-        dtmfDetection: true,
-        hints: 'account balance, billing, payment',
-      });
-
-      expect(twiml).toContain('interruptible="any"');
-      expect(twiml).toContain('dtmfDetection="true"');
-      expect(twiml).toContain('hints="account balance, billing, payment"');
-    });
-
-    it('should filter out undefined attributes', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        interruptible: 'any',
-        hints: undefined, // should not appear
-      });
-
-      expect(twiml).toContain('interruptible="any"');
-      expect(twiml).not.toContain('hints=');
-    });
-
-    it('should support multiple language configurations', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const twiml = voiceChannel.connectConversationRelay({
-        url: 'wss://example.com/conversation-relay',
-        language: 'en-AU', // Default language
-        languages: [
-          {
-            code: 'en-AU',
-            ttsProvider: 'ElevenLabs',
-            voice: 'IKne3meq5aSn9XLyUdCD',
-            transcriptionProvider: 'Deepgram',
-            speechModel: 'nova-3-general',
-          },
-          {
-            code: 'en-NZ',
-            ttsProvider: 'ElevenLabs',
-            voice: 'VEWZvLXUrFL3O7dUnBSW',
-            transcriptionProvider: 'Deepgram',
-            speechModel: 'nova-3-general',
-          },
-        ],
-      });
-
-      expect(twiml).toContain('language="en-AU"');
-      expect(twiml).toContain('<Language code="en-AU"');
-      expect(twiml).toContain('ttsProvider="ElevenLabs"');
-      expect(twiml).toContain('<Language code="en-NZ"');
-    });
-
-    it('should throw error for invalid configuration', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      expect(() => {
-        voiceChannel.connectConversationRelay({
-          url: 'invalid-url', // Not a valid URL
-        });
-      }).toThrow('Invalid ConversationRelay configuration');
-    });
-
-    it('should throw error for invalid custom parameters', () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      expect(() => {
-        voiceChannel.connectConversationRelay(
-          {
-            url: 'wss://example.com/conversation-relay',
-          },
-          {
-            conversation_id: 123, // Should be string, not number
-          } as any
-        );
-      }).toThrow('Invalid custom parameters');
-    });
-  });
-
-  describe('handleIncomingCall with conversationRelayConfig', () => {
+  describe('handleIncomingCall', () => {
     it('should apply conversationRelayConfig to generated TwiML', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel, conversationClient } = createVoiceChannel();
 
-      // Mock conversation creation
-      vi.spyOn(tac.getConversationClient(), 'createConversation').mockResolvedValue({
+      vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(tac.getConversationClient(), 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
 
-      const twiml = await voiceChannel.handleIncomingCall({
+      const twiml = await channel.handleIncomingCall({
         toNumber: '+15559876543',
         fromNumber: '+15551234567',
         conversationRelayConfig: {
@@ -275,20 +99,17 @@ describe('VoiceChannel', () => {
     });
 
     it('should apply multi-language config to handleIncomingCall', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel, conversationClient } = createVoiceChannel();
 
-      // Mock conversation creation
-      vi.spyOn(tac.getConversationClient(), 'createConversation').mockResolvedValue({
+      vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(tac.getConversationClient(), 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
 
-      const twiml = await voiceChannel.handleIncomingCall({
+      const twiml = await channel.handleIncomingCall({
         toNumber: '+15559876543',
         fromNumber: '+15551234567',
         conversationRelayConfig: {
@@ -315,20 +136,17 @@ describe('VoiceChannel', () => {
     });
 
     it('should include welcomeGreeting in TwiML', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel, conversationClient } = createVoiceChannel();
 
-      // Mock conversation creation
-      vi.spyOn(tac.getConversationClient(), 'createConversation').mockResolvedValue({
+      vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(tac.getConversationClient(), 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
 
-      const twiml = await voiceChannel.handleIncomingCall({
+      const twiml = await channel.handleIncomingCall({
         toNumber: '+15559876543',
         fromNumber: '+15551234567',
         conversationRelayConfig: {
@@ -337,13 +155,13 @@ describe('VoiceChannel', () => {
         },
       });
 
-      // Verify the TwiML contains welcomeGreeting attribute
       expect(twiml).toContain('welcomeGreeting="Hello! How can I help you today?"');
     });
   });
 
   describe('conversation ended callback', () => {
-    const createMockWebSocket = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const createMockWebSocket = (): any => {
       const handlers: Record<string, ((...args: any[]) => void)[]> = {};
       return {
         on: vi.fn((event: string, handler: (...args: any[]) => void) => {
@@ -352,7 +170,7 @@ describe('VoiceChannel', () => {
         }),
         send: vi.fn(),
         close: vi.fn(),
-        readyState: 1, // WebSocket.OPEN
+        readyState: 1,
         _handlers: handlers,
         _emit(event: string, ...args: any[]) {
           for (const h of handlers[event] || []) {
@@ -381,7 +199,7 @@ describe('VoiceChannel', () => {
     it('should fire onConversationEnded on WebSocket disconnect', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel } = createVoiceChannel();
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -390,16 +208,14 @@ describe('VoiceChannel', () => {
           resolve();
         });
       });
-      tac.registerChannel(voiceChannel);
+      tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs as any);
+      channel.handleWebSocketConnection(mockWs);
 
-      // Trigger setup
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(voiceChannel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
 
-      // Trigger close and wait for callback
       mockWs._emit('close');
       await ended;
 
@@ -411,7 +227,7 @@ describe('VoiceChannel', () => {
     it('should still clean up session if callback throws', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel } = createVoiceChannel();
 
       const ended = new Promise<void>(resolve => {
         tac.onConversationEnded(() => {
@@ -419,25 +235,24 @@ describe('VoiceChannel', () => {
           throw new Error('boom');
         });
       });
-      tac.registerChannel(voiceChannel);
+      tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs as any);
+      channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(voiceChannel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
 
       mockWs._emit('close');
       await ended;
-      // Allow microtasks to finish cleanup after the thrown error
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(voiceChannel.isConversationActive('CHcb_test12345')).toBe(false);
+      expect(channel.isConversationActive('CHcb_test12345')).toBe(false);
     });
 
     it('should support async callback', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel } = createVoiceChannel();
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -446,10 +261,10 @@ describe('VoiceChannel', () => {
           resolve();
         });
       });
-      tac.registerChannel(voiceChannel);
+      tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs as any);
+      channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
 
       mockWs._emit('close');
@@ -460,34 +275,26 @@ describe('VoiceChannel', () => {
     });
 
     it('should clean up silently when no callback is registered', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel } = createVoiceChannel();
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs as any);
+      channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(voiceChannel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
 
       mockWs._emit('close');
-      // Flush microtask-based async chain (no callback to hook into)
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(voiceChannel.isConversationActive('CHcb_test12345')).toBe(false);
+      expect(channel.isConversationActive('CHcb_test12345')).toBe(false);
     });
-
   });
 
   describe('handleConversationRelayCallback()', () => {
     it('should return 200 OK for completed call without conversations', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel, conversationClient } = createVoiceChannel();
+      vi.spyOn(conversationClient, 'listConversations').mockResolvedValue([]);
 
-      // Mock the listConversations to return empty
-      vi.spyOn(tac.getConversationClient(), 'listConversations').mockResolvedValue([]);
-
-      const result = await voiceChannel.handleConversationRelayCallback({
+      const result = await channel.handleConversationRelayCallback({
         AccountSid: 'ACtest123',
         CallSid: 'CA123',
         CallStatus: 'completed',
@@ -501,11 +308,9 @@ describe('VoiceChannel', () => {
     });
 
     it('should return 501 when handoff requested but no handler registered', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel } = createVoiceChannel();
 
-      const result = await voiceChannel.handleConversationRelayCallback({
+      const result = await channel.handleConversationRelayCallback({
         AccountSid: 'ACtest123',
         CallSid: 'CA123',
         CallStatus: 'in-progress',
@@ -519,11 +324,10 @@ describe('VoiceChannel', () => {
     });
 
     it('should call handoff handler when provided', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
-      const handoffHandler = vi.fn().mockResolvedValue('<Response><Say>Transferring...</Say></Response>');
+      const { channel } = createVoiceChannel();
+      const handoffHandler = vi
+        .fn()
+        .mockResolvedValue('<Response><Say>Transferring...</Say></Response>');
 
       const payload = {
         AccountSid: 'ACtest123',
@@ -534,7 +338,7 @@ describe('VoiceChannel', () => {
         HandoffData: JSON.stringify({ reason: 'User requested agent' }),
       };
 
-      const result = await voiceChannel.handleConversationRelayCallback(payload, handoffHandler);
+      const result = await channel.handleConversationRelayCallback(payload, handoffHandler);
 
       expect(handoffHandler).toHaveBeenCalledWith(payload);
       expect(result.status).toBe(200);
@@ -543,13 +347,10 @@ describe('VoiceChannel', () => {
     });
 
     it('should return 500 when handoff handler throws', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
-
+      const { channel } = createVoiceChannel();
       const handoffHandler = vi.fn().mockRejectedValue(new Error('Handler failed'));
 
-      const result = await voiceChannel.handleConversationRelayCallback(
+      const result = await channel.handleConversationRelayCallback(
         {
           AccountSid: 'ACtest123',
           CallSid: 'CA123',
@@ -566,15 +367,17 @@ describe('VoiceChannel', () => {
     });
 
     it('should close conversations on call completion', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
-      const voiceChannel = new VoiceChannel(tac);
+      const { channel, conversationClient } = createVoiceChannel();
 
       const mockConversation = { id: 'CH_test_conv' };
-      const listSpy = vi.spyOn(tac.getConversationClient(), 'listConversations').mockResolvedValue([mockConversation] as any);
-      const updateSpy = vi.spyOn(tac.getConversationClient(), 'updateConversation').mockResolvedValue({} as any);
+      const listSpy = vi
+        .spyOn(conversationClient, 'listConversations')
+        .mockResolvedValue([mockConversation] as any);
+      const updateSpy = vi
+        .spyOn(conversationClient, 'updateConversation')
+        .mockResolvedValue({} as any);
 
-      await voiceChannel.handleConversationRelayCallback({
+      await channel.handleConversationRelayCallback({
         AccountSid: 'ACtest123',
         CallSid: 'CA123',
         CallStatus: 'completed',
@@ -586,5 +389,4 @@ describe('VoiceChannel', () => {
       expect(updateSpy).toHaveBeenCalledWith('CH_test_conv', 'CLOSED');
     });
   });
-
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SpyInstance } from 'vitest';
-import { TAC, SMSChannel } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import { TAC, SMSChannel } from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 
 describe('Integration Tests', () => {
   const getTestConfig = () => ({
@@ -64,7 +64,7 @@ describe('Integration Tests', () => {
     });
 
     tac = new TAC({ config: getTestConfig() });
-    channel = new SMSChannel(tac);
+    channel = new SMSChannel(tac.getChannelDeps());
     tac.registerChannel(channel);
   });
 
@@ -76,9 +76,15 @@ describe('Integration Tests', () => {
     it('should handle complete SMS conversation flow', async () => {
       let capturedContext: any = null;
 
-      // Register message callback
-      tac.onMessageReady(({ sessionId, profileId, message, author, session }) => {
-        capturedContext = { sessionId, profileId, message, author, session };
+      // Register message callback — receives ChannelMessage
+      tac.onMessageReady(msg => {
+        capturedContext = {
+          sessionId: msg.sessionId,
+          profileId: msg.conversation?.profileId,
+          message: msg.message,
+          author: msg.conversation?.author,
+          session: msg.conversation,
+        };
         return 'Hello back!';
       });
 
@@ -116,15 +122,14 @@ describe('Integration Tests', () => {
       expect(capturedContext.message).toBe('Hello TAC');
       expect(capturedContext.author).toBe('+15559876543');
       expect(capturedContext.session).toBeDefined();
-      expect(capturedContext.session.sessionId).toBe('CHtest123456789');
+      expect(capturedContext.session.startedAt).toBeInstanceOf(Date);
     });
 
     it('should handle multiple concurrent conversations', async () => {
       const capturedMessages: any[] = [];
 
-      tac.onMessageReady((context) => {
-        capturedMessages.push(context);
-        return `Response to ${context.conversationId}`;
+      tac.onMessageReady(msg => {
+        capturedMessages.push(msg);
       });
 
       // Start multiple conversations
@@ -164,9 +169,8 @@ describe('Integration Tests', () => {
     it('should filter out empty messages', async () => {
       const capturedMessages: any[] = [];
 
-      tac.onMessageReady((context) => {
-        capturedMessages.push(context);
-        return 'Response';
+      tac.onMessageReady(msg => {
+        capturedMessages.push(msg);
       });
 
       // Send valid message
@@ -304,7 +308,7 @@ describe('Integration Tests', () => {
     });
 
     it('should replace existing channel of same type', () => {
-      const newChannel = new SMSChannel(tac);
+      const newChannel = new SMSChannel(tac.getChannelDeps());
 
       // Register new channel of same type
       tac.registerChannel(newChannel);

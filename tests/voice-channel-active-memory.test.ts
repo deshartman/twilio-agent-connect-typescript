@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { TAC } from '../packages/core/src/lib/tac';
-import { VoiceChannel } from '../packages/core/src/channels/voice';
-import type { PromptMessage } from '../packages/core/src/types/index';
-import { WebSocket } from 'ws';
+import {
+  VoiceChannel,
+  TAC,
+  TACConfig,
+  TACMode,
+  createLogger,
+  ConversationClient,
+  TACMemoryResponse,
+  ChannelMessage,
+} from '@twilio/tac-core';
 
 describe('VoiceChannel - Active Voice Memory Enrichment', () => {
-  let tac: TAC;
   let voiceChannel: VoiceChannel;
 
   const getTestConfig = () => ({
@@ -17,20 +22,72 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15555555555',
     conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
-    memoryStoreId: 'mem_store_01234567890123456789abcdef', // Enable memory
+    memoryStoreId: 'mem_store_01234567890123456789abcdef',
   });
 
-  const getTestConfigWithoutMemory = () => ({
-    environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
-    twilioAccountSid: 'ACtest123456789',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'SKtest_api_key',
-    twilioApiToken: 'test_api_token',
-    twilioPhoneNumber: '+15555555555',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
-    // No memoryStoreId - memory disabled
+  const createMockConversationClient = () =>
+    ({
+      createConversation: vi.fn(),
+      addParticipant: vi.fn(),
+      listConversations: vi.fn(),
+      updateConversation: vi.fn(),
+      listParticipants: vi.fn(),
+      sendCommunication: vi.fn(),
+      listCommunications: vi.fn(),
+    }) as unknown as ConversationClient;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createMockWebSocket = (): any => {
+    const handlers: Record<string, ((...args: any[]) => void)[]> = {};
+    return {
+      on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+        if (!handlers[event]) handlers[event] = [];
+        handlers[event].push(handler);
+      }),
+      send: vi.fn(),
+      close: vi.fn(),
+      readyState: 1,
+      _handlers: handlers,
+      _emit(event: string, ...args: any[]) {
+        for (const h of handlers[event] || []) h(...args);
+      },
+    };
+  };
+
+  const setupMessage = JSON.stringify({
+    type: 'setup',
+    sessionId: 'sess_test',
+    callSid: 'CA_test',
+    from: '+15551234567',
+    to: '+15559876543',
+    direction: 'inbound',
+    callType: 'PSTN',
+    callStatus: 'ringing',
+    accountSid: 'ACtest123',
+    customParameters: { conversation_id: 'CH_test', profile_id: 'mem_profile_test' },
   });
+
+  const promptMessage = JSON.stringify({
+    type: 'prompt',
+    voicePrompt: 'Hello, I need help with my order',
+    lang: 'en-US',
+    last: false,
+  });
+
+  const createMockMemory = () =>
+    new TACMemoryResponse({
+      observations: [
+        {
+          id: 'obs1',
+          content: 'User prefers email communication',
+          createdAt: '2024-01-01T00:00:00Z',
+          occurredAt: '2024-01-01T00:00:00Z',
+          source: 'test',
+        },
+      ],
+      summaries: [],
+      communications: [],
+    });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -40,420 +97,375 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     voiceChannel?.shutdown();
   });
 
-  describe('Memory Retrieval in handlePromptMessage', () => {
-    it('should retrieve memory when Memory API enabled', async () => {
-      tac = new TAC({ config: getTestConfig() });
-      voiceChannel = new VoiceChannel(tac);
-      tac.registerChannel(voiceChannel);
+  describe('Memory Retrieval via Injected memoryRetriever', () => {
+    it('should retrieve memory when memoryRetriever is provided', async () => {
+      const mockMemory = createMockMemory();
+      const memoryRetriever = vi.fn().mockResolvedValue(mockMemory);
 
-      // Mock retrieveMemory to return test data
-      const mockMemory = {
-        observations: [
-          {
-            id: 'obs1',
-            content: 'User prefers email communication',
-            createdAt: '2024-01-01T00:00:00Z',
-            occurredAt: '2024-01-01T00:00:00Z',
-            source: 'test',
-          },
-        ],
-        summaries: [],
-        communications: [],
-      };
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
 
-      const retrieveMemorySpy = vi
-        .spyOn(tac, 'retrieveMemory')
-        .mockResolvedValue(mockMemory as any);
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
 
-      // Simulate setup message to create session
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-          profile_id: 'prof123',
-        },
-      };
+      const captured: ChannelMessage[] = [];
+      const messageReceived = new Promise<void>(resolve => {
+        voiceChannel.on('message', (msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
 
-      // Access private method for testing
-      (voiceChannel as any).handleSetupMessage(setupMessage);
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
 
-      // Set up prompt callback spy
-      const promptCallbackSpy = vi.fn();
-      voiceChannel.on('prompt', promptCallbackSpy);
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
 
-      // Simulate prompt message
-      const promptMessage: PromptMessage = {
-        type: 'prompt',
-        voicePrompt: 'Hello, I need help',
-      };
+      await messageReceived;
 
-      await (voiceChannel as any).handlePromptMessage('conv123', promptMessage);
-
-      // Verify memory was retrieved
-      expect(retrieveMemorySpy).toHaveBeenCalledWith(
+      // Verify memoryRetriever was called with the session and transcript
+      expect(memoryRetriever).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'conv123',
-          profileId: 'prof123',
+          sessionId: 'CH_test',
+          profileId: 'mem_profile_test',
         }),
-        'Hello, I need help'
+        'Hello, I need help with my order'
       );
 
-      // Verify callback received memory
-      expect(promptCallbackSpy).toHaveBeenCalledWith(
+      // Verify the ChannelMessage includes memory in conversation bundle
+      expect(captured).toHaveLength(1);
+      const msg = captured[0];
+      expect(msg.sessionId).toBe('CH_test');
+      expect(msg.messageType).toBe('user');
+      expect(msg.message).toBe('Hello, I need help with my order');
+      expect(msg.channel).toBe('voice');
+      expect(msg.metadata).toEqual({ type: 'prompt', lang: 'en-US', last: false });
+      expect(msg.conversation).toBeDefined();
+      expect(msg.conversation?.profileId).toBe('mem_profile_test');
+      expect(msg.conversation?.memory).toBe(mockMemory);
+      expect(msg.conversation?.author).toBe('+15551234567');
+      expect(msg.conversation?.startedAt).toBeInstanceOf(Date);
+    });
+
+    it('should NOT retrieve memory when no memoryRetriever is provided', async () => {
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      // No memoryRetriever passed
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
+
+      const captured: ChannelMessage[] = [];
+      const messageReceived = new Promise<void>(resolve => {
+        voiceChannel.on('message', (msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
+
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
+
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
+
+      await messageReceived;
+
+      // Verify ChannelMessage emitted without memory
+      expect(captured).toHaveLength(1);
+      const msg = captured[0];
+      expect(msg.sessionId).toBe('CH_test');
+      expect(msg.messageType).toBe('user');
+      expect(msg.message).toBe('Hello, I need help with my order');
+      expect(msg.conversation).toBeDefined();
+      expect(msg.conversation?.memory).toBeUndefined();
+    });
+
+    it('should handle memory retrieval errors gracefully', async () => {
+      const memoryRetriever = vi.fn().mockRejectedValue(new Error('Memory API unavailable'));
+
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+
+      const captured: ChannelMessage[] = [];
+      const messageReceived = new Promise<void>(resolve => {
+        voiceChannel.on('message', (msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
+
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
+
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
+
+      // Should not throw - graceful degradation
+      await messageReceived;
+
+      // Callback should still be invoked without memory
+      expect(captured).toHaveLength(1);
+      const msg = captured[0];
+      expect(msg.sessionId).toBe('CH_test');
+      expect(msg.message).toBe('Hello, I need help with my order');
+      expect(msg.conversation?.memory).toBeUndefined();
+    });
+  });
+
+  describe('ChannelMessage Shape', () => {
+    it('should emit a well-formed ChannelMessage with all expected fields', async () => {
+      const mockMemory = createMockMemory();
+      const memoryRetriever = vi.fn().mockResolvedValue(mockMemory);
+
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+
+      const captured: ChannelMessage[] = [];
+      const messageReceived = new Promise<void>(resolve => {
+        voiceChannel.on('message', (msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
+
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
+
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
+
+      await messageReceived;
+
+      expect(captured[0]).toEqual(
         expect.objectContaining({
-          conversationId: 'conv123',
-          transcript: 'Hello, I need help',
-          userMemory: mockMemory,
-          session: expect.objectContaining({
-            sessionId: 'conv123',
-            profileId: 'prof123',
+          sessionId: 'CH_test',
+          messageType: 'user',
+          message: 'Hello, I need help with my order',
+          channel: 'voice',
+          metadata: { type: 'prompt', lang: 'en-US', last: false },
+          conversation: expect.objectContaining({
+            profileId: 'mem_profile_test',
+            memory: mockMemory,
+            author: '+15551234567',
+            startedAt: expect.any(Date),
           }),
         })
       );
     });
 
-    it('should not retrieve memory when Memory API disabled', async () => {
-      tac = new TAC({ config: getTestConfigWithoutMemory() });
-      voiceChannel = new VoiceChannel(tac);
-      tac.registerChannel(voiceChannel);
+    it('should emit interrupt as system message type', async () => {
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
 
-      const retrieveMemorySpy = vi.spyOn(tac, 'retrieveMemory');
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
 
-      // Set up WebSocket and session
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
+      const systemMessages: ChannelMessage[] = [];
+      const interruptReceived = new Promise<void>(resolve => {
+        voiceChannel.on('message', (msg: ChannelMessage) => {
+          if (msg.messageType === 'system' && msg.metadata?.type === 'interrupt') {
+            systemMessages.push(msg);
+            resolve();
+          }
+        });
+      });
 
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-        },
-      };
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
 
-      (voiceChannel as any).handleSetupMessage(setupMessage);
+      mockWs._emit('message', Buffer.from(setupMessage));
 
-      const promptCallbackSpy = vi.fn();
-      voiceChannel.on('prompt', promptCallbackSpy);
+      const interruptMessage = JSON.stringify({
+        type: 'interrupt',
+        utteranceUntilInterrupt: 'wait',
+        durationUntilInterruptMs: 500,
+      });
+      mockWs._emit('message', Buffer.from(interruptMessage));
 
-      const promptMessage: PromptMessage = {
-        type: 'prompt',
-        voicePrompt: 'Hello',
-      };
+      await interruptReceived;
 
-      await (voiceChannel as any).handlePromptMessage('conv123', promptMessage);
-
-      // Memory retrieval should NOT be called
-      expect(retrieveMemorySpy).not.toHaveBeenCalled();
-
-      // Callback should still be invoked (without memory)
-      expect(promptCallbackSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv123',
-          transcript: 'Hello',
-        })
-      );
-
-      // Should not have userMemory property since memory is disabled
-      expect(promptCallbackSpy.mock.calls[0][0]).not.toHaveProperty('userMemory');
-    });
-
-    it('should handle memory retrieval errors gracefully', async () => {
-      tac = new TAC({ config: getTestConfig() });
-      voiceChannel = new VoiceChannel(tac);
-      tac.registerChannel(voiceChannel);
-
-      // Mock retrieveMemory to throw error
-      const retrieveMemorySpy = vi
-        .spyOn(tac, 'retrieveMemory')
-        .mockRejectedValue(new Error('Memory API unavailable'));
-
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
-
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-        },
-      };
-
-      (voiceChannel as any).handleSetupMessage(setupMessage);
-
-      const promptCallbackSpy = vi.fn();
-      voiceChannel.on('prompt', promptCallbackSpy);
-
-      const promptMessage: PromptMessage = {
-        type: 'prompt',
-        voicePrompt: 'Test message',
-      };
-
-      // Should not throw - graceful degradation
-      await expect(
-        (voiceChannel as any).handlePromptMessage('conv123', promptMessage)
-      ).resolves.not.toThrow();
-
-      // Callback should still be invoked (without memory)
-      expect(promptCallbackSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv123',
-          transcript: 'Test message',
-        })
-      );
+      expect(systemMessages).toHaveLength(1);
+      expect(systemMessages[0].messageType).toBe('system');
+      expect(systemMessages[0].metadata?.type).toBe('interrupt');
+      expect(systemMessages[0].metadata?.utteranceUntilInterrupt).toBe('wait');
+      expect(systemMessages[0].metadata?.durationUntilInterruptMs).toBe(500);
     });
   });
 
   describe('Integration with TAC onMessageReady', () => {
-    it('should pass enriched memory to TAC.onMessageReady callback', async () => {
-      tac = new TAC({ config: getTestConfig() });
-      voiceChannel = new VoiceChannel(tac);
+    it('should pass enriched ChannelMessage to TAC.onMessageReady callback', async () => {
+      const mockMemory = createMockMemory();
+      const memoryRetriever = vi.fn().mockResolvedValue(mockMemory);
+
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test-tac', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+
+      const tac = new TAC({ config });
+      const captured: ChannelMessage[] = [];
+      const messageReady = new Promise<void>(resolve => {
+        tac.onMessageReady((msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
       tac.registerChannel(voiceChannel);
 
-      const mockMemory = {
-        observations: [{ id: 'obs1', content: 'Test observation' }],
-        summaries: [],
-        communications: [],
-      };
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
 
-      vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(mockMemory as any);
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
 
-      const messageReadySpy = vi.fn();
-      tac.onMessageReady(messageReadySpy);
+      await messageReady;
 
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
-
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-          profile_id: 'prof123',
-        },
-      };
-
-      (voiceChannel as any).handleSetupMessage(setupMessage);
-
-      const promptMessage: PromptMessage = {
-        type: 'prompt',
-        voicePrompt: 'Integration test message',
-      };
-
-      await (voiceChannel as any).handlePromptMessage('conv123', promptMessage);
-
-      // TAC's onMessageReady should receive enriched memory
-      expect(messageReadySpy).toHaveBeenCalledWith(
+      // TAC's onMessageReady should receive the full ChannelMessage
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv123',
-          message: 'Integration test message',
-          memory: mockMemory,
+          sessionId: 'CH_test',
+          messageType: 'user',
+          message: 'Hello, I need help with my order',
           channel: 'voice',
+          conversation: expect.objectContaining({
+            profileId: 'mem_profile_test',
+            memory: mockMemory,
+            author: '+15551234567',
+          }),
         })
       );
     });
 
-    it('should work without memory when disabled', async () => {
-      tac = new TAC({ config: getTestConfigWithoutMemory() });
-      voiceChannel = new VoiceChannel(tac);
+    it('should work without memory when no memoryRetriever is provided', async () => {
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test-tac', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
+
+      const tac = new TAC({ config });
+      const captured: ChannelMessage[] = [];
+      const messageReady = new Promise<void>(resolve => {
+        tac.onMessageReady((msg: ChannelMessage) => {
+          if (msg.messageType === 'user') {
+            captured.push(msg);
+            resolve();
+          }
+        });
+      });
       tac.registerChannel(voiceChannel);
 
-      const messageReadySpy = vi.fn();
-      tac.onMessageReady(messageReadySpy);
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
 
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
+      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(promptMessage));
 
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-        },
-      };
+      await messageReady;
 
-      (voiceChannel as any).handleSetupMessage(setupMessage);
-
-      const promptMessage: PromptMessage = {
-        type: 'prompt',
-        voicePrompt: 'No memory test',
-      };
-
-      await (voiceChannel as any).handlePromptMessage('conv123', promptMessage);
-
-      // Should still invoke callback without memory
-      expect(messageReadySpy).toHaveBeenCalledWith(
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv123',
-          message: 'No memory test',
+          sessionId: 'CH_test',
+          messageType: 'user',
+          message: 'Hello, I need help with my order',
           channel: 'voice',
         })
       );
+      expect(captured[0].conversation?.memory).toBeUndefined();
     });
   });
 
-  describe('Backward Compatibility', () => {
-    it('should work with callbacks that only use conversationId and transcript', async () => {
-      tac = new TAC({ config: getTestConfig() });
-      voiceChannel = new VoiceChannel(tac);
-      tac.registerChannel(voiceChannel);
-
-      vi.spyOn(tac, 'retrieveMemory').mockResolvedValue({
-        observations: [],
+  describe('Multiple Prompts', () => {
+    it('should retrieve memory independently for each prompt', async () => {
+      const mockMemory1 = createMockMemory();
+      const mockMemory2 = new TACMemoryResponse({
+        observations: [
+          {
+            id: 'obs2',
+            content: 'User has premium subscription',
+            createdAt: '2024-02-01T00:00:00Z',
+            source: 'test',
+          },
+        ],
         summaries: [],
         communications: [],
-      } as any);
+      });
 
-      // Old-style callback that only destructures conversationId and transcript
-      const oldStyleCallback = vi.fn(
-        ({ conversationId, transcript }: { conversationId: string; transcript: string }) => {
-          // Callback only uses these two fields
-          expect(conversationId).toBeDefined();
-          expect(transcript).toBeDefined();
+      let callCount = 0;
+      const memoryRetriever = vi.fn().mockImplementation(async () => {
+        callCount++;
+        return callCount === 1 ? mockMemory1 : mockMemory2;
+      });
+
+      const config = new TACConfig(getTestConfig());
+      const logger = createLogger({ name: 'test', level: 'silent' });
+      const conversationClient = createMockConversationClient();
+
+      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+
+      const captured: ChannelMessage[] = [];
+      let resolveSecond: () => void;
+      const secondMessageReceived = new Promise<void>(resolve => {
+        resolveSecond = resolve;
+      });
+
+      voiceChannel.on('message', (msg: ChannelMessage) => {
+        if (msg.messageType === 'user') {
+          captured.push(msg);
+          if (captured.length === 2) resolveSecond();
         }
-      );
+      });
 
-      voiceChannel.on('prompt', oldStyleCallback);
+      const mockWs = createMockWebSocket();
+      voiceChannel.handleWebSocketConnection(mockWs);
 
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
+      mockWs._emit('message', Buffer.from(setupMessage));
 
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-        },
-      };
+      // Send first prompt
+      mockWs._emit('message', Buffer.from(promptMessage));
 
-      (voiceChannel as any).handleSetupMessage(setupMessage);
-
-      const promptMessage: PromptMessage = {
+      // Send second prompt
+      const secondPrompt = JSON.stringify({
         type: 'prompt',
-        voicePrompt: 'Backward compat test',
-      };
-
-      // Should not throw - old callbacks still work
-      await expect(
-        (voiceChannel as any).handlePromptMessage('conv123', promptMessage)
-      ).resolves.not.toThrow();
-
-      expect(oldStyleCallback).toHaveBeenCalled();
-    });
-  });
-
-  describe('Prompt Serialization', () => {
-    it('should serialize prompt messages to prevent race conditions', async () => {
-      tac = new TAC({ config: getTestConfig() });
-      voiceChannel = new VoiceChannel(tac);
-      tac.registerChannel(voiceChannel);
-
-      // Mock memory retrieval with varying delays to simulate race conditions
-      vi.spyOn(tac, 'retrieveMemory').mockImplementation(async (session, query) => {
-        const promptNumber = Number.parseInt((query || '').replace('prompt ', ''));
-        // Simulate varying processing times - later prompts finish faster
-        const delay = (3 - promptNumber + 1) * 10;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return {
-          observations: [{ id: `obs${promptNumber}`, content: `Memory for ${query}` }],
-          summaries: [],
-          communications: [],
-        } as any;
+        voicePrompt: 'Can you check my subscription?',
+        lang: 'en-US',
+        last: false,
       });
+      mockWs._emit('message', Buffer.from(secondPrompt));
 
-      let callbackCount = 0;
-      const callbackOrder: number[] = [];
+      await secondMessageReceived;
 
-      voiceChannel.on('prompt', async ({ transcript }) => {
-        const order = Number.parseInt(transcript.replace('prompt ', ''));
-        callbackCount++;
-        callbackOrder.push(order);
-      });
+      expect(memoryRetriever).toHaveBeenCalledTimes(2);
+      expect(captured).toHaveLength(2);
 
-      // Set up WebSocket and session
-      const mockWs = {
-        readyState: WebSocket.OPEN,
-        send: vi.fn(),
-        on: vi.fn(),
-      } as unknown as WebSocket;
+      // First prompt got first memory
+      expect(captured[0].message).toBe('Hello, I need help with my order');
+      expect(captured[0].conversation?.memory).toBe(mockMemory1);
 
-      const setupMessage = {
-        type: 'setup' as const,
-        callSid: 'CA123',
-        from: '+15551234567',
-        to: '+15555555555',
-        customParameters: {
-          conversation_id: 'conv123',
-          profile_id: 'prof123',
-        },
-      };
-
-      (voiceChannel as any).handleSetupMessage(setupMessage);
-
-      // Send 3 prompts in quick succession
-      const promptMessage1: PromptMessage = { type: 'prompt', voicePrompt: 'prompt 1' };
-      const promptMessage2: PromptMessage = { type: 'prompt', voicePrompt: 'prompt 2' };
-      const promptMessage3: PromptMessage = { type: 'prompt', voicePrompt: 'prompt 3' };
-
-      // Simulate the serialization that happens in handleWebSocketConnection
-      const conversationId = 'conv123';
-      const promptQueues = (voiceChannel as any).promptQueues as Map<string, Promise<void>>;
-
-      // First prompt
-      const previousPrompt1 = promptQueues.get(conversationId) ?? Promise.resolve();
-      const currentPrompt1 = previousPrompt1
-        .then(() => (voiceChannel as any).handlePromptMessage(conversationId, promptMessage1))
-        .catch(() => {});
-      promptQueues.set(conversationId, currentPrompt1);
-
-      // Second prompt (chained after first)
-      const previousPrompt2 = promptQueues.get(conversationId) ?? Promise.resolve();
-      const currentPrompt2 = previousPrompt2
-        .then(() => (voiceChannel as any).handlePromptMessage(conversationId, promptMessage2))
-        .catch(() => {});
-      promptQueues.set(conversationId, currentPrompt2);
-
-      // Third prompt (chained after second)
-      const previousPrompt3 = promptQueues.get(conversationId) ?? Promise.resolve();
-      const currentPrompt3 = previousPrompt3
-        .then(() => (voiceChannel as any).handlePromptMessage(conversationId, promptMessage3))
-        .catch(() => {});
-      promptQueues.set(conversationId, currentPrompt3);
-
-      // Wait for all processing to complete
-      await currentPrompt3;
-
-      // Verify callbacks executed in order despite varying processing times
-      expect(callbackCount).toBe(3);
-      expect(callbackOrder).toEqual([1, 2, 3]);
+      // Second prompt got second memory
+      expect(captured[1].message).toBe('Can you check my subscription?');
+      expect(captured[1].conversation?.memory).toBe(mockMemory2);
     });
   });
 });

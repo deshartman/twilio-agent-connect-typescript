@@ -113,14 +113,14 @@ describe('TAC Core', () => {
       }).not.toThrow();
     });
 
-    it('should register interrupt callback', () => {
+    it('should register error callback', () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
 
       const mockCallback = () => {};
 
       expect(() => {
-        tac.onInterrupt(mockCallback);
+        tac.onError(mockCallback);
       }).not.toThrow();
     });
 

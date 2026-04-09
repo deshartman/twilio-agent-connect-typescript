@@ -57,8 +57,8 @@ describe('TACServer Webhook Validation', () => {
     tac = new TAC({ config });
 
     // Register channels (required for route handlers)
-    const smsChannel = new SMSChannel(tac);
-    const voiceChannel = new VoiceChannel(tac);
+    const smsChannel = new SMSChannel(tac.getChannelDeps());
+    const voiceChannel = new VoiceChannel(tac.getChannelDeps());
     tac.registerChannel(smsChannel);
     tac.registerChannel(voiceChannel);
   });
@@ -314,8 +314,8 @@ describe('TACServer idempotency token', () => {
     const config = new TACConfig(getTestConfig());
     tac = new TAC({ config });
 
-    smsChannel = new SMSChannel(tac);
-    const voiceChannel = new VoiceChannel(tac);
+    smsChannel = new SMSChannel(tac.getChannelDeps());
+    const voiceChannel = new VoiceChannel(tac.getChannelDeps());
     tac.registerChannel(smsChannel);
     tac.registerChannel(voiceChannel);
   });
@@ -416,8 +416,8 @@ describe('TACServer with conversationRelayConfig', () => {
     const config = new TACConfig(getTestConfig());
     tac = new TAC({ config });
 
-    const smsChannel = new SMSChannel(tac);
-    voiceChannel = new VoiceChannel(tac);
+    const smsChannel = new SMSChannel(tac.getChannelDeps());
+    voiceChannel = new VoiceChannel(tac.getChannelDeps());
     tac.registerChannel(smsChannel);
     tac.registerChannel(voiceChannel);
   });

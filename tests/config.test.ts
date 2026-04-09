@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { TACConfig } from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 
 describe('TACConfig', () => {
   const getTestConfigData = () => ({
@@ -15,33 +15,8 @@ describe('TACConfig', () => {
     conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
-  // Store original env vars
-  let originalEnv: Record<string, string | undefined>;
-
-  beforeEach(() => {
-    originalEnv = {
-      ENVIRONMENT: process.env.ENVIRONMENT,
-      TAC_MODE: process.env.TAC_MODE,
-      TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
-      TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
-      TWILIO_API_KEY: process.env.TWILIO_API_KEY,
-      TWILIO_API_TOKEN: process.env.TWILIO_API_TOKEN,
-      TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
-      MEMORY_STORE_ID: process.env.MEMORY_STORE_ID,
-      CONVERSATION_SERVICE_ID: process.env.CONVERSATION_SERVICE_ID,
-      VOICE_PUBLIC_DOMAIN: process.env.VOICE_PUBLIC_DOMAIN,
-    };
-  });
-
   afterEach(() => {
-    // Restore original env vars
-    Object.keys(originalEnv).forEach(key => {
-      if (originalEnv[key] === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = originalEnv[key];
-      }
-    });
+    vi.unstubAllEnvs();
   });
 
   describe('constructor', () => {
@@ -134,23 +109,54 @@ describe('TACConfig', () => {
         new TACConfig(invalidConfig);
       }).toThrow();
     });
+
+    it('should accept passive mode with conversationServiceId', () => {
+      const config = new TACConfig({
+        ...getTestConfigData(),
+        tacMode: 'passive',
+      });
+
+      expect(config.tacMode).toBe('passive');
+      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+    });
+
+    it('should throw when passive mode lacks conversationServiceId', () => {
+      expect(() => {
+        new TACConfig({
+          ...getTestConfigData(),
+          tacMode: 'passive',
+          conversationServiceId: undefined,
+        });
+      }).toThrow('TAC_MODE=passive requires CONVERSATION_SERVICE_ID');
+    });
+
+    it('should accept crelay mode without conversationServiceId', () => {
+      const config = new TACConfig({
+        ...getTestConfigData(),
+        tacMode: 'crelay',
+        conversationServiceId: undefined,
+      });
+
+      expect(config.tacMode).toBe('crelay');
+      expect(config.conversationServiceId).toBeUndefined();
+    });
   });
 
   describe('fromEnv', () => {
-    const setRequiredEnvVars = () => {
-      process.env.ENVIRONMENT = 'prod';
-      process.env.TAC_MODE = 'conversation';
-      process.env.TWILIO_ACCOUNT_SID = 'ACtest123';
-      process.env.TWILIO_AUTH_TOKEN = 'test_auth_token';
-      process.env.TWILIO_API_KEY = 'SKtest123';
-      process.env.TWILIO_API_TOKEN = 'test_api_token';
-      process.env.TWILIO_PHONE_NUMBER = '+1234567890';
-      process.env.MEMORY_STORE_ID = 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg';
-      process.env.CONVERSATION_SERVICE_ID = 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd';
+    const stubRequiredEnvVars = () => {
+      vi.stubEnv('ENVIRONMENT', 'prod');
+      vi.stubEnv('TAC_MODE', 'conversation');
+      vi.stubEnv('TWILIO_ACCOUNT_SID', 'ACtest123');
+      vi.stubEnv('TWILIO_AUTH_TOKEN', 'test_auth_token');
+      vi.stubEnv('TWILIO_API_KEY', 'SKtest123');
+      vi.stubEnv('TWILIO_API_TOKEN', 'test_api_token');
+      vi.stubEnv('TWILIO_PHONE_NUMBER', '+1234567890');
+      vi.stubEnv('MEMORY_STORE_ID', 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
+      vi.stubEnv('CONVERSATION_SERVICE_ID', 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
     };
 
     it('should create config when all required env vars are set', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
 
       const config = TACConfig.fromEnv();
 
@@ -163,7 +169,7 @@ describe('TACConfig', () => {
     });
 
     it('should default to prod environment when ENVIRONMENT is not set', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.ENVIRONMENT;
 
       const config = TACConfig.fromEnv();
@@ -172,8 +178,8 @@ describe('TACConfig', () => {
     });
 
     it('should include optional voicePublicDomain when set', () => {
-      setRequiredEnvVars();
-      process.env.VOICE_PUBLIC_DOMAIN = 'https://example.com';
+      stubRequiredEnvVars();
+      vi.stubEnv('VOICE_PUBLIC_DOMAIN', 'https://example.com');
 
       const config = TACConfig.fromEnv();
 
@@ -181,7 +187,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when TWILIO_ACCOUNT_SID is missing', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.TWILIO_ACCOUNT_SID;
 
       expect(() => {
@@ -190,7 +196,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when TWILIO_AUTH_TOKEN is missing', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.TWILIO_AUTH_TOKEN;
 
       expect(() => {
@@ -199,7 +205,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when TWILIO_API_KEY is missing', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.TWILIO_API_KEY;
 
       expect(() => {
@@ -208,7 +214,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when TWILIO_API_TOKEN is missing', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.TWILIO_API_TOKEN;
 
       expect(() => {
@@ -217,7 +223,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when TWILIO_PHONE_NUMBER is missing', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.TWILIO_PHONE_NUMBER;
 
       expect(() => {
@@ -226,7 +232,7 @@ describe('TACConfig', () => {
     });
 
     it('should work when MEMORY_STORE_ID is not provided', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.MEMORY_STORE_ID;
 
       const config = TACConfig.fromEnv();
@@ -236,7 +242,7 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when CONVERSATION_SERVICE_ID is missing in conversation mode', () => {
-      setRequiredEnvVars();
+      stubRequiredEnvVars();
       delete process.env.CONVERSATION_SERVICE_ID;
 
       expect(() => {
@@ -244,10 +250,35 @@ describe('TACConfig', () => {
       }).toThrow('TAC_MODE=conversation requires CONVERSATION_SERVICE_ID to be configured');
     });
 
+    it('should throw error when CONVERSATION_SERVICE_ID is missing in passive mode', () => {
+      stubRequiredEnvVars();
+      vi.stubEnv('TAC_MODE', 'passive');
+      delete process.env.CONVERSATION_SERVICE_ID;
+
+      expect(() => {
+        TACConfig.fromEnv();
+      }).toThrow('TAC_MODE=passive requires CONVERSATION_SERVICE_ID to be configured');
+    });
+
+    it('should accept passive mode from env with CONVERSATION_SERVICE_ID', () => {
+      stubRequiredEnvVars();
+      vi.stubEnv('TAC_MODE', 'passive');
+
+      const config = TACConfig.fromEnv();
+
+      expect(config.tacMode).toBe('passive');
+      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+    });
+
     it('should throw error when no environment variables are set', () => {
-      Object.keys(originalEnv).forEach(key => {
-        delete process.env[key];
-      });
+      // vi.stubEnv is not called — env vars are whatever the real environment has
+      // Delete the ones that matter to ensure the test works
+      delete process.env.TAC_MODE;
+      delete process.env.TWILIO_ACCOUNT_SID;
+      delete process.env.TWILIO_AUTH_TOKEN;
+      delete process.env.TWILIO_API_KEY;
+      delete process.env.TWILIO_API_TOKEN;
+      delete process.env.TWILIO_PHONE_NUMBER;
 
       expect(() => {
         TACConfig.fromEnv();
