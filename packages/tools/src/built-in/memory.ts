@@ -3,6 +3,7 @@ import {
   MemoryRetrievalResponse,
   BuiltInTools,
   MemoryClient,
+  ProfileId,
 } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
@@ -74,7 +75,7 @@ export function createMemoryRetrievalTool(
         session_limit: params.session_limit ?? 3,
       };
 
-      return memoryClient.retrieveMemories(serviceSid, profileId, request);
+      return memoryClient.retrieveMemories(serviceSid, profileId as ProfileId, request);
     }
   );
 }

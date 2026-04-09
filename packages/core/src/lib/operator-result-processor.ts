@@ -4,6 +4,8 @@ import {
   OperatorResult,
   OperatorProcessingResult,
   ConversationIntelligenceConfig,
+  ProfileId,
+  ConversationId,
 } from '../types/index';
 import { MemoryClient } from '../clients/memory';
 import { Logger, createLogger } from './logger';
@@ -341,10 +343,10 @@ export class OperatorResultProcessor {
         try {
           await this.memoryClient.createObservation(
             event.memoryStoreId!,
-            profileId,
+            profileId as ProfileId,
             observation,
             'conversation-intelligence',
-            [event.conversationId],
+            [event.conversationId as ConversationId],
             operatorResult.dateCreated
           );
           createdCount++;
@@ -418,14 +420,14 @@ export class OperatorResultProcessor {
       try {
         const summaryItems = summaries.map(summaryContent => ({
           content: summaryContent,
-          conversationId: event.conversationId,
+          conversationId: event.conversationId as ConversationId,
           occurredAt: operatorResult.dateCreated,
           source: 'conversation-intelligence',
         }));
 
         await this.memoryClient.createConversationSummaries(
           event.memoryStoreId!,
-          profileId,
+          profileId as ProfileId,
           summaryItems
         );
         createdCount += summaries.length;

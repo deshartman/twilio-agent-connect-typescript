@@ -11,6 +11,8 @@ import {
   CreateObservationResponseSchema,
   CreateConversationSummariesResponse,
   CreateConversationSummariesResponseSchema,
+  ProfileId,
+  ConversationId,
 } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { Logger, createLogger } from '../lib/logger';
@@ -57,7 +59,7 @@ export class MemoryClient {
    */
   public async retrieveMemories(
     serviceSid: string,
-    profileId: string,
+    profileId: ProfileId,
     request: Partial<MemoryRetrievalRequest> = {}
   ): Promise<MemoryRetrievalResponse> {
     try {
@@ -212,7 +214,7 @@ export class MemoryClient {
    */
   public async getProfile(
     serviceSid: string,
-    profileId: string,
+    profileId: ProfileId,
     traitGroups?: string[]
   ): Promise<ProfileResponse> {
     let url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}`;
@@ -253,10 +255,10 @@ export class MemoryClient {
    */
   public async createObservation(
     serviceSid: string,
-    profileId: string,
+    profileId: ProfileId,
     content: string,
     source: string = 'conversation-intelligence',
-    conversationIds?: string[],
+    conversationIds?: ConversationId[],
     occurredAt?: string
   ): Promise<CreateObservationResponse> {
     const url = `${this.baseUrl}/v1/Stores/${serviceSid}/Profiles/${profileId}/Observations`;
@@ -305,10 +307,10 @@ export class MemoryClient {
    */
   public async createConversationSummaries(
     serviceSid: string,
-    profileId: string,
+    profileId: ProfileId,
     summaries: Array<{
       content: string;
-      conversationId: string;
+      conversationId: ConversationId;
       occurredAt: string;
       source?: string;
     }>

@@ -142,7 +142,7 @@ export class VoiceChannel implements Channel {
       metadata: msg.metadata,
       conversation: session
         ? {
-            profileId: session.profileId as ProfileId | undefined,
+            profileId: session.profileId,
             memory: msg.memory,
             author: session.authorInfo?.address ?? 'user',
             serviceId: session.serviceId,
@@ -471,7 +471,7 @@ export class VoiceChannel implements Channel {
     const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
 
     const conversation = await this.conversationClient.createConversation(conversationName);
-    const conversationId = conversation.id;
+    const conversationId = conversation.id as ConversationId;
 
     this.logger.debug(
       { conversation_id: conversationId, call_sid: callSid },
@@ -549,7 +549,10 @@ export class VoiceChannel implements Channel {
 
       for (const conversation of conversations) {
         try {
-          await this.conversationClient.updateConversation(conversation.id, 'CLOSED');
+          await this.conversationClient.updateConversation(
+            conversation.id as ConversationId,
+            'CLOSED'
+          );
           this.logger.debug({ conversation_id: conversation.id }, 'Closed conversation');
         } catch (error) {
           this.logger.error(

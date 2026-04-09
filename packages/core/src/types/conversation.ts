@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ChannelTypeSchema } from './config';
+import type { SessionId } from './channels';
 
 /**
  * Participant address type for different communication channels
@@ -181,7 +182,20 @@ export const ConversationSessionSchema = z.object({
   profile: z.custom<Profile>().optional(),
 });
 
-export type ConversationSession = z.infer<typeof ConversationSessionSchema>;
+/**
+ * ConversationSession type with branded IDs
+ *
+ * Note: Zod schema validates as plain strings, but TypeScript type uses branded types.
+ * Cast at parse boundaries: ConversationSessionSchema.parse(data) as ConversationSession
+ */
+export type ConversationSession = Omit<
+  z.infer<typeof ConversationSessionSchema>,
+  'sessionId' | 'profileId' | 'serviceId'
+> & {
+  sessionId: SessionId;
+  profileId?: ProfileId | undefined;
+  serviceId?: string | undefined;
+};
 
 /**
  * Branded types for type safety

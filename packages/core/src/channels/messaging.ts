@@ -600,7 +600,7 @@ export abstract class MessagingChannel implements Channel {
         metadata: { type: 'communication_created' },
         conversation: session
           ? {
-              profileId: (session.profileId as ProfileId | undefined) ?? profileId ?? undefined,
+              profileId: session.profileId ?? profileId ?? undefined,
               memory: userMemory,
               author,
               serviceId: session.serviceId,

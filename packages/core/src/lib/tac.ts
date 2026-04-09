@@ -35,7 +35,7 @@ export type ErrorCallback = (params: {
 
 export type HandoffCallback = (params: {
   /** Generic session identifier (CallSid or ConversationId) */
-  sessionId: string;
+  sessionId: SessionId;
   profileId: ProfileId | undefined;
   reason: string;
   session: ConversationSession;
@@ -271,7 +271,7 @@ export class TAC {
     try {
       await this.handoffCallback({
         sessionId: session.sessionId,
-        profileId: session.profileId ? (session.profileId as ProfileId) : undefined,
+        profileId: session.profileId,
         reason,
         session,
       });
@@ -480,7 +480,7 @@ export class TAC {
           }
 
           // Use the first profile ID
-          session.profileId = lookupResponse.profiles[0];
+          session.profileId = lookupResponse.profiles[0] as ProfileId;
         } catch (error) {
           this.logger.error(
             { err: error },
@@ -494,7 +494,7 @@ export class TAC {
         // At this point, profileId is guaranteed to be defined (either provided or looked up)
         const memoryResponse = await this.memoryClient.retrieveMemories(
           this.config.memoryStoreId,
-          session.profileId!,
+          session.profileId,
           { query }
         );
         return new TACMemoryResponse(memoryResponse);
@@ -531,7 +531,7 @@ export class TAC {
    * @param profileId - Profile ID to fetch
    * @returns Promise containing profile response or undefined if not available
    */
-  public async fetchProfile(profileId: string): Promise<ProfileResponse | undefined> {
+  public async fetchProfile(profileId: ProfileId): Promise<ProfileResponse | undefined> {
     // Check if memory client is initialized
     if (!this.memoryClient || !this.config.memoryStoreId) {
       this.logger.warn(

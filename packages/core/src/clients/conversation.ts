@@ -11,6 +11,8 @@ import {
   SendCommunicationResponseSchema,
   ConversationConfiguration,
   ConversationConfigurationSchema,
+  ConversationId,
+  SessionId,
 } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { Logger, createLogger } from '../lib/logger';
@@ -57,14 +59,15 @@ export class ConversationClient {
   /**
    * Send a communication using the Conversation Orchestrator Send API
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param request - Send communication request
    * @returns Promise containing communication response
    */
   public async sendCommunication(
-    conversationId: string,
+    sessionId: SessionId,
     request: SendCommunicationRequest
   ): Promise<SendCommunicationResponse> {
+    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Communications`;
 
     const requestBody = {
@@ -114,10 +117,11 @@ export class ConversationClient {
   /**
    * List communications for a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @returns Promise containing array of communications
    */
-  public async listCommunications(conversationId: string): Promise<Communication[]> {
+  public async listCommunications(sessionId: SessionId): Promise<Communication[]> {
+    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Communications`;
 
     const options: RequestOptions = {
@@ -193,16 +197,17 @@ export class ConversationClient {
   /**
    * Add a participant to a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param addresses - Array of participant addresses
    * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
    * @returns Promise containing participant response
    */
   public async addParticipant(
-    conversationId: string,
+    sessionId: SessionId,
     addresses: ConversationAddress[],
     participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'
   ): Promise<ConversationParticipant> {
+    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
 
     const requestBody = {
@@ -234,10 +239,11 @@ export class ConversationClient {
   /**
    * List participants in a conversation
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @returns Promise containing array of participants
    */
-  public async listParticipants(conversationId: string): Promise<ConversationParticipant[]> {
+  public async listParticipants(sessionId: SessionId): Promise<ConversationParticipant[]> {
+    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
 
     const options: RequestOptions = {
@@ -324,14 +330,15 @@ export class ConversationClient {
   /**
    * Update conversation status
    *
-   * @param conversationId - The conversation ID
+   * @param sessionId - The session ID (internally cast to ConversationId)
    * @param status - New status (ACTIVE, INACTIVE, CLOSED)
    * @returns Promise containing updated conversation
    */
   public async updateConversation(
-    conversationId: string,
+    sessionId: SessionId,
     status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'
   ): Promise<ConversationResponse> {
+    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}`;
 
     const requestBody = { status };
