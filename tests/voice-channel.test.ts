@@ -19,7 +19,7 @@ describe('VoiceChannel', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   const createVoiceChannel = (overrides?: {
@@ -192,7 +192,7 @@ describe('VoiceChannel', () => {
       callStatus: 'ringing',
       accountSid: 'ACtest123',
       customParameters: {
-        conversation_id: 'CHcb_test12345',
+        conversation_id: 'conv_conversation_01callback123test',
         profile_id: 'mem_profile_cb_test',
       },
     });
@@ -215,13 +215,13 @@ describe('VoiceChannel', () => {
       channel.handleWebSocketConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
 
       mockWs._emit('close');
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('CHcb_test12345');
+      expect(captured[0].sessionId).toBe('conv_conversation_01callback123test');
       expect(captured[0].channel).toBe('voice');
     });
 
@@ -241,13 +241,13 @@ describe('VoiceChannel', () => {
       const mockWs = createMockWebSocket();
       channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
 
       mockWs._emit('close');
       await ended;
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(channel.isConversationActive('CHcb_test12345')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(false);
     });
 
     it('should support async callback', async () => {
@@ -272,7 +272,7 @@ describe('VoiceChannel', () => {
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('CHcb_test12345');
+      expect(captured[0].sessionId).toBe('conv_conversation_01callback123test');
     });
 
     it('should clean up silently when no callback is registered', async () => {
@@ -281,12 +281,12 @@ describe('VoiceChannel', () => {
       const mockWs = createMockWebSocket();
       channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('CHcb_test12345')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
 
       mockWs._emit('close');
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(channel.isConversationActive('CHcb_test12345')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(false);
     });
   });
 
@@ -370,7 +370,7 @@ describe('VoiceChannel', () => {
     it('should close conversations on call completion', async () => {
       const { channel, conversationClient } = createVoiceChannel();
 
-      const mockConversation = { id: 'CH_test_conv' };
+      const mockConversation = { id: 'conv_conversation_01testconv' };
       const listSpy = vi
         .spyOn(conversationClient, 'listConversations')
         .mockResolvedValue([mockConversation] as any);
@@ -387,7 +387,7 @@ describe('VoiceChannel', () => {
       });
 
       expect(listSpy).toHaveBeenCalledWith({ channelId: 'CA123' });
-      expect(updateSpy).toHaveBeenCalledWith('CH_test_conv', 'CLOSED');
+      expect(updateSpy).toHaveBeenCalledWith('conv_conversation_01testconv', 'CLOSED');
     });
   });
 
@@ -397,7 +397,7 @@ describe('VoiceChannel', () => {
 
       // Channel interface: only knows about ConversationId
       expect(() => {
-        channel.sendResponse('CHnonexistent' as ConversationId, 'Test message');
+        channel.sendResponse('conv_conversation_01nonexistent' as ConversationId, 'Test message');
       }).toThrow('No CallSid found for conversation');
     });
   });

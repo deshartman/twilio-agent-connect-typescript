@@ -43,10 +43,7 @@ export const TACConfigSchema = z.object({
   traitGroups: z.array(z.string()).optional(),
   conversationServiceId: z
     .string()
-    .regex(
-      /^(comms_service|conv_configuration)_[0-9a-z]{26}$/,
-      'Invalid Conversation Configuration ID format'
-    )
+    .regex(/^conv_configuration_[0-9a-z]{26}$/, 'Invalid Conversation Configuration ID format')
     .optional(),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),

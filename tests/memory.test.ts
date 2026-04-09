@@ -20,7 +20,7 @@ describe('Memory Functionality', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   const getTestConfigWithMemory = () => ({
@@ -289,7 +289,7 @@ describe('Memory Functionality', () => {
       const mockCommunications: Communication[] = [
         {
           id: 'comm_123',
-          conversationId: 'CH123',
+          conversationId: 'conv_conversation_01short123',
           accountId: 'AC123456',
           author: {
             address: '+12025551234',
@@ -316,7 +316,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        sessionId: 'CH123',
+        sessionId: 'conv_conversation_01short123',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -325,7 +325,7 @@ describe('Memory Functionality', () => {
       const result = await tac.retrieveMemory(session);
 
       // Verify fallback was called
-      expect(conversationClient.listCommunications).toHaveBeenCalledWith('CH123');
+      expect(conversationClient.listCommunications).toHaveBeenCalledWith('conv_conversation_01short123');
 
       // Result is wrapped in TACMemoryResponse
       expect(result).toBeInstanceOf(TACMemoryResponse);
@@ -348,7 +348,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue([]);
 
       const session: ConversationSession = {
-        conversationId: 'CH123',
+        conversationId: 'conv_conversation_01short123',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -374,7 +374,7 @@ describe('Memory Functionality', () => {
       );
 
       const session: ConversationSession = {
-        conversationId: 'CH123',
+        conversationId: 'conv_conversation_01short123',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -389,7 +389,7 @@ describe('Memory Functionality', () => {
 
       const mockCommunications: Communication[] = Array.from({ length: 5 }, (_, i) => ({
         id: `comm_${i}`,
-        conversationId: 'CH123',
+        conversationId: 'conv_conversation_01short123',
         accountId: 'AC123456',
         author: {
           address: '+12025551234',
@@ -415,7 +415,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        conversationId: 'CH123',
+        conversationId: 'conv_conversation_01short123',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),

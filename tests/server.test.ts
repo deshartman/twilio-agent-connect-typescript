@@ -44,7 +44,7 @@ describe('TACServer Webhook Validation', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let tac: TAC;
@@ -303,7 +303,7 @@ describe('TACServer idempotency token', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let tac: TAC;
@@ -353,7 +353,7 @@ describe('TACServer idempotency token', () => {
       },
       body: JSON.stringify({
         eventType: 'COMMUNICATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       }),
     });
 
@@ -383,7 +383,7 @@ describe('TACServer idempotency token', () => {
       },
       body: JSON.stringify({
         eventType: 'COMMUNICATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       }),
     });
 
@@ -405,7 +405,7 @@ describe('TACServer with conversationRelayConfig', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let tac: TAC;
@@ -754,7 +754,7 @@ describe('TACServer conversation mode routes', () => {
       twilioApiKey: 'test_api_key',
       twilioApiToken: 'test_api_token',
       twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'comms_service_01hqvqj8w3b9x0e5f2n7t4m6ks',
+      conversationServiceId: 'conv_configuration_01testconfig987xyz654wxyzq',
     });
     tac = new TAC({ config });
 
@@ -808,7 +808,7 @@ describe('TACServer conversation mode routes', () => {
     const response = await fetch(`http://localhost:${currentPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'CHtest' } }),
+      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'conv_conversation_01test' } }),
     });
     expect(response.status).not.toBe(404);
   });
@@ -830,7 +830,7 @@ describe('TACServer passive mode routes', () => {
       twilioApiKey: 'test_api_key',
       twilioApiToken: 'test_api_token',
       twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'comms_service_01hqvqj8w3b9x0e5f2n7t4m6ks',
+      conversationServiceId: 'conv_configuration_01testconfig987xyz654wxyzq',
     });
     tac = new TAC({ config });
 
@@ -888,7 +888,7 @@ describe('TACServer passive mode routes', () => {
     const response = await fetch(`http://localhost:${currentPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'CHtest' } }),
+      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'conv_conversation_01test' } }),
     });
     expect(response.status).not.toBe(404);
   });

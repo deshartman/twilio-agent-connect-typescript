@@ -27,7 +27,7 @@ describe('SMS Channel', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
   const logger = createLogger({ name: 'test', level: 'silent' });
   const conversationClient = {
@@ -49,7 +49,7 @@ describe('SMS Channel', () => {
     });
 
     it('should start with no active conversations', () => {
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
     });
 
     it('should reject zero dedupCapacity', () => {
@@ -76,7 +76,7 @@ describe('SMS Channel', () => {
       const webhookPayload = {
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           profileId: 'test_profile_123',
         },
       };
@@ -84,7 +84,7 @@ describe('SMS Channel', () => {
       await expect(channel.processWebhook(webhookPayload)).resolves.not.toThrow();
 
       // Should have started a conversation
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
     });
 
     it('should process communication.created event', async () => {
@@ -98,7 +98,7 @@ describe('SMS Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
             text: 'Hello world',
@@ -117,7 +117,7 @@ describe('SMS Channel', () => {
 
       // Should have triggered message callback
       expect(capturedMessage).not.toBeNull();
-      expect(capturedMessage!.sessionId).toBe('CHtest123456789');
+      expect(capturedMessage!.sessionId).toBe('conv_conversation_01test1234567890abc');
       expect(capturedMessage!.message).toBe('Hello world');
       expect(capturedMessage!.conversation?.author).toBe('+15559876543');
     });
@@ -129,7 +129,7 @@ describe('SMS Channel', () => {
       await channel.processWebhook({
         eventType: 'communication.created', // already normalized format
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       });
 
@@ -143,22 +143,22 @@ describe('SMS Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
 
       // Then close it
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           status: 'CLOSED',
         },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
     });
 
     it('should ignore empty messages', async () => {
@@ -171,7 +171,7 @@ describe('SMS Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
             text: '', // Empty message
@@ -199,7 +199,7 @@ describe('SMS Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
             text: 'First message',
@@ -212,12 +212,12 @@ describe('SMS Channel', () => {
       };
 
       // Conversation not active initially
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
 
       await channel.processWebhook(webhookPayload);
 
       // Should auto-initialize and process message
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
       expect(capturedMessage).not.toBeNull();
       expect(capturedMessage!.message).toBe('First message');
     });
@@ -238,19 +238,19 @@ describe('SMS Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       });
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest987654321',
+          conversationId: 'conv_conversation_01test9876543210xyz',
         },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
-      expect(channel.isConversationActive('CHtest987654321')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test9876543210xyz')).toBe(true);
     });
   });
 
@@ -265,17 +265,17 @@ describe('SMS Channel', () => {
       // Start conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789', profileId: 'test_profile_123' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc', profileId: 'test_profile_123' },
       });
 
       // Close conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
-        data: { conversationId: 'CHtest123456789', status: 'CLOSED' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc', status: 'CLOSED' },
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('CHtest123456789');
+      expect(captured[0].sessionId).toBe('conv_conversation_01test1234567890abc');
       expect(captured[0].channel).toBe('sms');
     });
 
@@ -286,16 +286,16 @@ describe('SMS Channel', () => {
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
-        data: { conversationId: 'CHtest123456789', status: 'CLOSED' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc', status: 'CLOSED' },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
     });
 
     it('should support async callback', async () => {
@@ -307,29 +307,29 @@ describe('SMS Channel', () => {
 
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
-        data: { conversationId: 'CHtest123456789', status: 'CLOSED' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc', status: 'CLOSED' },
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('CHtest123456789');
+      expect(captured[0].sessionId).toBe('conv_conversation_01test1234567890abc');
     });
 
     it('should clean up silently when no callback is registered', async () => {
       // No callback registered — should not throw
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
-        data: { conversationId: 'CHtest123456789', status: 'CLOSED' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc', status: 'CLOSED' },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
     });
   });
 
@@ -343,7 +343,7 @@ describe('SMS Channel', () => {
       const webhookPayload = {
         eventType: 'UNKNOWN_EVENT',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       };
 
@@ -359,7 +359,7 @@ describe('SMS Channel', () => {
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text: 'Hello' },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -378,7 +378,7 @@ describe('SMS Channel', () => {
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text: 'Hello' },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -397,7 +397,7 @@ describe('SMS Channel', () => {
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text: 'Hello' },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -420,7 +420,7 @@ describe('SMS Channel', () => {
       const makePayload = (text: string) => ({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -456,7 +456,7 @@ describe('SMS Channel', () => {
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text: 'Hello' },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -478,7 +478,7 @@ describe('SMS Channel', () => {
       const payload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: { type: 'TEXT', text: 'Hello' },
           author: { address: '+15559876543', channel: 'SMS' },
         },
@@ -500,14 +500,14 @@ describe('SMS Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       });
 
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
             text: 'Hello',
@@ -524,14 +524,14 @@ describe('SMS Channel', () => {
       vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
         {
           id: 'PA111',
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           accountId: 'ACtest123456789',
           type: 'HUMAN_AGENT',
           addresses: [{ channel: 'SMS', address: '+15551234567' }],
         },
         {
           id: 'PA123',
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           accountId: 'ACtest123456789',
           type: 'CUSTOMER',
           addresses: [{ channel: 'SMS', address: '+15559876543' }],
@@ -539,11 +539,11 @@ describe('SMS Channel', () => {
       ] as any);
       vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
 
-      await channel.sendResponse('CHtest123456789', 'Hello back!');
+      await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello back!');
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith('CHtest123456789');
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith('conv_conversation_01test1234567890abc');
       expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
-        'CHtest123456789',
+        'conv_conversation_01test1234567890abc',
         expect.objectContaining({
           author: {
             address: '+15551234567',
@@ -566,7 +566,7 @@ describe('SMS Channel', () => {
     });
 
     it('should throw error when no session exists', async () => {
-      await expect(channel.sendResponse('CHnonexistent', 'Test')).rejects.toThrow(
+      await expect(channel.sendResponse('conv_conversation_01nonexistent', 'Test')).rejects.toThrow(
         'No active session found'
       );
     });
@@ -576,11 +576,11 @@ describe('SMS Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
         },
       });
 
-      await expect(channel.sendResponse('CHtest123456789', 'Test')).rejects.toThrow(
+      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')).rejects.toThrow(
         'No author info found'
       );
     });

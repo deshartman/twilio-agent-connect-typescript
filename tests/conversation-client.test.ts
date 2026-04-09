@@ -29,7 +29,7 @@ describe('ConversationClient', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let conversationClient: ConversationClient;
@@ -51,7 +51,7 @@ describe('ConversationClient', () => {
       const mockCommunications: Communication[] = [
         {
           id: 'comm_123',
-          conversationId: 'CH123',
+          conversationId: 'conv_conversation_01short123',
           accountId: 'AC123456',
           author: {
             address: '+12025551234',
@@ -78,11 +78,11 @@ describe('ConversationClient', () => {
         .fn()
         .mockResolvedValue(createMockResponse({ communications: mockCommunications }, { ok: true }));
 
-      const result = await conversationClient.listCommunications('CH123');
+      const result = await conversationClient.listCommunications('conv_conversation_01short123');
 
       expect(result).toEqual(mockCommunications);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Conversations/CH123/Communications'),
+        expect.stringContaining('/v2/Conversations/conv_conversation_01short123/Communications'),
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -95,7 +95,7 @@ describe('ConversationClient', () => {
     it('should handle empty response', async () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse({ communications: [] }, { ok: true }));
 
-      const result = await conversationClient.listCommunications('CH123');
+      const result = await conversationClient.listCommunications('conv_conversation_01short123');
 
       expect(result).toEqual([]);
     });
@@ -105,7 +105,7 @@ describe('ConversationClient', () => {
         .fn()
         .mockResolvedValue(createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' }));
 
-      await expect(conversationClient.listCommunications('CH123')).rejects.toThrow(
+      await expect(conversationClient.listCommunications('conv_conversation_01short123')).rejects.toThrow(
         'Failed to list communications: 404 Not Found'
       );
     });
@@ -114,11 +114,11 @@ describe('ConversationClient', () => {
   describe('createConversation()', () => {
     it('should create a conversation successfully', async () => {
       const mockResponse = {
-        id: 'CH123456',
+        id: 'conv_conversation_01medium123456',
         name: 'tac-voice-test',
         status: 'ACTIVE',
         accountId: 'ACtest123',
-        configurationId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+        configurationId: 'conv_configuration_01testconfigabc123xyzabcde',
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-01T00:00:00Z',
       };
@@ -127,7 +127,7 @@ describe('ConversationClient', () => {
 
       const result = await conversationClient.createConversation('tac-voice-test');
 
-      expect(result.id).toBe('CH123456');
+      expect(result.id).toBe('conv_conversation_01medium123456');
       expect(result.name).toBe('tac-voice-test');
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v2/Conversations'),
@@ -139,7 +139,7 @@ describe('ConversationClient', () => {
 
     it('should create a conversation without name', async () => {
       const mockResponse = {
-        id: 'CH123456',
+        id: 'conv_conversation_01medium123456',
         accountId: 'ACtest123',
         status: 'ACTIVE',
       };
@@ -148,7 +148,7 @@ describe('ConversationClient', () => {
 
       const result = await conversationClient.createConversation();
 
-      expect(result.id).toBe('CH123456');
+      expect(result.id).toBe('conv_conversation_01medium123456');
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v2/Conversations'),
         expect.objectContaining({
@@ -162,7 +162,7 @@ describe('ConversationClient', () => {
     it('should add a participant successfully', async () => {
       const mockResponse = {
         id: 'PA123456',
-        conversationId: 'CH123456',
+        conversationId: 'conv_conversation_01medium123456',
         accountId: 'ACtest123',
         type: 'CUSTOMER',
         addresses: [{ channel: 'VOICE', address: '+15551234567' }],
@@ -172,7 +172,7 @@ describe('ConversationClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.addParticipant(
-        'CH123456',
+        'conv_conversation_01medium123456',
         [{ channel: 'VOICE', address: '+15551234567' }],
         'CUSTOMER'
       );
@@ -180,7 +180,7 @@ describe('ConversationClient', () => {
       expect(result.id).toBe('PA123456');
       expect(result.type).toBe('CUSTOMER');
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Conversations/CH123456/Participants'),
+        expect.stringContaining('/v2/Conversations/conv_conversation_01medium123456/Participants'),
         expect.objectContaining({
           method: 'POST',
         })
@@ -190,7 +190,7 @@ describe('ConversationClient', () => {
     it('should add participant with channelId', async () => {
       const mockResponse = {
         id: 'PA123456',
-        conversationId: 'CH123456',
+        conversationId: 'conv_conversation_01medium123456',
         accountId: 'ACtest123',
         type: 'AI_AGENT',
         addresses: [{ channel: 'VOICE', address: '+15559876543', channelId: 'CA12345' }],
@@ -199,7 +199,7 @@ describe('ConversationClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.addParticipant(
-        'CH123456',
+        'conv_conversation_01medium123456',
         [{ channel: 'VOICE', address: '+15559876543', channelId: 'CA12345' }],
         'AI_AGENT'
       );
@@ -250,18 +250,18 @@ describe('ConversationClient', () => {
   describe('updateConversation()', () => {
     it('should update conversation status to CLOSED', async () => {
       const mockResponse = {
-        id: 'CH123456',
+        id: 'conv_conversation_01medium123456',
         accountId: 'ACtest123',
         status: 'CLOSED',
       };
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
-      const result = await conversationClient.updateConversation('CH123456', 'CLOSED');
+      const result = await conversationClient.updateConversation('conv_conversation_01medium123456', 'CLOSED');
 
       expect(result.status).toBe('CLOSED');
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Conversations/CH123456'),
+        expect.stringContaining('/v2/Conversations/conv_conversation_01medium123456'),
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ status: 'CLOSED' }),
@@ -274,20 +274,20 @@ describe('ConversationClient', () => {
     it('should list participants for a conversation', async () => {
       const mockResponse = {
         participants: [
-          { id: 'PA111', conversationId: 'CH123456', accountId: 'ACtest123', type: 'CUSTOMER', addresses: [] },
-          { id: 'PA222', conversationId: 'CH123456', accountId: 'ACtest123', type: 'AI_AGENT', addresses: [] },
+          { id: 'PA111', conversationId: 'conv_conversation_01medium123456', accountId: 'ACtest123', type: 'CUSTOMER', addresses: [] },
+          { id: 'PA222', conversationId: 'conv_conversation_01medium123456', accountId: 'ACtest123', type: 'AI_AGENT', addresses: [] },
         ],
       };
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
-      const result = await conversationClient.listParticipants('CH123456');
+      const result = await conversationClient.listParticipants('conv_conversation_01medium123456');
 
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('PA111');
       expect(result[1].type).toBe('AI_AGENT');
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/Conversations/CH123456/Participants'),
+        expect.stringContaining('/v2/Conversations/conv_conversation_01medium123456/Participants'),
         expect.objectContaining({
           method: 'GET',
         })
@@ -297,7 +297,7 @@ describe('ConversationClient', () => {
     it('should return empty array when no participants', async () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse({ participants: [] }, { ok: true }));
 
-      const result = await conversationClient.listParticipants('CH123456');
+      const result = await conversationClient.listParticipants('conv_conversation_01medium123456');
 
       expect(result).toEqual([]);
     });
@@ -307,7 +307,7 @@ describe('ConversationClient', () => {
     it('should send communication successfully', async () => {
       const mockResponse = {
         message: 'Conversation setup complete',
-        conversationId: 'CH123456',
+        conversationId: 'conv_conversation_01medium123456',
         channelId: 'SM123abc',
       };
 
@@ -331,10 +331,10 @@ describe('ConversationClient', () => {
         },
       };
 
-      const result = await conversationClient.sendCommunication('CH123456', request);
+      const result = await conversationClient.sendCommunication('conv_conversation_01medium123456', request);
 
       expect(result.message).toBe('Conversation setup complete');
-      expect(result.conversationId).toBe('CH123456');
+      expect(result.conversationId).toBe('conv_conversation_01medium123456');
       expect(result.channelId).toBe('SM123abc');
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/v2/Communications'),
@@ -344,7 +344,7 @@ describe('ConversationClient', () => {
             'Content-Type': 'application/json',
             Authorization: expect.stringContaining('Basic'),
           }),
-          body: JSON.stringify({ conversationId: 'CH123456', ...request }),
+          body: JSON.stringify({ conversationId: 'conv_conversation_01medium123456', ...request }),
         })
       );
     });
@@ -371,7 +371,7 @@ describe('ConversationClient', () => {
         },
       };
 
-      await expect(conversationClient.sendCommunication('CH123456', request)).rejects.toThrow(
+      await expect(conversationClient.sendCommunication('conv_conversation_01medium123456', request)).rejects.toThrow(
         'Failed to send communication: 400 Bad Request'
       );
     });
@@ -380,7 +380,7 @@ describe('ConversationClient', () => {
   describe('getConfiguration()', () => {
     it('should get configuration successfully', async () => {
       const mockConfiguration = {
-        id: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+        id: 'conv_configuration_01testconfigabc123xyzabcde',
         displayName: 'Test Configuration',
         description: 'A test conversation configuration',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
@@ -414,15 +414,15 @@ describe('ConversationClient', () => {
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockConfiguration, { ok: true }));
 
-      const result = await conversationClient.getConfiguration('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      const result = await conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde');
 
-      expect(result.id).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(result.id).toBe('conv_configuration_01testconfigabc123xyzabcde');
       expect(result.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
       expect(result.conversationGroupingType).toBe('GROUP_BY_PARTICIPANT_ADDRESSES');
       expect(result.channelSettings?.SMS).toBeDefined();
       expect(result.statusCallbacks).toHaveLength(1);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/ControlPlane/Configurations/comms_service_01kbjqhn79f0fvwfsxqzd5nqhd'),
+        expect.stringContaining('/v2/ControlPlane/Configurations/conv_configuration_01testconfigabc123xyzabcde'),
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -434,7 +434,7 @@ describe('ConversationClient', () => {
 
     it('should get minimal configuration successfully', async () => {
       const mockConfiguration = {
-        id: 'comms_service_minimal',
+        id: 'conv_configuration_minimal',
         description: 'Minimal configuration',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE',
         memoryStoreId: 'mem_service_minimal',
@@ -442,9 +442,9 @@ describe('ConversationClient', () => {
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockConfiguration, { ok: true }));
 
-      const result = await conversationClient.getConfiguration('comms_service_minimal');
+      const result = await conversationClient.getConfiguration('conv_configuration_minimal');
 
-      expect(result.id).toBe('comms_service_minimal');
+      expect(result.id).toBe('conv_configuration_minimal');
       expect(result.memoryStoreId).toBe('mem_service_minimal');
       expect(result.displayName).toBeUndefined();
       expect(result.channelSettings).toBeUndefined();
@@ -462,19 +462,19 @@ describe('ConversationClient', () => {
 
     it('should validate response with schema', async () => {
       const invalidConfiguration = {
-        id: 'comms_service_invalid',
+        id: 'conv_configuration_invalid',
         // Missing required fields: description, conversationGroupingType, memoryStoreId
       };
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(invalidConfiguration, { ok: true }));
 
       // Should throw Zod validation error
-      await expect(conversationClient.getConfiguration('comms_service_invalid')).rejects.toThrow();
+      await expect(conversationClient.getConfiguration('conv_configuration_invalid')).rejects.toThrow();
     });
 
     it('should validate URL in statusCallbacks', async () => {
       const configWithInvalidUrl = {
-        id: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+        id: 'conv_configuration_01testconfigabc123xyzabcde',
         description: 'Config with invalid URL',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
         memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
@@ -489,7 +489,7 @@ describe('ConversationClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(configWithInvalidUrl, { ok: true }));
 
       // Should throw Zod validation error due to invalid URL
-      await expect(conversationClient.getConfiguration('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd')).rejects.toThrow();
+      await expect(conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde')).rejects.toThrow();
     });
   });
 });

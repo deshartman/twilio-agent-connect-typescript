@@ -23,7 +23,7 @@ const BASE_CREDENTIALS = {
   twilioPhoneNumber: '+15551234567',
 };
 
-const CONVERSATION_SERVICE_ID = 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd';
+const CONVERSATION_SERVICE_ID = 'conv_configuration_01testconfigabc123xyzabcde';
 const MEMORY_STORE_ID = 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg';
 
 const silentLogger = createLogger({ name: 'test', level: 'silent' });

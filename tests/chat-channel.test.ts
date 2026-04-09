@@ -27,7 +27,7 @@ describe('Chat Channel', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
   const logger = createLogger({ name: 'test', level: 'silent' });
   const conversationClient = {
@@ -58,7 +58,7 @@ describe('Chat Channel', () => {
     });
 
     it('should start with no active conversations', () => {
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
     });
   });
 
@@ -67,7 +67,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           profileId: 'test_profile_123',
         },
       };
@@ -77,10 +77,10 @@ describe('Chat Channel', () => {
 
       await channel.processWebhook(webhookPayload);
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
       expect(startedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          sessionId: 'CHtest123456789',
+          sessionId: 'conv_conversation_01test1234567890abc',
           profileId: 'test_profile_123',
           channel: 'chat',
         }),
@@ -91,7 +91,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -109,10 +109,10 @@ describe('Chat Channel', () => {
 
       await channel.processWebhook(webhookPayload);
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
       expect(messageCallback).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'CHtest123456789',
+          sessionId: 'conv_conversation_01test1234567890abc',
           messageType: 'user',
           message: 'Hello from chat',
           channel: 'chat',
@@ -128,7 +128,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'ai-assistant',
             channel: 'CHAT',
@@ -157,7 +157,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'custom-bot',
             channel: 'CHAT',
@@ -181,7 +181,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -196,7 +196,7 @@ describe('Chat Channel', () => {
 
       await channel.processWebhook(webhookPayload);
 
-      const session = channel.getConversationSession('CHtest123456789');
+      const session = channel.getConversationSession('conv_conversation_01test1234567890abc');
       expect(session?.metadata?.channelId).toBe('CH00000000000000000000000000000000');
     });
 
@@ -204,7 +204,7 @@ describe('Chat Channel', () => {
       // First create a conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
 
       const endedCallback = vi.fn();
@@ -214,15 +214,15 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           status: 'CLOSED',
         },
       });
 
-      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
       expect(endedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          sessionId: 'CHtest123456789',
+          sessionId: 'conv_conversation_01test1234567890abc',
           channel: 'chat',
         }),
       });
@@ -232,7 +232,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -266,7 +266,7 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             participantId: 'PA_customer_123',
@@ -281,14 +281,14 @@ describe('Chat Channel', () => {
       vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
         {
           id: 'PA_agent_123',
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           accountId: 'ACtest123456789',
           type: 'AI_AGENT',
           addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
         },
         {
           id: 'PA_customer_123',
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           accountId: 'ACtest123456789',
           type: 'CUSTOMER',
           addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
@@ -296,11 +296,11 @@ describe('Chat Channel', () => {
       ] as any);
       vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
 
-      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+      await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello from bot');
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith('CHtest123456789');
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith('conv_conversation_01test1234567890abc');
       expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
-        'CHtest123456789',
+        'conv_conversation_01test1234567890abc',
         expect.objectContaining({
           author: {
             address: 'ai-assistant',
@@ -328,7 +328,7 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             participantId: 'PA_customer_123',
@@ -343,7 +343,7 @@ describe('Chat Channel', () => {
       vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
         {
           id: 'PA_customer_123',
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           accountId: 'ACtest123456789',
           type: 'CUSTOMER',
           addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
@@ -351,18 +351,18 @@ describe('Chat Channel', () => {
       ] as any);
       vi.mocked(conversationClient.addParticipant).mockResolvedValueOnce({
         id: 'PA_agent_123',
-        conversationId: 'CHtest123456789',
+        conversationId: 'conv_conversation_01test1234567890abc',
         accountId: 'ACtest123456789',
         type: 'AI_AGENT',
         addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
       } as any);
       vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
 
-      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+      await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello from bot');
 
       // Verify addParticipant was called with correct args including channelId
       expect(conversationClient.addParticipant).toHaveBeenCalledWith(
-        'CHtest123456789',
+        'conv_conversation_01test1234567890abc',
         [{ channel: 'CHAT', address: 'ai-assistant', channelId: 'CH00000000000000000000000000000000' }],
         'AI_AGENT'
       );
@@ -373,7 +373,7 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'CHtest123456789',
+          conversationId: 'conv_conversation_01test1234567890abc',
           author: {
             address: 'customer@example.com',
             participantId: 'PA_customer_123',
@@ -389,7 +389,7 @@ describe('Chat Channel', () => {
         .mockResolvedValueOnce([
           {
             id: 'PA_customer_123',
-            conversationId: 'CHtest123456789',
+            conversationId: 'conv_conversation_01test1234567890abc',
             accountId: 'ACtest123456789',
             type: 'CUSTOMER',
             addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
@@ -399,14 +399,14 @@ describe('Chat Channel', () => {
         .mockResolvedValueOnce([
           {
             id: 'PA_agent_123',
-            conversationId: 'CHtest123456789',
+            conversationId: 'conv_conversation_01test1234567890abc',
             accountId: 'ACtest123456789',
             type: 'AI_AGENT',
             addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
           },
           {
             id: 'PA_customer_123',
-            conversationId: 'CHtest123456789',
+            conversationId: 'conv_conversation_01test1234567890abc',
             accountId: 'ACtest123456789',
             type: 'CUSTOMER',
             addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
@@ -419,7 +419,7 @@ describe('Chat Channel', () => {
       );
       vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
 
-      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+      await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello from bot');
 
       // Verify: listParticipants called twice (initial + retry), addParticipant once, sendCommunication once
       expect(conversationClient.listParticipants).toHaveBeenCalledTimes(2);
@@ -428,7 +428,7 @@ describe('Chat Channel', () => {
     });
 
     it('should throw error if no active session', async () => {
-      await expect(channel.sendResponse('CHtest123456789', 'Hello')).rejects.toThrow(
+      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')).rejects.toThrow(
         'No active session found'
       );
     });
@@ -437,10 +437,10 @@ describe('Chat Channel', () => {
       // Create conversation without author info
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'CHtest123456789' },
+        data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
 
-      await expect(channel.sendResponse('CHtest123456789', 'Hello')).rejects.toThrow(
+      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')).rejects.toThrow(
         'No author info found'
       );
     });

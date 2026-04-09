@@ -12,7 +12,7 @@ describe('TACConfig', () => {
     twilioApiToken: 'test_api_token_123',
     twilioPhoneNumber: '+15551234567',
     memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   afterEach(() => {
@@ -29,7 +29,7 @@ describe('TACConfig', () => {
       expect(config.twilioAuthToken).toBe('test_token_123');
       expect(config.twilioPhoneNumber).toBe('+15551234567');
       expect(config.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should include computed service URLs', () => {
@@ -96,7 +96,7 @@ describe('TACConfig', () => {
       const config = new TACConfig(configWithoutMemory);
 
       expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should validate environment values', () => {
@@ -117,7 +117,7 @@ describe('TACConfig', () => {
       });
 
       expect(config.tacMode).toBe('passive');
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should throw when passive mode lacks conversationServiceId', () => {
@@ -152,7 +152,7 @@ describe('TACConfig', () => {
       vi.stubEnv('TWILIO_API_TOKEN', 'test_api_token');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '+1234567890');
       vi.stubEnv('MEMORY_STORE_ID', 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
-      vi.stubEnv('CONVERSATION_SERVICE_ID', 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      vi.stubEnv('CONVERSATION_SERVICE_ID', 'conv_configuration_01testconfigabc123xyzabcde');
     };
 
     it('should create config when all required env vars are set', () => {
@@ -165,7 +165,7 @@ describe('TACConfig', () => {
       expect(config.twilioAuthToken).toBe('test_auth_token');
       expect(config.twilioPhoneNumber).toBe('+1234567890');
       expect(config.memoryStoreId).toBe('mem_service_01kbjqhhdpft0tbp21jt4ktbxg');
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should default to prod environment when ENVIRONMENT is not set', () => {
@@ -238,7 +238,7 @@ describe('TACConfig', () => {
       const config = TACConfig.fromEnv();
 
       expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should throw error when CONVERSATION_SERVICE_ID is missing in conversation mode', () => {
@@ -267,7 +267,7 @@ describe('TACConfig', () => {
       const config = TACConfig.fromEnv();
 
       expect(config.tacMode).toBe('passive');
-      expect(config.conversationServiceId).toBe('comms_service_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
 
     it('should throw error when no environment variables are set', () => {

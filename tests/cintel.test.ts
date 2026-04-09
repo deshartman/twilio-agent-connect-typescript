@@ -176,7 +176,7 @@ describe('OperatorResultProcessor', () => {
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
     memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let memoryClient: MemoryClient;
@@ -514,7 +514,7 @@ describe('Memory Client Write Methods', () => {
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
     memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let memoryClient: MemoryClient;
