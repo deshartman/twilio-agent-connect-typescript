@@ -113,13 +113,13 @@ export class TAC {
       this.logger.info('Conversation Intelligence processor initialized');
     }
 
-    // Only initialize ConversationClient if in conversation mode
-    if (this.config.tacMode === 'conversation') {
+    // Initialize ConversationClient for conversation and passive modes (both need Maestro)
+    if (this.config.tacMode === 'conversation' || this.config.tacMode === 'passive') {
       this.conversationClient = new ConversationClient(
         this.config,
         this.logger.child({ component: 'conversation' })
       );
-      this.logger.info('ConversationClient initialized (conversation mode)');
+      this.logger.info({ mode: this.config.tacMode }, 'ConversationClient initialized');
     } else {
       this.logger.info('ConversationClient not initialized (crelay mode)');
     }

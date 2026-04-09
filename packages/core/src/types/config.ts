@@ -10,10 +10,11 @@ export type Environment = z.infer<typeof EnvironmentSchema>;
  * TAC Mode - determines which features are enabled
  * - 'crelay': ConversationRelay-only mode (voice only, no Maestro)
  * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
+ * - 'passive': Passive Maestro orchestrator (webhooks only, no ConversationRelay)
  */
-export const TACModeSchema = z.enum(['crelay', 'conversation'], {
+export const TACModeSchema = z.enum(['crelay', 'conversation', 'passive'], {
   errorMap: () => ({
-    message: 'TAC_MODE must be either "crelay" or "conversation"',
+    message: 'TAC_MODE must be "crelay", "conversation", or "passive"',
   }),
 });
 export type TACMode = z.infer<typeof TACModeSchema>;

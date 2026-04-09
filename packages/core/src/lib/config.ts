@@ -47,13 +47,14 @@ export class TACConfig {
     const validatedConfig = TACConfigSchema.parse(data);
 
     // Validate mode against configuration
-    if (validatedConfig.tacMode === 'conversation') {
-      if (!validatedConfig.conversationServiceId) {
-        throw new Error(
-          'TAC_MODE=conversation requires CONVERSATION_SERVICE_ID to be configured. ' +
-            'Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".'
-        );
-      }
+    if (
+      (validatedConfig.tacMode === 'conversation' || validatedConfig.tacMode === 'passive') &&
+      !validatedConfig.conversationServiceId
+    ) {
+      throw new Error(
+        `TAC_MODE=${validatedConfig.tacMode} requires CONVERSATION_SERVICE_ID to be configured. ` +
+          'Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".'
+      );
     } else if (validatedConfig.tacMode === 'crelay' && validatedConfig.conversationServiceId) {
       // eslint-disable-next-line no-console
       console.warn(
