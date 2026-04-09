@@ -15,11 +15,9 @@ import {
   ConversationSession,
   TACMemoryResponse,
   ConversationId,
-  ChannelType,
   ProfileId,
   TACServer,
 } from 'twilio-agent-connect';
-
 // Load environment variables from parent directory
 config({ path: '../.env' });
 
@@ -30,8 +28,8 @@ const openai = new OpenAI({
 
 // Initialize TAC and channels
 const tac = new TAC({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac);
-const smsChannel = new SMSChannel(tac);
+const voiceChannel = new VoiceChannel(tac.getChannelDeps());
+const smsChannel = new SMSChannel(tac.getChannelDeps());
 
 // Register channels
 tac.registerChannel(voiceChannel);
@@ -132,19 +130,18 @@ function buildMemoryMessage(
 }
 
 /**
- * Handle incoming messages from SMS or Voice channels
+ * Handle incoming messages from SMS or Voice channels.
+ *
+ * onMessageReady receives a unified ChannelMessage with:
+ * - messageType 'user': generate a response (prompt text, SMS, voice webhook)
+ * - messageType 'system': context only (setup, interrupt, dtmf — don't respond)
  */
-async function handleMessageReady(params: {
-  conversationId: ConversationId;
-  profileId: ProfileId | undefined;
-  message: string;
-  author: string;
-  memory: TACMemoryResponse | undefined;
-  session: ConversationSession;
-  channel: ChannelType;
-}): Promise<void> {
-  const { conversationId, message, memory, session, channel } = params;
-  const convId = conversationId as string;
+tac.onMessageReady(async msg => {
+  // Only generate responses for 'user' messages
+  if (msg.messageType !== 'user') return;
+
+  const convId = msg.sessionId;
+  const memory = msg.conversation?.memory;
 
   try {
     // Initialize conversation history if needed
@@ -155,11 +152,19 @@ async function handleMessageReady(params: {
     // Add user message to history
     conversationMessages[convId].push({
       role: 'user',
-      content: message,
+      content: msg.message,
     });
 
-    // Build memory context message
-    const memoryMessage = buildMemoryMessage(memory ?? null, session);
+    // Build memory context message (uses conversation session data)
+    const memorySession: ConversationSession = {
+      sessionId: msg.sessionId as ConversationId,
+      channel: msg.channel,
+      startedAt: msg.conversation?.startedAt ?? new Date(),
+      metadata: {},
+      profileId: msg.conversation?.profileId as ProfileId | undefined,
+      serviceId: msg.conversation?.serviceId,
+    };
+    const memoryMessage = buildMemoryMessage(memory ?? null, memorySession);
 
     // Combine system message, memory context, and conversation history
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -183,18 +188,15 @@ async function handleMessageReady(params: {
     });
 
     // Send response based on channel
-    if (channel === 'voice') {
-      await voiceChannel.sendResponse(conversationId, llmResponse);
-    } else if (channel === 'sms') {
-      await smsChannel.sendResponse(conversationId, llmResponse);
+    if (msg.channel === 'voice') {
+      await voiceChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+    } else if (msg.channel === 'sms') {
+      await smsChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
     }
   } catch (error) {
     console.error(`Error processing message for conversation ${convId}:`, error);
   }
-}
-
-// Register message handler
-tac.onMessageReady(handleMessageReady);
+});
 
 // Create and start server
 const server = new TACServer(tac, {

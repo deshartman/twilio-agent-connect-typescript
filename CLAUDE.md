@@ -45,33 +45,70 @@ getting_started/  # Example apps (OpenAI integration)
 ## Key Architecture
 
 - **TAC class** (`packages/core/src/lib/tac.ts`): Central orchestrator managing config, channels, callbacks, and API clients
-- **Channel abstraction** (`packages/core/src/channels/base.ts`): `BaseChannel` abstract base class extended by `SMSChannel` (webhooks/TwiML) and `VoiceChannel` (WebSocket)
-- **Callback pattern**: Simple callbacks (`onMessageReady`, `onInterrupt`, `onHandoff`, `onConversationEnded`) instead of EventEmitter
+- **Channel composition** (`packages/core/src/channels/`): Channels use composition (not inheritance from TAC). Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `{ logger }` for CRelay
+- **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars; environment-aware API URL computation (dev/stage/prod)
 - **API credentials consolidated** at `TACConfig` level (twilioApiKey/twilioApiToken shared across Memory, Conversation, Knowledge clients)
-- **TACServer** (`packages/server/src/lib/server.ts`): Fastify-based server with default `welcomeGreeting` for voice calls; customizable via `conversationRelayConfig`
+- **TACServer** (`packages/server/src/lib/server.ts`): Fastify-based server with mode-conditional route registration — no dead routes in any mode
 
 ## Channel Architecture
 
-TAC provides two voice channel implementations, selected via the `TAC_MODE` environment variable:
+TAC provides three operating modes, selected via `TAC_MODE`:
 
-### ConversationRelayChannel (CR-only mode)
+### CRelayChannel (CR-only mode)
 - **Mode**: `TAC_MODE=crelay`
 - **Use case**: Voice-only applications without Maestro Conversations Service
-- **Features**: WebSocket voice protocol via ConversationRelay, basic session tracking
-- **Limitations**: No multi-channel support, no Maestro memory/profiles, no participant management
-- **Session ID**: Uses CallSid directly as the session identifier
-- **Import**: `import { ConversationRelayChannel } from '@twilio/tac-core'`
+- **Channels**: `CRelayChannel` only (wraps `CRelayVoice` from CR package)
+- **Features**: WebSocket voice protocol, basic session tracking, all CR events (setup, prompt, interrupt, dtmf, info)
+- **No**: ConversationClient, Memory, Knowledge, multi-channel
+- **Session ID**: CallSid
+- **Import**: `import { CRelayChannel } from '@twilio/tac-core'`
 
-### VoiceChannel (Maestro mode)
+### VoiceChannel + SMS/Chat (Conversation mode)
 - **Mode**: `TAC_MODE=conversation`
-- **Use case**: Multi-channel applications with full Maestro Conversations Service integration
-- **Features**: Full Maestro integration including memory, profiles, multi-channel orchestration, participant management
-- **Session ID**: Uses ConversationId from Maestro
-- **Import**: `import { VoiceChannel } from '@twilio/tac-core'`
+- **Use case**: Multi-channel with full Maestro integration
+- **Channels**: `VoiceChannel` (CR + Maestro), `SMSChannel`, `ChatChannel`
+- **Features**: Memory, profiles, multi-channel orchestration, participant management, rich CR events
+- **Requires**: `CONVERSATION_SERVICE_ID`
+- **Session ID**: ConversationId from Maestro
+- **Import**: `import { VoiceChannel, SMSChannel, ChatChannel } from '@twilio/tac-core'`
 
-**Note**: Both channels use the `@twilio/tac-conversationrelay` package for WebSocket protocol handling. The difference is in session management and Maestro integration, not the underlying voice protocol.
+### VoiceWebhookChannel + SMS/Chat (Passive mode)
+- **Mode**: `TAC_MODE=passive`
+- **Use case**: BYO ConversationRelay server, TAC handles Maestro orchestration only
+- **Channels**: `VoiceWebhookChannel`, `SMSChannel`, `ChatChannel`
+- **Features**: Same Maestro features as conversation mode, but no WebSocket/TwiML routes
+- **Requires**: `CONVERSATION_SERVICE_ID`
+- **Session ID**: ConversationId from Maestro
+- **Import**: `import { VoiceWebhookChannel, SMSChannel, ChatChannel } from '@twilio/tac-core'`
+
+### Unified ChannelMessage
+
+All channels emit a unified `ChannelMessage` via `onMessageReady`:
+```typescript
+{
+  sessionId: string;               // CallSid (CR) or ConversationId (Maestro)
+  messageType: 'user' | 'system';  // 'user' = generate response, 'system' = context only
+  message: string;                 // Human-readable text for LLM
+  channel: ChannelType;            // 'voice' | 'sms' | 'chat'
+  metadata?: Record<string, unknown>;  // Source type in metadata.type
+  conversation?: { ... };          // Only in conversation/passive modes (Maestro)
+}
+```
+
+### Channel Construction
+
+Maestro channels (VoiceChannel, SMSChannel, ChatChannel, VoiceWebhookChannel) take explicit deps:
+```typescript
+const channel = new SMSChannel(tac.getChannelDeps());
+// or manually: new SMSChannel({ config, logger, conversationClient, memoryRetriever })
+```
+
+CRelayChannel takes only a logger:
+```typescript
+const channel = new CRelayChannel({ logger: createLogger({ name: 'app' }) });
+```
 
 ## Dependencies
 
@@ -116,7 +153,14 @@ const server = new TACServer(tac, {
 });
 ```
 
-All ConversationRelay attributes except `url` are supported (see `packages/core/src/types/crelay.ts`). The `url` field is automatically set by the server based on the request host and WebSocket path.
+All ConversationRelay attributes except `url` are supported (see `packages/conversationrelay/src/types.ts`). The `url` field is automatically set by the server based on the request host and WebSocket path.
+
+### Mode-Conditional Routes
+
+TACServer only registers routes needed for the active mode:
+- **crelay**: WebSocket + TwiML + ConversationRelay callback
+- **conversation**: WebSocket + TwiML + CR callback + messaging webhook + cintel (if configured)
+- **passive**: messaging webhook + cintel (if configured) — no WebSocket, TwiML, or CR callback
 
 ## Pull Requests
 
