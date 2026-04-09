@@ -64,7 +64,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     callType: 'PSTN',
     callStatus: 'ringing',
     accountSid: 'ACtest123',
-    customParameters: { conversation_id: 'conv_conversation_01chtest', profile_id: 'mem_profile_test' },
+    customParameters: {
+      conversation_id: 'conv_conversation_01chtest',
+      profile_id: 'mem_profile_test',
+    },
   });
 
   const promptMessage = JSON.stringify({

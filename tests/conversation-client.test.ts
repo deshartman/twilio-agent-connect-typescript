@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig, Communication } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import { TACConfig, Communication } from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 import { ConversationClient } from '../packages/core/src/clients/conversation';
 
 /**
  * Create a mock Response object with proper clone() support
  */
-function createMockResponse(data: unknown, options: { ok: boolean; status?: number; statusText?: string }) {
+function createMockResponse(
+  data: unknown,
+  options: { ok: boolean; status?: number; statusText?: string }
+) {
   const body = JSON.stringify(data);
   return {
     ok: options.ok,
@@ -76,7 +79,9 @@ describe('ConversationClient', () => {
 
       global.fetch = vi
         .fn()
-        .mockResolvedValue(createMockResponse({ communications: mockCommunications }, { ok: true }));
+        .mockResolvedValue(
+          createMockResponse({ communications: mockCommunications }, { ok: true })
+        );
 
       const result = await conversationClient.listCommunications('conv_conversation_01short123');
 
@@ -93,7 +98,9 @@ describe('ConversationClient', () => {
     });
 
     it('should handle empty response', async () => {
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse({ communications: [] }, { ok: true }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse({ communications: [] }, { ok: true }));
 
       const result = await conversationClient.listCommunications('conv_conversation_01short123');
 
@@ -103,11 +110,13 @@ describe('ConversationClient', () => {
     it('should handle API errors', async () => {
       global.fetch = vi
         .fn()
-        .mockResolvedValue(createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' }));
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' })
+        );
 
-      await expect(conversationClient.listCommunications('conv_conversation_01short123')).rejects.toThrow(
-        'Failed to list communications: 404 Not Found'
-      );
+      await expect(
+        conversationClient.listCommunications('conv_conversation_01short123')
+      ).rejects.toThrow('Failed to list communications: 404 Not Found');
     });
   });
 
@@ -123,7 +132,9 @@ describe('ConversationClient', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.createConversation('tac-voice-test');
 
@@ -144,7 +155,9 @@ describe('ConversationClient', () => {
         status: 'ACTIVE',
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.createConversation();
 
@@ -169,7 +182,9 @@ describe('ConversationClient', () => {
         profileId: 'profile_123',
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.addParticipant(
         'conv_conversation_01medium123456',
@@ -196,7 +211,9 @@ describe('ConversationClient', () => {
         addresses: [{ channel: 'VOICE', address: '+15559876543', channelId: 'CA12345' }],
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 201 }));
 
       const result = await conversationClient.addParticipant(
         'conv_conversation_01medium123456',
@@ -257,7 +274,10 @@ describe('ConversationClient', () => {
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
-      const result = await conversationClient.updateConversation('conv_conversation_01medium123456', 'CLOSED');
+      const result = await conversationClient.updateConversation(
+        'conv_conversation_01medium123456',
+        'CLOSED'
+      );
 
       expect(result.status).toBe('CLOSED');
       expect(global.fetch).toHaveBeenCalledWith(
@@ -274,8 +294,20 @@ describe('ConversationClient', () => {
     it('should list participants for a conversation', async () => {
       const mockResponse = {
         participants: [
-          { id: 'PA111', conversationId: 'conv_conversation_01medium123456', accountId: 'ACtest123', type: 'CUSTOMER', addresses: [] },
-          { id: 'PA222', conversationId: 'conv_conversation_01medium123456', accountId: 'ACtest123', type: 'AI_AGENT', addresses: [] },
+          {
+            id: 'PA111',
+            conversationId: 'conv_conversation_01medium123456',
+            accountId: 'ACtest123',
+            type: 'CUSTOMER',
+            addresses: [],
+          },
+          {
+            id: 'PA222',
+            conversationId: 'conv_conversation_01medium123456',
+            accountId: 'ACtest123',
+            type: 'AI_AGENT',
+            addresses: [],
+          },
         ],
       };
 
@@ -295,7 +327,9 @@ describe('ConversationClient', () => {
     });
 
     it('should return empty array when no participants', async () => {
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse({ participants: [] }, { ok: true }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse({ participants: [] }, { ok: true }));
 
       const result = await conversationClient.listParticipants('conv_conversation_01medium123456');
 
@@ -311,7 +345,9 @@ describe('ConversationClient', () => {
         channelId: 'SM123abc',
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 202 }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(mockResponse, { ok: true, status: 202 }));
 
       const request = {
         author: {
@@ -331,7 +367,10 @@ describe('ConversationClient', () => {
         },
       };
 
-      const result = await conversationClient.sendCommunication('conv_conversation_01medium123456', request);
+      const result = await conversationClient.sendCommunication(
+        'conv_conversation_01medium123456',
+        request
+      );
 
       expect(result.message).toBe('Conversation setup complete');
       expect(result.conversationId).toBe('conv_conversation_01medium123456');
@@ -352,7 +391,9 @@ describe('ConversationClient', () => {
     it('should handle API errors', async () => {
       global.fetch = vi
         .fn()
-        .mockResolvedValue(createMockResponse(null, { ok: false, status: 400, statusText: 'Bad Request' }));
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 400, statusText: 'Bad Request' })
+        );
 
       const request = {
         author: {
@@ -371,9 +412,9 @@ describe('ConversationClient', () => {
         },
       };
 
-      await expect(conversationClient.sendCommunication('conv_conversation_01medium123456', request)).rejects.toThrow(
-        'Failed to send communication: 400 Bad Request'
-      );
+      await expect(
+        conversationClient.sendCommunication('conv_conversation_01medium123456', request)
+      ).rejects.toThrow('Failed to send communication: 400 Bad Request');
     });
   });
 
@@ -414,7 +455,9 @@ describe('ConversationClient', () => {
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockConfiguration, { ok: true }));
 
-      const result = await conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde');
+      const result = await conversationClient.getConfiguration(
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
 
       expect(result.id).toBe('conv_configuration_01testconfigabc123xyzabcde');
       expect(result.memoryStoreId).toBe('mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
@@ -422,7 +465,9 @@ describe('ConversationClient', () => {
       expect(result.channelSettings?.SMS).toBeDefined();
       expect(result.statusCallbacks).toHaveLength(1);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v2/ControlPlane/Configurations/conv_configuration_01testconfigabc123xyzabcde'),
+        expect.stringContaining(
+          '/v2/ControlPlane/Configurations/conv_configuration_01testconfigabc123xyzabcde'
+        ),
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -453,7 +498,9 @@ describe('ConversationClient', () => {
     it('should handle API errors', async () => {
       global.fetch = vi
         .fn()
-        .mockResolvedValue(createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' }));
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' })
+        );
 
       await expect(conversationClient.getConfiguration('nonexistent_config')).rejects.toThrow(
         'Failed to get configuration: 404 Not Found'
@@ -466,10 +513,14 @@ describe('ConversationClient', () => {
         // Missing required fields: description, conversationGroupingType, memoryStoreId
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(invalidConfiguration, { ok: true }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(invalidConfiguration, { ok: true }));
 
       // Should throw Zod validation error
-      await expect(conversationClient.getConfiguration('conv_configuration_invalid')).rejects.toThrow();
+      await expect(
+        conversationClient.getConfiguration('conv_configuration_invalid')
+      ).rejects.toThrow();
     });
 
     it('should validate URL in statusCallbacks', async () => {
@@ -486,10 +537,14 @@ describe('ConversationClient', () => {
         ],
       };
 
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(configWithInvalidUrl, { ok: true }));
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(createMockResponse(configWithInvalidUrl, { ok: true }));
 
       // Should throw Zod validation error due to invalid URL
-      await expect(conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde')).rejects.toThrow();
+      await expect(
+        conversationClient.getConfiguration('conv_configuration_01testconfigabc123xyzabcde')
+      ).rejects.toThrow();
     });
   });
 });

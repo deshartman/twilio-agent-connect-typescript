@@ -173,9 +173,7 @@ describe('CRelayChannel', () => {
       expect(capturedMessage!.message).toContain('460ms');
       expect(capturedMessage!.message).toContain('Life is a complex set of');
       expect(capturedMessage!.metadata?.type).toBe('interrupt');
-      expect(capturedMessage!.metadata?.utteranceUntilInterrupt).toBe(
-        'Life is a complex set of'
-      );
+      expect(capturedMessage!.metadata?.utteranceUntilInterrupt).toBe('Life is a complex set of');
       expect(capturedMessage!.metadata?.durationUntilInterruptMs).toBe(460);
       expect(capturedMessage!.conversation).toBeUndefined();
     });
@@ -389,9 +387,7 @@ describe('CRelayChannel', () => {
 
     it('should throw when no WebSocket connection exists for the session', () => {
       // CRelayVoice.sendResponse throws synchronously before Promise.resolve()
-      expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(
-        /No WebSocket connection found/
-      );
+      expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(/No WebSocket connection found/);
     });
   });
 

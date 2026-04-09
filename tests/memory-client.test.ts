@@ -5,7 +5,10 @@ import { MemoryClient } from '../packages/core/src/clients/memory';
 /**
  * Create a mock Response object with proper clone() support
  */
-function createMockResponse(data: unknown, options: { ok: boolean; status?: number; statusText?: string }) {
+function createMockResponse(
+  data: unknown,
+  options: { ok: boolean; status?: number; statusText?: string }
+) {
   const body = JSON.stringify(data);
   return {
     ok: options.ok,
@@ -81,14 +84,12 @@ describe('MemoryClient', () => {
     it('should handle API errors', async () => {
       global.fetch = vi
         .fn()
-        .mockResolvedValue(createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' }));
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 404, statusText: 'Not Found' })
+        );
 
       await expect(
-        memoryClient.lookupProfile(
-          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-          'phone',
-          '+13175556789'
-        )
+        memoryClient.lookupProfile('mem_store_01kbjqhhdpft0tbp21jt4ktbxg', 'phone', '+13175556789')
       ).rejects.toThrow('Failed to lookup profile: 404 Not Found');
     });
   });
@@ -113,7 +114,9 @@ describe('MemoryClient', () => {
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123'),
+        expect.stringContaining(
+          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123'
+        ),
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({

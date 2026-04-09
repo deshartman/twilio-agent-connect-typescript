@@ -42,7 +42,7 @@ export class ConversationClient {
     if (!config.conversationServiceId) {
       throw new Error(
         'ConversationClient requires CONVERSATION_SERVICE_ID to be configured. ' +
-          'Ensure TAC_MODE=conversation and CONVERSATION_SERVICE_ID is set.'
+          'Ensure TAC_MODE is set to conversation or passive, and CONVERSATION_SERVICE_ID is set.'
       );
     }
 

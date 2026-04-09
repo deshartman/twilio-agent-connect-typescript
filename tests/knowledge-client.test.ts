@@ -226,9 +226,7 @@ describe('KnowledgeClient', () => {
     });
 
     it('should handle empty results', async () => {
-      global.fetch = vi
-        .fn()
-        .mockResolvedValue(createMockResponse({ chunks: [] }, { ok: true }));
+      global.fetch = vi.fn().mockResolvedValue(createMockResponse({ chunks: [] }, { ok: true }));
 
       const result = await knowledgeClient.searchKnowledgeBase(
         'know_knowledgebase_01abc123def456ghi789jkl0',

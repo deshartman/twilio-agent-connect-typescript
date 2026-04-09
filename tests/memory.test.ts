@@ -8,8 +8,8 @@ import {
   Communication,
   TACMemoryResponse,
   MemoryCommunication,
-} from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+} from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 
 describe('Memory Functionality', () => {
   const getTestConfigWithoutMemory = () => ({
@@ -325,7 +325,9 @@ describe('Memory Functionality', () => {
       const result = await tac.retrieveMemory(session);
 
       // Verify fallback was called
-      expect(conversationClient.listCommunications).toHaveBeenCalledWith('conv_conversation_01short123');
+      expect(conversationClient.listCommunications).toHaveBeenCalledWith(
+        'conv_conversation_01short123'
+      );
 
       // Result is wrapped in TACMemoryResponse
       expect(result).toBeInstanceOf(TACMemoryResponse);

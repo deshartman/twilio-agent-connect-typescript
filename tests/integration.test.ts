@@ -12,7 +12,7 @@ describe('Integration Tests', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde'
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   let tac: TAC;
@@ -94,7 +94,7 @@ describe('Integration Tests', () => {
         data: {
           conversationId: 'conv_conversation_01test1234567890abc',
           profileId: 'profile_123',
-        }
+        },
       });
 
       // Simulate message received
@@ -108,9 +108,9 @@ describe('Integration Tests', () => {
           },
           author: {
             address: '+15559876543',
-            channel: 'SMS'
-          }
-        }
+            channel: 'SMS',
+          },
+        },
       });
 
       // Wait a tick for async callbacks
@@ -133,14 +133,18 @@ describe('Integration Tests', () => {
       });
 
       // Start multiple conversations
-      const conversations = ['conv_conversation_01test1', 'conv_conversation_01test2', 'conv_conversation_01test3'];
+      const conversations = [
+        'conv_conversation_01test1',
+        'conv_conversation_01test2',
+        'conv_conversation_01test3',
+      ];
 
       for (const convId of conversations) {
         await channel.processWebhook({
           eventType: 'CONVERSATION_CREATED',
           data: {
             conversationId: convId,
-          }
+          },
         });
 
         await channel.processWebhook({
@@ -149,13 +153,13 @@ describe('Integration Tests', () => {
             conversationId: convId,
             content: {
               type: 'TEXT',
-              text: `Message from ${convId}`
+              text: `Message from ${convId}`,
             },
             author: {
               address: '+15559876543',
-              channel: 'SMS'
-            }
-          }
+              channel: 'SMS',
+            },
+          },
         });
       }
 
@@ -180,13 +184,13 @@ describe('Integration Tests', () => {
           conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
-            text: 'Valid message'
+            text: 'Valid message',
           },
           author: {
             address: '+15559876543',
-            channel: 'SMS'
-          }
-        }
+            channel: 'SMS',
+          },
+        },
       });
 
       // Send empty messages (should be filtered)
@@ -196,13 +200,13 @@ describe('Integration Tests', () => {
           conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
-            text: ''
+            text: '',
           },
           author: {
             address: '+15559876543',
-            channel: 'SMS'
-          }
-        }
+            channel: 'SMS',
+          },
+        },
       });
 
       await channel.processWebhook({
@@ -211,13 +215,13 @@ describe('Integration Tests', () => {
           conversationId: 'conv_conversation_01test1234567890abc',
           content: {
             type: 'TEXT',
-            text: '   '  // Whitespace only
+            text: '   ', // Whitespace only
           },
           author: {
             address: '+15559876543',
-            channel: 'SMS'
-          }
-        }
+            channel: 'SMS',
+          },
+        },
       });
 
       // Only valid message should be processed
@@ -231,7 +235,7 @@ describe('Integration Tests', () => {
         eventType: 'CONVERSATION_CREATED',
         data: {
           conversationId: 'conv_conversation_01test1234567890abc',
-        }
+        },
       });
 
       expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
@@ -241,8 +245,8 @@ describe('Integration Tests', () => {
         eventType: 'CONVERSATION_UPDATED',
         data: {
           conversationId: 'conv_conversation_01test1234567890abc',
-          status: 'CLOSED'
-        }
+          status: 'CLOSED',
+        },
       });
 
       expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
@@ -257,20 +261,22 @@ describe('Integration Tests', () => {
       });
 
       // Should not throw when callback errors
-      await expect(channel.processWebhook({
-        eventType: 'COMMUNICATION_CREATED',
-        data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
-          content: {
-            type: 'TEXT',
-            text: 'Test message'
+      await expect(
+        channel.processWebhook({
+          eventType: 'COMMUNICATION_CREATED',
+          data: {
+            conversationId: 'conv_conversation_01test1234567890abc',
+            content: {
+              type: 'TEXT',
+              text: 'Test message',
+            },
+            author: {
+              address: '+15559876543',
+              channel: 'SMS',
+            },
           },
-          author: {
-            address: '+15559876543',
-            channel: 'SMS'
-          }
-        }
-      })).resolves.not.toThrow();
+        })
+      ).resolves.not.toThrow();
     });
 
     it('should handle handoff workflow', async () => {
@@ -286,12 +292,15 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc'
-        }
+          conversationId: 'conv_conversation_01test1234567890abc',
+        },
       });
 
       // Trigger handoff
-      await tac.triggerHandoff('conv_conversation_01test1234567890abc', 'User requested human agent');
+      await tac.triggerHandoff(
+        'conv_conversation_01test1234567890abc',
+        'User requested human agent'
+      );
 
       expect(handoffCalled).toBe(true);
       expect(handoffReason).toBe('User requested human agent');

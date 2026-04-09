@@ -280,14 +280,17 @@ describe('TACServer Webhook Validation', () => {
     });
 
     it('should validate /conversation-relay-callback endpoint', async () => {
-      const response = await fetch(`http://localhost:${endpointTestPort}/conversation-relay-callback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Twilio-Signature': 'invalid',
-        },
-        body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
-      });
+      const response = await fetch(
+        `http://localhost:${endpointTestPort}/conversation-relay-callback`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Twilio-Signature': 'invalid',
+          },
+          body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
+        }
+      );
 
       expect(response.status).toBe(403);
     });
@@ -460,7 +463,9 @@ describe('TACServer with conversationRelayConfig', () => {
   it('should pass server conversationRelayConfig to handleIncomingCall', async () => {
     // Spy on handleIncomingCall to verify config is passed
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     server = new TACServer(tac, {
       development: true,
@@ -499,7 +504,9 @@ describe('TACServer with conversationRelayConfig', () => {
 
   it('should merge server config with dynamic WebSocket URL', async () => {
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     server = new TACServer(tac, {
       development: true,
@@ -537,7 +544,9 @@ describe('TACServer with conversationRelayConfig', () => {
 
   it('should handle undefined server conversationRelayConfig', async () => {
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     // Create server without conversationRelayConfig
     server = new TACServer(tac, {
@@ -570,7 +579,9 @@ describe('TACServer with conversationRelayConfig', () => {
 
   it('should use wss:// protocol when X-Forwarded-Proto is https', async () => {
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     server = new TACServer(tac, {
       development: true,
@@ -600,7 +611,9 @@ describe('TACServer with conversationRelayConfig', () => {
 
   it('should use ws:// protocol when X-Forwarded-Proto is http', async () => {
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     server = new TACServer(tac, {
       development: true,
@@ -630,7 +643,9 @@ describe('TACServer with conversationRelayConfig', () => {
 
   it('should preserve all server config attributes', async () => {
     const handleIncomingCallSpy = vi.spyOn(voiceChannel, 'handleIncomingCall');
-    handleIncomingCallSpy.mockResolvedValue('<Response><Connect><ConversationRelay/></Connect></Response>');
+    handleIncomingCallSpy.mockResolvedValue(
+      '<Response><Connect><ConversationRelay/></Connect></Response>'
+    );
 
     server = new TACServer(tac, {
       development: true,
@@ -808,7 +823,10 @@ describe('TACServer conversation mode routes', () => {
     const response = await fetch(`http://localhost:${currentPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'conv_conversation_01test' } }),
+      body: JSON.stringify({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: 'conv_conversation_01test' },
+      }),
     });
     expect(response.status).not.toBe(404);
   });
@@ -888,7 +906,10 @@ describe('TACServer passive mode routes', () => {
     const response = await fetch(`http://localhost:${currentPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType: 'CONVERSATION_CREATED', data: { conversationId: 'conv_conversation_01test' } }),
+      body: JSON.stringify({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: 'conv_conversation_01test' },
+      }),
     });
     expect(response.status).not.toBe(404);
   });

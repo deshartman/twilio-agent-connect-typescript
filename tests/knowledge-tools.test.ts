@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig, KnowledgeClient, KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import { TACConfig, KnowledgeClient, KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 import {
   createKnowledgeSearchTool,
   createKnowledgeSearchToolAsync,

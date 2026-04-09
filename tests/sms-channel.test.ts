@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  SMSChannel,
-  TACConfig,
-  createLogger,
-  ConversationClient,
-} from '@twilio/tac-core';
+import { SMSChannel, TACConfig, createLogger, ConversationClient } from '@twilio/tac-core';
 import type { ChannelMessage } from '@twilio/tac-core';
 
 describe('SMS Channel', () => {
@@ -265,7 +260,10 @@ describe('SMS Channel', () => {
       // Start conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test1234567890abc', profileId: 'test_profile_123' },
+        data: {
+          conversationId: 'conv_conversation_01test1234567890abc',
+          profileId: 'test_profile_123',
+        },
       });
 
       // Close conversation
@@ -541,7 +539,9 @@ describe('SMS Channel', () => {
 
       await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello back!');
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith('conv_conversation_01test1234567890abc');
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith(
+        'conv_conversation_01test1234567890abc'
+      );
       expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
         'conv_conversation_01test1234567890abc',
         expect.objectContaining({
@@ -580,9 +580,9 @@ describe('SMS Channel', () => {
         },
       });
 
-      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')).rejects.toThrow(
-        'No author info found'
-      );
+      await expect(
+        channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')
+      ).rejects.toThrow('No author info found');
     });
   });
 });

@@ -22,9 +22,7 @@ describe('VoiceChannel', () => {
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
-  const createVoiceChannel = (overrides?: {
-    conversationClient?: Partial<ConversationClient>;
-  }) => {
+  const createVoiceChannel = (overrides?: { conversationClient?: Partial<ConversationClient> }) => {
     const config = new TACConfig(getTestConfig());
     const logger = createLogger({ name: 'test', level: 'silent' });
     const conversationClient = {

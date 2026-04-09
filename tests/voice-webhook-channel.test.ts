@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  VoiceWebhookChannel,
-  TACConfig,
-  createLogger,
-  ConversationClient,
-} from '@twilio/tac-core';
+import { VoiceWebhookChannel, TACConfig, createLogger, ConversationClient } from '@twilio/tac-core';
 import type { ChannelMessage } from '@twilio/tac-core';
 
 describe('VoiceWebhookChannel', () => {
@@ -116,31 +111,20 @@ describe('VoiceWebhookChannel', () => {
 
     it('should reject zero dedupCapacity', () => {
       expect(
-        () =>
-          new VoiceWebhookChannel(
-            { config, logger, conversationClient },
-            { dedupCapacity: 0 }
-          )
+        () => new VoiceWebhookChannel({ config, logger, conversationClient }, { dedupCapacity: 0 })
       ).toThrow('dedupCapacity must be a positive integer');
     });
 
     it('should reject negative dedupCapacity', () => {
       expect(
-        () =>
-          new VoiceWebhookChannel(
-            { config, logger, conversationClient },
-            { dedupCapacity: -1 }
-          )
+        () => new VoiceWebhookChannel({ config, logger, conversationClient }, { dedupCapacity: -1 })
       ).toThrow('dedupCapacity must be a positive integer');
     });
 
     it('should reject non-integer dedupCapacity', () => {
       expect(
         () =>
-          new VoiceWebhookChannel(
-            { config, logger, conversationClient },
-            { dedupCapacity: 1.5 }
-          )
+          new VoiceWebhookChannel({ config, logger, conversationClient }, { dedupCapacity: 1.5 })
       ).toThrow('dedupCapacity must be a positive integer');
     });
   });
@@ -366,7 +350,9 @@ describe('VoiceWebhookChannel', () => {
 
       await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello back!');
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith('conv_conversation_01test1234567890abc');
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith(
+        'conv_conversation_01test1234567890abc'
+      );
       expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
         'conv_conversation_01test1234567890abc',
         expect.objectContaining({
@@ -448,9 +434,9 @@ describe('VoiceWebhookChannel', () => {
         data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
 
-      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')).rejects.toThrow(
-        'No author info found'
-      );
+      await expect(
+        channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')
+      ).rejects.toThrow('No author info found');
     });
 
     it('should throw when no agent participant found', async () => {
@@ -478,9 +464,9 @@ describe('VoiceWebhookChannel', () => {
         },
       ] as any);
 
-      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')).rejects.toThrow(
-        'Agent participant not found'
-      );
+      await expect(
+        channel.sendResponse('conv_conversation_01test1234567890abc', 'Test')
+      ).rejects.toThrow('Agent participant not found');
     });
   });
 
@@ -525,7 +511,10 @@ describe('VoiceWebhookChannel', () => {
       // Start conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test1234567890abc', profileId: 'test_profile_123' },
+        data: {
+          conversationId: 'conv_conversation_01test1234567890abc',
+          profileId: 'test_profile_123',
+        },
       });
 
       // Close conversation

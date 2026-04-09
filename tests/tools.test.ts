@@ -12,11 +12,11 @@ describe('Tool System', () => {
           properties: {
             message: {
               type: 'string',
-              description: 'The message to process'
-            }
+              description: 'The message to process',
+            },
           },
           required: ['message'],
-          description: 'Test tool parameters'
+          description: 'Test tool parameters',
         },
         async (params: { message: string }) => {
           return `Processed: ${params.message}`;
@@ -37,10 +37,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            text: { type: 'string', description: 'Text to echo' }
+            text: { type: 'string', description: 'Text to echo' },
           },
           required: ['text'],
-          description: 'Echo parameters'
+          description: 'Echo parameters',
         },
         async (params: { text: string }) => {
           return `Echo: ${params.text}`;
@@ -64,13 +64,13 @@ describe('Tool System', () => {
             arrayParam: {
               type: 'array',
               items: { type: 'string' },
-              description: 'An array parameter'
-            }
+              description: 'An array parameter',
+            },
           },
           required: ['stringParam', 'numberParam'],
-          description: 'Multi-parameter tool'
+          description: 'Multi-parameter tool',
         },
-        async (params) => params
+        async params => params
       );
 
       expect(tool.parameters.properties.stringParam.type).toBe('string');
@@ -88,12 +88,12 @@ describe('Tool System', () => {
           type: 'object',
           properties: {
             required_param: { type: 'string', description: 'Required parameter' },
-            optional_param: { type: 'string', description: 'Optional parameter' }
+            optional_param: { type: 'string', description: 'Optional parameter' },
           },
           required: ['required_param'],
-          description: 'Tool with optional parameters'
+          description: 'Tool with optional parameters',
         },
-        async (params) => params
+        async params => params
       );
 
       expect(tool.parameters.required).toEqual(['required_param']);
@@ -110,13 +110,13 @@ describe('Tool System', () => {
             priority: {
               type: 'string',
               enum: ['low', 'medium', 'high'],
-              description: 'Priority level'
-            }
+              description: 'Priority level',
+            },
           },
           required: ['priority'],
-          description: 'Tool with enum parameter'
+          description: 'Tool with enum parameter',
         },
-        async (params) => params
+        async params => params
       );
 
       expect(tool.parameters.properties.priority.enum).toEqual(['low', 'medium', 'high']);
@@ -133,12 +133,12 @@ describe('Tool System', () => {
           properties: {
             name: { type: 'string', description: 'Name field' },
             age: { type: 'number', description: 'Age field' },
-            active: { type: 'boolean', description: 'Active status' }
+            active: { type: 'boolean', description: 'Active status' },
           },
           required: ['name'],
-          description: 'Schema validation tool'
+          description: 'Schema validation tool',
         },
-        async (params) => params
+        async params => params
       );
 
       // Verify schema structure
@@ -147,9 +147,9 @@ describe('Tool System', () => {
         properties: {
           name: { type: 'string' },
           age: { type: 'number' },
-          active: { type: 'boolean' }
+          active: { type: 'boolean' },
         },
-        required: ['name']
+        required: ['name'],
       });
     });
   });
@@ -162,10 +162,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            value: { type: 'number', description: 'Value to double' }
+            value: { type: 'number', description: 'Value to double' },
           },
           required: ['value'],
-          description: 'Sync tool parameters'
+          description: 'Sync tool parameters',
         },
         (params: { value: number }) => params.value * 2
       );
@@ -176,10 +176,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            value: { type: 'number', description: 'Value to triple' }
+            value: { type: 'number', description: 'Value to triple' },
           },
           required: ['value'],
-          description: 'Async tool parameters'
+          description: 'Async tool parameters',
         },
         async (params: { value: number }) => {
           await new Promise(resolve => setTimeout(resolve, 1));
@@ -204,10 +204,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            message: { type: 'string', description: 'Test message' }
+            message: { type: 'string', description: 'Test message' },
           },
           required: ['message'],
-          description: 'Test parameters'
+          description: 'Test parameters',
         },
         async (params: { message: string }) => params.message
       );
@@ -222,12 +222,12 @@ describe('Tool System', () => {
           parameters: {
             type: 'object',
             properties: {
-              message: { type: 'string', description: 'Test message' }
+              message: { type: 'string', description: 'Test message' },
             },
             required: ['message'],
-            description: 'Test parameters'
-          }
-        }
+            description: 'Test parameters',
+          },
+        },
       });
     });
 
@@ -238,10 +238,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            message: { type: 'string', description: 'Test message' }
+            message: { type: 'string', description: 'Test message' },
           },
           required: ['message'],
-          description: 'Test parameters'
+          description: 'Test parameters',
         },
         async (params: { message: string }) => params.message
       );
@@ -254,11 +254,11 @@ describe('Tool System', () => {
         input_schema: {
           type: 'object',
           properties: {
-            message: { type: 'string', description: 'Test message' }
+            message: { type: 'string', description: 'Test message' },
           },
           required: ['message'],
-          description: 'Test parameters'
-        }
+          description: 'Test parameters',
+        },
       });
     });
 
@@ -269,10 +269,10 @@ describe('Tool System', () => {
         {
           type: 'object',
           properties: {
-            message: { type: 'string', description: 'Test message' }
+            message: { type: 'string', description: 'Test message' },
           },
           required: ['message'],
-          description: 'Test parameters'
+          description: 'Test parameters',
         },
         async (params: { message: string }) => params.message
       );

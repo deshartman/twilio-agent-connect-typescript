@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core'
-import type { TACMode } from "@twilio/tac-core";;
+import { TACConfig } from '@twilio/tac-core';
+import type { TACMode } from '@twilio/tac-core';
 import { OperatorResultProcessor } from '../packages/core/src/lib/operator-result-processor';
 import { MemoryClient } from '../packages/core/src/clients/memory';
 import {
@@ -320,12 +320,15 @@ describe('OperatorResultProcessor', () => {
 
     it('should process observation operator results successfully', async () => {
       global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse({
-          content: 'Test observation',
-          source: 'conversation-intelligence',
-          occurredAt: '2024-01-15T10:00:00Z',
-          conversationIds: ['conv_123'],
-        }, { ok: true })
+        createMockResponse(
+          {
+            content: 'Test observation',
+            source: 'conversation-intelligence',
+            occurredAt: '2024-01-15T10:00:00Z',
+            conversationIds: ['conv_123'],
+          },
+          { ok: true }
+        )
       );
 
       const event = {
@@ -361,9 +364,11 @@ describe('OperatorResultProcessor', () => {
     });
 
     it('should process summary operator results successfully', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse({ message: 'Summaries created successfully' }, { ok: true })
-      );
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          createMockResponse({ message: 'Summaries created successfully' }, { ok: true })
+        );
 
       const event = {
         accountId: 'AC123',
@@ -397,9 +402,11 @@ describe('OperatorResultProcessor', () => {
     });
 
     it('should handle API errors gracefully', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-      );
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
+        );
 
       const event = {
         accountId: 'AC123',
@@ -432,12 +439,15 @@ describe('OperatorResultProcessor', () => {
 
     it('should process multiple profiles', async () => {
       global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse({
-          content: 'User prefers email',
-          source: 'conversation-intelligence',
-          occurredAt: '2024-01-15T10:00:00Z',
-          conversationIds: ['conv_123'],
-        }, { ok: true })
+        createMockResponse(
+          {
+            content: 'User prefers email',
+            source: 'conversation-intelligence',
+            occurredAt: '2024-01-15T10:00:00Z',
+            conversationIds: ['conv_123'],
+          },
+          { ok: true }
+        )
       );
 
       const event = {
@@ -552,7 +562,9 @@ describe('Memory Client Write Methods', () => {
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'),
+        expect.stringContaining(
+          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'
+        ),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -565,9 +577,11 @@ describe('Memory Client Write Methods', () => {
     });
 
     it('should handle API errors', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-      );
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
+        );
 
       await expect(
         memoryClient.createObservation(
@@ -599,7 +613,9 @@ describe('Memory Client Write Methods', () => {
 
       expect(result).toEqual(mockResponse);
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'),
+        expect.stringContaining(
+          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+        ),
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -611,9 +627,11 @@ describe('Memory Client Write Methods', () => {
     });
 
     it('should handle API errors', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-      );
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
+        );
 
       await expect(
         memoryClient.createConversationSummaries(

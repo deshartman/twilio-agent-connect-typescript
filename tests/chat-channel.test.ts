@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  ChatChannel,
-  TACConfig,
-  createLogger,
-  ConversationClient,
-} from '@twilio/tac-core';
+import { ChatChannel, TACConfig, createLogger, ConversationClient } from '@twilio/tac-core';
 import type { ChannelMessage } from '@twilio/tac-core';
 
 describe('Chat Channel', () => {
@@ -298,7 +293,9 @@ describe('Chat Channel', () => {
 
       await channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello from bot');
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith('conv_conversation_01test1234567890abc');
+      expect(conversationClient.listParticipants).toHaveBeenCalledWith(
+        'conv_conversation_01test1234567890abc'
+      );
       expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
         'conv_conversation_01test1234567890abc',
         expect.objectContaining({
@@ -363,7 +360,13 @@ describe('Chat Channel', () => {
       // Verify addParticipant was called with correct args including channelId
       expect(conversationClient.addParticipant).toHaveBeenCalledWith(
         'conv_conversation_01test1234567890abc',
-        [{ channel: 'CHAT', address: 'ai-assistant', channelId: 'CH00000000000000000000000000000000' }],
+        [
+          {
+            channel: 'CHAT',
+            address: 'ai-assistant',
+            channelId: 'CH00000000000000000000000000000000',
+          },
+        ],
         'AI_AGENT'
       );
     });
@@ -428,9 +431,9 @@ describe('Chat Channel', () => {
     });
 
     it('should throw error if no active session', async () => {
-      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')).rejects.toThrow(
-        'No active session found'
-      );
+      await expect(
+        channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')
+      ).rejects.toThrow('No active session found');
     });
 
     it('should throw error if no author info', async () => {
@@ -440,9 +443,9 @@ describe('Chat Channel', () => {
         data: { conversationId: 'conv_conversation_01test1234567890abc' },
       });
 
-      await expect(channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')).rejects.toThrow(
-        'No author info found'
-      );
+      await expect(
+        channel.sendResponse('conv_conversation_01test1234567890abc', 'Hello')
+      ).rejects.toThrow('No author info found');
     });
   });
 });
