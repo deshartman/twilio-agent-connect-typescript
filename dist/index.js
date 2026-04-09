@@ -1,8 +1,8 @@
 import { z } from 'zod';
 export { z } from 'zod';
 import pino from 'pino';
-import VoiceResponse2 from 'twilio/lib/twiml/VoiceResponse.js';
 import { WebSocket } from 'ws';
+import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 import Fastify from 'fastify';
 import formbody from '@fastify/formbody';
 import websocket from '@fastify/websocket';
@@ -11,15 +11,9 @@ import twilio from 'twilio';
 
 // packages/core/src/types/tac.ts
 var EnvironmentSchema = z.enum(["dev", "stage", "prod"]).default("prod");
-var TACModeSchema = z.enum(["crelay", "conversation"], {
-  errorMap: () => ({
-    message: 'TAC_MODE must be either "crelay" or "conversation"'
-  })
-});
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
 var TACConfigSchema = z.object({
   environment: EnvironmentSchema,
-  tacMode: TACModeSchema,
   twilioAccountSid: z.string().min(1, "Twilio Account SID is required"),
   twilioAuthToken: z.string().min(1, "Twilio Auth Token is required"),
   twilioApiKey: z.string().min(1, "Twilio API Key is required"),
@@ -30,7 +24,7 @@ var TACConfigSchema = z.object({
   conversationServiceId: z.string().regex(
     /^(comms_service|conv_configuration)_[0-9a-z]{26}$/,
     "Invalid Conversation Configuration ID format"
-  ).optional(),
+  ),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
@@ -38,7 +32,6 @@ var TACConfigSchema = z.object({
 });
 var EnvironmentVariables = {
   ENVIRONMENT: "ENVIRONMENT",
-  TAC_MODE: "TAC_MODE",
   TWILIO_ACCOUNT_SID: "TWILIO_ACCOUNT_SID",
   TWILIO_AUTH_TOKEN: "TWILIO_AUTH_TOKEN",
   TWILIO_API_KEY: "TWILIO_API_KEY",
@@ -152,16 +145,14 @@ var AuthorInfoSchema = z.object({
   participantId: z.string().optional()
 });
 var ConversationSessionSchema = z.object({
-  // Base SessionContext fields
-  sessionId: z.string().min(1, "Session ID is required"),
-  channel: ChannelTypeSchema,
-  startedAt: z.date(),
-  metadata: z.record(z.unknown()).optional().default({}),
-  // Maestro-specific fields
+  conversationId: z.string().min(1, "Conversation ID is required"),
   profileId: z.string().optional(),
   serviceId: z.string().optional(),
+  channel: ChannelTypeSchema,
+  startedAt: z.date(),
   authorInfo: AuthorInfoSchema.optional(),
-  profile: z.custom().optional()
+  profile: z.custom().optional(),
+  metadata: z.record(z.unknown()).optional().default({})
 });
 function isConversationId(value) {
   return value.length > 0;
@@ -198,6 +189,40 @@ var ConversationParticipantSchema = z.object({
   addresses: z.array(ConversationAddressSchema).default([]),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional()
+});
+var StatusTimeoutsSchema = z.object({
+  inactive: z.number().int().gte(1).nullable().optional(),
+  closed: z.number().int().gte(1)
+});
+var CaptureRuleSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  metadata: z.record(z.string()).nullable().optional()
+});
+var ChannelSettingsSchema = z.object({
+  statusTimeouts: StatusTimeoutsSchema.nullable().optional(),
+  captureRules: z.array(CaptureRuleSchema).nullable().optional()
+});
+var StatusCallbackSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(["POST", "GET", "PUT", "DELETE", "PATCH"]).optional().default("POST")
+});
+var ConversationGroupingTypeSchema = z.enum([
+  "GROUP_BY_PARTICIPANT_ADDRESSES",
+  "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"
+]);
+var ConversationConfigurationSchema = z.object({
+  id: z.string(),
+  displayName: z.string().max(32).regex(/^[a-zA-Z0-9-_ ]+$/).nullable().optional(),
+  description: z.string(),
+  conversationGroupingType: ConversationGroupingTypeSchema,
+  memoryStoreId: z.string(),
+  channelSettings: z.record(ChannelSettingsSchema).nullable().optional(),
+  statusCallbacks: z.array(StatusCallbackSchema).max(20).nullable().optional(),
+  intelligenceConfigurationIds: z.array(z.string()).max(5).nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  version: z.number().int().nullable().optional()
 });
 
 // packages/core/src/types/tac.ts
@@ -719,7 +744,6 @@ var KnowledgeSearchResponseSchema = z.object({
 // packages/core/src/lib/config.ts
 var TACConfig = class _TACConfig {
   environment;
-  tacMode;
   twilioAccountSid;
   twilioAuthToken;
   twilioApiKey;
@@ -737,20 +761,8 @@ var TACConfig = class _TACConfig {
   knowledgeApiUrl;
   constructor(data) {
     const validatedConfig = TACConfigSchema.parse(data);
-    if (validatedConfig.tacMode === "conversation") {
-      if (!validatedConfig.conversationServiceId) {
-        throw new Error(
-          'TAC_MODE=conversation requires CONVERSATION_SERVICE_ID to be configured. Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".'
-        );
-      }
-    } else if (validatedConfig.tacMode === "crelay" && validatedConfig.conversationServiceId) {
-      console.warn(
-        "TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. Maestro features will be ignored in crelay mode."
-      );
-    }
     const serviceUrls = computeServiceUrls(validatedConfig.environment);
     this.environment = validatedConfig.environment;
-    this.tacMode = validatedConfig.tacMode;
     this.twilioAccountSid = validatedConfig.twilioAccountSid;
     this.twilioAuthToken = validatedConfig.twilioAuthToken;
     this.twilioApiKey = validatedConfig.twilioApiKey;
@@ -762,9 +774,7 @@ var TACConfig = class _TACConfig {
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;
     }
-    if (validatedConfig.conversationServiceId) {
-      this.conversationServiceId = validatedConfig.conversationServiceId;
-    }
+    this.conversationServiceId = validatedConfig.conversationServiceId;
     if (validatedConfig.voicePublicDomain) {
       this.voicePublicDomain = validatedConfig.voicePublicDomain;
     }
@@ -786,7 +796,6 @@ var TACConfig = class _TACConfig {
    *
    * Loads configuration from the following environment variables:
    * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-   * - TAC_MODE: Operating mode - 'crelay' or 'conversation' (required)
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -794,7 +803,7 @@ var TACConfig = class _TACConfig {
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required if TAC_MODE=conversation)
+   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    *
    * @throws Error if required environment variables are not set or invalid
@@ -810,12 +819,12 @@ var TACConfig = class _TACConfig {
    */
   static fromEnv() {
     const requiredVars = [
-      { key: EnvironmentVariables.TAC_MODE, name: "TAC_MODE" },
       { key: EnvironmentVariables.TWILIO_ACCOUNT_SID, name: "TWILIO_ACCOUNT_SID" },
       { key: EnvironmentVariables.TWILIO_AUTH_TOKEN, name: "TWILIO_AUTH_TOKEN" },
       { key: EnvironmentVariables.TWILIO_API_KEY, name: "TWILIO_API_KEY" },
       { key: EnvironmentVariables.TWILIO_API_TOKEN, name: "TWILIO_API_TOKEN" },
-      { key: EnvironmentVariables.TWILIO_PHONE_NUMBER, name: "TWILIO_PHONE_NUMBER" }
+      { key: EnvironmentVariables.TWILIO_PHONE_NUMBER, name: "TWILIO_PHONE_NUMBER" },
+      { key: EnvironmentVariables.CONVERSATION_SERVICE_ID, name: "CONVERSATION_SERVICE_ID" }
     ];
     for (const { key, name } of requiredVars) {
       if (!process.env[key]) {
@@ -824,7 +833,6 @@ var TACConfig = class _TACConfig {
     }
     const rawConfig = {
       environment: process.env[EnvironmentVariables.ENVIRONMENT] ?? "prod",
-      tacMode: process.env[EnvironmentVariables.TAC_MODE],
       twilioAccountSid: process.env[EnvironmentVariables.TWILIO_ACCOUNT_SID],
       twilioAuthToken: process.env[EnvironmentVariables.TWILIO_AUTH_TOKEN],
       twilioApiKey: process.env[EnvironmentVariables.TWILIO_API_KEY],
@@ -1165,11 +1173,6 @@ var ConversationClient = class {
   conversationServiceId;
   logger;
   constructor(config, logger2) {
-    if (!config.conversationServiceId) {
-      throw new Error(
-        "ConversationClient requires CONVERSATION_SERVICE_ID to be configured. Ensure TAC_MODE=conversation and CONVERSATION_SERVICE_ID is set."
-      );
-    }
     this.baseUrl = config.conversationsApiUrl;
     this.credentials = {
       username: config.twilioApiKey,
@@ -1403,6 +1406,38 @@ var ConversationClient = class {
     }
     const data = await response.json();
     return ConversationResponseSchema.parse(data);
+  }
+  /**
+   * Retrieve the details for a single configuration
+   *
+   * @param configurationId - The configuration ID to retrieve
+   * @returns Promise containing configuration details
+   */
+  async getConfiguration(configurationId) {
+    const url = `${this.baseUrl}/v2/ControlPlane/Configurations/${configurationId}`;
+    const options = {
+      method: "GET",
+      headers: {
+        Authorization: this.getBasicAuthHeader()
+      }
+    };
+    this.logRequest(options.method, url);
+    const response = await fetch(url, options);
+    await this.logResponse(response);
+    if (!response.ok) {
+      const errorBody = await response.clone().text();
+      this.logger.error(
+        {
+          status: response.status,
+          statusText: response.statusText,
+          errorBody
+        },
+        "Get configuration failed"
+      );
+      throw new Error(`Failed to get configuration: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return ConversationConfigurationSchema.parse(data);
   }
   /**
    * Get Basic Auth header for HTTP requests
@@ -1949,15 +1984,10 @@ var TAC = class {
       );
       this.logger.info("Conversation Intelligence processor initialized");
     }
-    if (this.config.tacMode === "conversation") {
-      this.conversationClient = new ConversationClient(
-        this.config,
-        this.logger.child({ component: "conversation" })
-      );
-      this.logger.info("ConversationClient initialized (conversation mode)");
-    } else {
-      this.logger.info("ConversationClient not initialized (crelay mode)");
-    }
+    this.conversationClient = new ConversationClient(
+      this.config,
+      this.logger.child({ component: "conversation" })
+    );
   }
   /**
    * Register a channel with the framework
@@ -2024,7 +2054,7 @@ var TAC = class {
         if (session && this.interruptCallback) {
           try {
             await this.interruptCallback({
-              sessionId: session.sessionId,
+              conversationId,
               reason,
               transcript: transcript ?? void 0,
               session
@@ -2047,7 +2077,7 @@ var TAC = class {
             await this.conversationEndedCallback({ session });
           } catch (error) {
             this.logger.error(
-              { err: error, session_id: session.sessionId },
+              { err: error, conversation_id: session.conversationId },
               "Conversation ended callback error"
             );
           }
@@ -2110,7 +2140,7 @@ var TAC = class {
       );
       try {
         await this.messageReadyCallback({
-          sessionId: session.sessionId,
+          conversationId: data.conversationId,
           profileId: data.profileId,
           message: data.message,
           author: data.author,
@@ -2180,7 +2210,7 @@ var TAC = class {
     }
     try {
       await this.handoffCallback({
-        sessionId: session.sessionId,
+        conversationId,
         profileId: session.profileId ? session.profileId : void 0,
         reason,
         session
@@ -2228,7 +2258,6 @@ var TAC = class {
   }
   /**
    * Get conversation client for advanced conversation operations
-   * Returns undefined in crelay mode
    */
   getConversationClient() {
     return this.conversationClient;
@@ -2342,14 +2371,11 @@ var TAC = class {
         throw error;
       }
     } else {
-      if (!this.conversationClient) {
-        throw new Error(
-          "Cannot retrieve memory: Memory API not configured and ConversationClient not available. Ensure either MEMORY_STORE_ID is configured or TAC_MODE=conversation with CONVERSATION_SERVICE_ID."
-        );
-      }
       this.logger.info("Twilio Memory not configured, falling back to Conversations API");
       try {
-        const communications = await this.conversationClient.listCommunications(session.sessionId);
+        const communications = await this.conversationClient.listCommunications(
+          session.conversationId
+        );
         return new TACMemoryResponse(communications);
       } catch (error) {
         this.logger.error({ err: error }, "Failed to retrieve communications");
@@ -2400,53 +2426,38 @@ var TAC = class {
   }
 };
 
-// packages/core/src/channels/messaging.ts
-var DEFAULT_DEDUP_CAPACITY = 1e4;
-var MessagingChannel = class {
+// packages/core/src/channels/base.ts
+var BaseChannel = class {
   tac;
   config;
   logger;
   conversationClient;
   activeConversations;
   callbacks;
-  messagingCallbacks;
-  processedTokens = /* @__PURE__ */ new Set();
-  maxTrackedTokens;
-  constructor(tac, config) {
+  constructor(tac) {
     this.tac = tac;
     this.config = tac.getConfig();
     this.logger = tac.logger.child({ component: "channel" });
+    this.conversationClient = new ConversationClient(this.config);
     this.activeConversations = /* @__PURE__ */ new Map();
     this.callbacks = {};
-    this.messagingCallbacks = {};
-    if (!this.config.conversationServiceId) {
-      throw new Error(
-        "Messaging channels require Maestro Conversations Service (CONVERSATION_SERVICE_ID not configured)"
-      );
-    }
-    this.conversationClient = new ConversationClient(this.config);
-    const capacity = config?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
-    if (capacity < 1 || !Number.isInteger(capacity)) {
-      throw new Error("dedupCapacity must be a positive integer");
-    }
-    this.maxTrackedTokens = capacity;
   }
   /**
-   * Check if a webhook has already been processed, and if not, record the token immediately.
-   * This is intentionally a single synchronous check-and-record to prevent race conditions
-   * where a duplicate arrives while the first request is still awaiting async work.
-   * Uses a sliding window with FIFO eviction at capacity.
+   * Register event callbacks
    */
-  isDuplicateWebhook(idempotencyToken) {
-    if (this.processedTokens.has(idempotencyToken)) {
-      return true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
+  on(event, callback) {
+    switch (event) {
+      case "conversationStarted":
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case "conversationEnded":
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case "error":
+        this.callbacks.onError = callback;
+        break;
     }
-    if (this.processedTokens.size >= this.maxTrackedTokens) {
-      const oldest = this.processedTokens.values().next().value;
-      this.processedTokens.delete(oldest);
-    }
-    this.processedTokens.add(idempotencyToken);
-    return false;
   }
   /**
    * Start a new conversation session
@@ -2464,15 +2475,12 @@ var MessagingChannel = class {
       return this.activeConversations.get(conversationId);
     }
     const session = {
-      // Base SessionContext fields
-      sessionId: conversationId,
-      // Generic session identifier
+      conversationId,
+      profileId,
+      serviceId,
       channel: this.channelType,
       startedAt: /* @__PURE__ */ new Date(),
-      metadata: {},
-      // Maestro-specific fields
-      profileId,
-      serviceId
+      metadata: {}
     };
     this.activeConversations.set(conversationId, session);
     this.logger.debug(
@@ -2551,6 +2559,12 @@ var MessagingChannel = class {
     }
   }
   /**
+   * Validate webhook payload (override in subclasses for specific validation)
+   */
+  validateWebhookPayload(payload) {
+    return payload !== null && payload !== void 0;
+  }
+  /**
    * Cleanup resources when shutting down
    */
   shutdown() {
@@ -2558,6 +2572,40 @@ var MessagingChannel = class {
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
+  }
+};
+
+// packages/core/src/channels/messaging.ts
+var DEFAULT_DEDUP_CAPACITY = 1e4;
+var MessagingChannel = class extends BaseChannel {
+  messagingCallbacks;
+  processedTokens = /* @__PURE__ */ new Set();
+  maxTrackedTokens;
+  constructor(tac, config) {
+    super(tac);
+    this.messagingCallbacks = {};
+    const capacity = config?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
+    if (capacity < 1 || !Number.isInteger(capacity)) {
+      throw new Error("dedupCapacity must be a positive integer");
+    }
+    this.maxTrackedTokens = capacity;
+  }
+  /**
+   * Check if a webhook has already been processed, and if not, record the token immediately.
+   * This is intentionally a single synchronous check-and-record to prevent race conditions
+   * where a duplicate arrives while the first request is still awaiting async work.
+   * Uses a sliding window with FIFO eviction at capacity.
+   */
+  isDuplicateWebhook(idempotencyToken) {
+    if (this.processedTokens.has(idempotencyToken)) {
+      return true;
+    }
+    if (this.processedTokens.size >= this.maxTrackedTokens) {
+      const oldest = this.processedTokens.values().next().value;
+      this.processedTokens.delete(oldest);
+    }
+    this.processedTokens.add(idempotencyToken);
+    return false;
   }
   /**
    * Register event callbacks (override for messaging-specific events)
@@ -2567,17 +2615,7 @@ var MessagingChannel = class {
     if (event === "messageReceived") {
       this.messagingCallbacks.onMessageReceived = callback;
     } else {
-      switch (event) {
-        case "conversationStarted":
-          this.callbacks.onConversationStarted = callback;
-          break;
-        case "conversationEnded":
-          this.callbacks.onConversationEnded = callback;
-          break;
-        case "error":
-          this.callbacks.onError = callback;
-          break;
-      }
+      super.on(event, callback);
     }
   }
   /**
@@ -2894,7 +2932,7 @@ var MessagingChannel = class {
    * Validate messaging channel webhook payload structure
    */
   validateWebhookPayload(payload) {
-    if (payload === null || payload === void 0) {
+    if (!super.validateWebhookPayload(payload)) {
       return false;
     }
     const webhookData = payload;
@@ -3122,417 +3160,22 @@ var ChatChannel = class extends MessagingChannel {
     }
   }
 };
-var SetupMessageSchema2 = z.object({
-  type: z.literal("setup"),
-  sessionId: z.string(),
-  callSid: z.string(),
-  parentCallSid: z.string().optional(),
-  from: z.string(),
-  to: z.string(),
-  forwardedFrom: z.string().optional(),
-  callerName: z.string().optional(),
-  direction: z.string(),
-  callType: z.string(),
-  callStatus: z.string(),
-  accountSid: z.string(),
-  customParameters: z.record(z.unknown()).optional()
-});
-var PromptMessageSchema2 = z.object({
-  type: z.literal("prompt"),
-  voicePrompt: z.string(),
-  lang: z.string().optional(),
-  last: z.boolean().optional(),
-  agentSpeaking: z.string().optional()
-});
-var InterruptMessageSchema2 = z.object({
-  type: z.literal("interrupt"),
-  reason: z.string(),
-  voicePrompt: z.string().optional()
-});
-z.object({
-  type: z.literal("text"),
-  token: z.string(),
-  last: z.boolean().optional().default(true)
-});
-var WebSocketMessageSchema2 = z.discriminatedUnion("type", [
-  SetupMessageSchema2,
-  PromptMessageSchema2,
-  InterruptMessageSchema2
-]);
-z.record(z.string(), z.unknown()).refine(
-  (params) => {
-    return Object.keys(params).every((key) => key.trim().length > 0);
-  },
-  { message: "Custom parameter keys must be non-empty strings" }
-);
-var LanguageAttributesSchema2 = z.object({
-  /** Language code (e.g., 'en-US', 'es-ES', 'en-AU') */
-  code: z.string(),
-  /** TTS provider for this language */
-  ttsProvider: z.string().optional(),
-  /** TTS voice for this language */
-  ttsVoice: z.string().optional(),
-  /** Speech model for this language */
-  speechModel: z.string().optional(),
-  /** Profanity filter setting */
-  profanityFilter: z.string().optional(),
-  /** Speech timeout in milliseconds */
-  speechTimeout: z.string().optional()
-});
-var ConversationRelayAttributesSchema2 = z.object({
-  /** WebSocket URL for ConversationRelay connection */
-  url: z.string().url(),
-  /** Welcome greeting message */
-  welcomeGreeting: z.string().optional(),
-  /** Welcome greeting interruptibility */
-  welcomeGreetingInterruptible: z.enum(["before-start", "any"]).optional(),
-  /** Voice for TTS (e.g., 'Google.en-US-Studio-O') */
-  voice: z.string().optional(),
-  /** TTS provider */
-  ttsProvider: z.string().optional(),
-  /** Transcription provider */
-  transcriptionProvider: z.string().optional(),
-  /** Speech model */
-  speechModel: z.string().optional(),
-  /** Profanity filter */
-  profanityFilter: z.string().optional(),
-  /** Speech timeout */
-  speechTimeout: z.string().optional(),
-  /** Interrupt by DTMF */
-  dtmfDetection: z.boolean().optional(),
-  /** Debug mode */
-  debug: z.boolean().optional()
-});
-ConversationRelayAttributesSchema2.extend({
-  /** Multi-language configurations */
-  languages: z.array(LanguageAttributesSchema2).optional()
-});
-
-// packages/conversationrelay/src/relay.ts
-var ConversationRelay = class {
-  logger;
-  connections;
-  callbacks;
-  constructor(logger2) {
-    this.logger = logger2;
-    this.connections = /* @__PURE__ */ new Map();
-    this.callbacks = {};
-  }
-  /**
-   * Register setup message callback
-   */
-  onSetup(callback) {
-    this.callbacks.onSetup = callback;
-  }
-  /**
-   * Register prompt message callback
-   */
-  onPrompt(callback) {
-    this.callbacks.onPrompt = callback;
-  }
-  /**
-   * Register interrupt message callback
-   */
-  onInterrupt(callback) {
-    this.callbacks.onInterrupt = callback;
-  }
-  /**
-   * Register close callback
-   */
-  onClose(callback) {
-    this.callbacks.onClose = callback;
-  }
-  /**
-   * Register error callback
-   */
-  onError(callback) {
-    this.callbacks.onError = callback;
-  }
-  /**
-   * Handle incoming WebSocket connection
-   *
-   * Extracts CallSid from setup message and routes subsequent messages.
-   */
-  handleConnection(ws) {
-    let callSid = null;
-    ws.on("message", (data) => {
-      try {
-        const messageText = data.toString();
-        const messageData = JSON.parse(messageText);
-        this.logger.debug({ raw_message: messageData }, "Received ConversationRelay message");
-        const validatedMessage = WebSocketMessageSchema2.safeParse(messageData);
-        if (!validatedMessage.success) {
-          this.logger.error(
-            { validation_errors: validatedMessage.error.errors, raw_message: messageData },
-            "Invalid ConversationRelay message"
-          );
-          return;
-        }
-        const message = validatedMessage.data;
-        switch (message.type) {
-          case "setup":
-            callSid = message.callSid;
-            this.connections.set(callSid, ws);
-            if (this.callbacks.onSetup) {
-              this.callbacks.onSetup(callSid, message);
-            }
-            break;
-          case "prompt":
-            if (callSid && this.callbacks.onPrompt) {
-              this.callbacks.onPrompt(callSid, message);
-            }
-            break;
-          case "interrupt":
-            if (callSid && this.callbacks.onInterrupt) {
-              this.callbacks.onInterrupt(callSid, message);
-            }
-            break;
-          default:
-            this.logger.warn(
-              { call_sid: callSid, message: messageData },
-              "Unhandled ConversationRelay message type"
-            );
-            break;
-        }
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        this.logger.error({ err, call_sid: callSid }, "Error processing ConversationRelay message");
-        if (callSid && this.callbacks.onError) {
-          this.callbacks.onError(callSid, err);
-        }
-      }
-    });
-    ws.on("close", () => {
-      if (callSid) {
-        this.connections.delete(callSid);
-        this.logger.debug({ call_sid: callSid }, "ConversationRelay WebSocket closed");
-        if (this.callbacks.onClose) {
-          this.callbacks.onClose(callSid);
-        }
-      }
-    });
-    ws.on("error", (error) => {
-      this.logger.error({ err: error, call_sid: callSid }, "ConversationRelay WebSocket error");
-      if (callSid && this.callbacks.onError) {
-        this.callbacks.onError(callSid, error);
-      }
-    });
-  }
-  /**
-   * Get WebSocket connection for a CallSid
-   */
-  getWebSocket(callSid) {
-    return this.connections.get(callSid) || null;
-  }
-  /**
-   * Send text token message via WebSocket
-   */
-  sendMessage(callSid, message) {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
-    }
-    ws.send(JSON.stringify(message));
-    this.logger.debug({ call_sid: callSid, message_type: message.type }, "Sent ConversationRelay message");
-  }
-  /**
-   * Close WebSocket connection
-   */
-  closeConnection(callSid) {
-    const ws = this.connections.get(callSid);
-    if (ws) {
-      ws.close();
-      this.connections.delete(callSid);
-      this.logger.debug({ call_sid: callSid }, "Closed ConversationRelay connection");
-    }
-  }
-  /**
-   * Shutdown utility - close all connections
-   */
-  shutdown() {
-    for (const [callSid, ws] of this.connections.entries()) {
-      ws.close();
-      this.logger.debug({ call_sid: callSid }, "Shutdown: closed ConversationRelay connection");
-    }
-    this.connections.clear();
-  }
-};
-
-// packages/core/src/channels/voice.ts
-var VoiceChannel = class {
-  tac;
-  config;
-  logger;
-  conversationClient;
-  activeConversations;
-  callbacks;
-  conversationRelay;
+var VoiceChannel = class extends BaseChannel {
+  webSocketConnections;
   callSidToConversationId;
   voiceCallbacks;
+  streamTasks;
   promptQueues;
   constructor(tac) {
-    this.tac = tac;
-    this.config = tac.getConfig();
-    this.logger = tac.logger.child({ component: "channel" });
-    this.activeConversations = /* @__PURE__ */ new Map();
-    this.callbacks = {};
-    this.voiceCallbacks = {};
-    const client = tac.getConversationClient();
-    if (client) {
-      this.conversationClient = client;
-      this.logger.info("Voice channel initialized with Maestro support");
-    } else {
-      this.logger.info("Voice channel initialized in CR-only mode");
-    }
-    this.conversationRelay = new ConversationRelay(tac.logger.child({ component: "crelay" }));
-    this.conversationRelay.onSetup((callSid, data) => {
-      this.handleSetupFromRelay(callSid, data);
-    });
-    this.conversationRelay.onPrompt((callSid, data) => {
-      this.handlePromptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onInterrupt((callSid, data) => {
-      this.handleInterruptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onClose((callSid) => {
-      this.handleCloseFromRelay(callSid);
-    });
-    this.conversationRelay.onError((callSid, error) => {
-      this.handleError(error, { callSid });
-    });
+    super(tac);
+    this.webSocketConnections = /* @__PURE__ */ new Map();
     this.callSidToConversationId = /* @__PURE__ */ new Map();
+    this.voiceCallbacks = {};
+    this.streamTasks = /* @__PURE__ */ new Map();
     this.promptQueues = /* @__PURE__ */ new Map();
   }
   get channelType() {
     return "voice";
-  }
-  /**
-   * Get WebSocket connection for a conversation
-   */
-  getWebsocket(conversationId) {
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return this.conversationRelay.getWebSocket(callSid);
-      }
-    }
-    return null;
-  }
-  /**
-   * Start a new conversation session
-   */
-  startConversation(conversationId, profileId, serviceId) {
-    if (this.activeConversations.has(conversationId)) {
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          profile_id: this.activeConversations.get(conversationId)?.profileId,
-          service_id: this.activeConversations.get(conversationId)?.serviceId
-        },
-        "Conversation already active"
-      );
-      return this.activeConversations.get(conversationId);
-    }
-    const session = {
-      // Base SessionContext fields
-      sessionId: conversationId,
-      // Generic session identifier
-      channel: this.channelType,
-      startedAt: /* @__PURE__ */ new Date(),
-      metadata: {},
-      // Maestro-specific fields
-      profileId,
-      serviceId
-    };
-    this.activeConversations.set(conversationId, session);
-    this.logger.debug(
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        service_id: serviceId,
-        channel: this.channelType
-      },
-      "Conversation started"
-    );
-    if (this.callbacks.onConversationStarted) {
-      this.callbacks.onConversationStarted({ session });
-    }
-    return session;
-  }
-  /**
-   * End a conversation session.
-   *
-   * Triggers the onConversationEnded callback BEFORE removing the session,
-   * so the callback receives the full ConversationSession data.
-   * Errors in the callback do not prevent session cleanup.
-   */
-  async endConversation(conversationId) {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            "Error in conversation ended callback"
-          );
-        }
-      }
-      this.activeConversations.delete(conversationId);
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          channel: this.channelType,
-          service_id: session.serviceId
-        },
-        "Conversation ended"
-      );
-    } else {
-      this.logger.debug(
-        { conversation_id: conversationId, channel: this.channelType },
-        "Conversation end requested but no active session found"
-      );
-    }
-  }
-  /**
-   * Get an active conversation session
-   */
-  getConversationSession(conversationId) {
-    return this.activeConversations.get(conversationId);
-  }
-  /**
-   * Check if a conversation is active
-   */
-  isConversationActive(conversationId) {
-    return this.activeConversations.has(conversationId);
-  }
-  /**
-   * Handle errors with proper context
-   */
-  handleError(error, context) {
-    this.logger.error({ err: error, ...context }, "Channel error");
-    if (this.callbacks.onError) {
-      if (context) {
-        this.callbacks.onError({ error, context });
-      } else {
-        this.callbacks.onError({ error });
-      }
-    }
-  }
-  /**
-   * Cleanup resources when shutting down
-   */
-  shutdown() {
-    this.conversationRelay.shutdown();
-    this.callSidToConversationId.clear();
-    this.promptQueues.clear();
-    this.activeConversations.clear();
-    delete this.callbacks.onConversationStarted;
-    delete this.callbacks.onConversationEnded;
-    delete this.callbacks.onError;
   }
   /**
    * Register event callbacks (override for Voice-specific events)
@@ -3555,14 +3198,8 @@ var VoiceChannel = class {
       case "webSocketDisconnected":
         this.voiceCallbacks.onWebSocketDisconnected = callback;
         break;
-      case "conversationStarted":
-        this.callbacks.onConversationStarted = callback;
-        break;
-      case "conversationEnded":
-        this.callbacks.onConversationEnded = callback;
-        break;
-      case "error":
-        this.callbacks.onError = callback;
+      default:
+        super.on(event, callback);
         break;
     }
   }
@@ -3575,68 +3212,84 @@ var VoiceChannel = class {
     return Promise.resolve();
   }
   /**
+   * Get active WebSocket connection for a conversation
+   */
+  getWebsocket(conversationId) {
+    return this.webSocketConnections.get(conversationId) || null;
+  }
+  /**
    * Handle WebSocket connection from ConversationRelay
-   *
-   * Delegates to ConversationRelay utility for protocol handling.
    */
   handleWebSocketConnection(ws) {
-    this.conversationRelay.handleConnection(ws);
-  }
-  /**
-   * Handle setup message from ConversationRelay (CallSid → ConversationId bridge)
-   */
-  handleSetupFromRelay(_callSid, data) {
-    this.handleSetupMessage(data);
-  }
-  /**
-   * Handle prompt message from ConversationRelay (CallSid → ConversationId bridge)
-   */
-  handlePromptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in prompt");
-      return;
-    }
-    const previousPrompt = this.promptQueues.get(conversationId) ?? Promise.resolve();
-    const currentPrompt = previousPrompt.then(() => this.handlePromptMessage(conversationId, data)).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "Failed to handle prompt message"
-      );
+    let conversationId = null;
+    ws.on("message", (data) => {
+      try {
+        const messageText = data.toString();
+        const messageData = JSON.parse(messageText);
+        this.logger.debug({ raw_message: messageData }, "Received WebSocket message");
+        const validatedMessage = WebSocketMessageSchema.safeParse(messageData);
+        if (!validatedMessage.success) {
+          this.logger.error(
+            { validation_errors: validatedMessage.error.errors, raw_message: messageData },
+            "Invalid WebSocket message"
+          );
+          return;
+        }
+        const message = validatedMessage.data;
+        switch (message.type) {
+          case "setup":
+            conversationId = this.handleSetupMessage(ws, message);
+            break;
+          case "prompt":
+            if (conversationId) {
+              const currentConversationId = conversationId;
+              const previousPrompt = this.promptQueues.get(currentConversationId) ?? Promise.resolve();
+              const currentPrompt = previousPrompt.then(() => this.handlePromptMessage(currentConversationId, message)).catch((err) => {
+                this.logger.error(
+                  { err, conversation_id: currentConversationId },
+                  "Failed to handle prompt message"
+                );
+              });
+              this.promptQueues.set(currentConversationId, currentPrompt);
+            }
+            break;
+          case "interrupt":
+            if (conversationId) {
+              this.handleInterruptMessage(conversationId, message);
+            }
+            break;
+          default:
+            this.logger.warn(
+              { conversation_id: conversationId, message: messageData },
+              "Unhandled WebSocket event type"
+            );
+            break;
+        }
+      } catch (error) {
+        this.handleError(error instanceof Error ? error : new Error(String(error)), {
+          conversationId,
+          message: data.toString()
+        });
+      }
     });
-    this.promptQueues.set(conversationId, currentPrompt);
-  }
-  /**
-   * Handle interrupt message from ConversationRelay (CallSid → ConversationId bridge)
-   */
-  handleInterruptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in interrupt");
-      return;
-    }
-    this.handleInterruptMessage(conversationId, data);
-  }
-  /**
-   * Handle close from ConversationRelay (CallSid → ConversationId bridge)
-   */
-  handleCloseFromRelay(callSid) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in close");
-      return;
-    }
-    void this.handleWebSocketDisconnect(conversationId).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "WebSocket disconnect handler error"
-      );
+    ws.on("close", () => {
+      if (conversationId) {
+        void this.handleWebSocketDisconnect(conversationId).catch((err) => {
+          this.logger.error(
+            { err, conversation_id: conversationId },
+            "WebSocket disconnect handler error"
+          );
+        });
+      }
+    });
+    ws.on("error", (error) => {
+      this.handleError(error, { conversationId });
     });
   }
   /**
    * Handle WebSocket setup message
    */
-  handleSetupMessage(message) {
+  handleSetupMessage(ws, message) {
     const { callSid, from, to, customParameters } = message;
     let conversationId;
     let profileId;
@@ -3648,6 +3301,7 @@ var VoiceChannel = class {
     if (customParameters?.profile_id && typeof customParameters.profile_id === "string" && isProfileId(customParameters.profile_id)) {
       profileId = customParameters.profile_id;
     }
+    this.webSocketConnections.set(conversationId, ws);
     this.callSidToConversationId.set(callSid, conversationId);
     const session = this.startConversation(conversationId, profileId);
     session.authorInfo = {
@@ -3673,6 +3327,7 @@ var VoiceChannel = class {
    */
   async handlePromptMessage(conversationId, message) {
     const transcript = message.voicePrompt;
+    this.cancelStreamTask(conversationId);
     const session = this.getConversationSession(conversationId);
     let userMemory;
     if (session && this.tac.isMemoryEnabled()) {
@@ -3700,6 +3355,13 @@ var VoiceChannel = class {
    */
   handleInterruptMessage(conversationId, message) {
     const { reason, transcript } = message;
+    const cancelled = this.cancelStreamTask(conversationId);
+    if (cancelled) {
+      this.logger.info(
+        { conversation_id: conversationId },
+        "Cancelled stream task due to interrupt"
+      );
+    }
     if (this.voiceCallbacks.onInterrupt) {
       this.voiceCallbacks.onInterrupt({
         conversationId,
@@ -3712,6 +3374,7 @@ var VoiceChannel = class {
    * Handle WebSocket disconnection
    */
   async handleWebSocketDisconnect(conversationId) {
+    this.webSocketConnections.delete(conversationId);
     this.promptQueues.delete(conversationId);
     for (const [callSid, cId] of this.callSidToConversationId.entries()) {
       if (cId === conversationId) {
@@ -3726,27 +3389,19 @@ var VoiceChannel = class {
   }
   /**
    * Send voice response via WebSocket
-   *
-   * Uses ConversationRelay utility for message sending.
    */
   sendResponse(conversationId, message, metadata) {
     try {
-      let callSid;
-      for (const [cSid, cId] of this.callSidToConversationId.entries()) {
-        if (cId === conversationId) {
-          callSid = cSid;
-          break;
-        }
-      }
-      if (!callSid) {
-        throw new Error(`No CallSid found for conversation ${conversationId}`);
+      const ws = this.webSocketConnections.get(conversationId);
+      if (ws?.readyState !== WebSocket.OPEN) {
+        throw new Error(`No active WebSocket connection for conversation ${conversationId}`);
       }
       const response = {
         type: "text",
         token: message,
         last: true
       };
-      this.conversationRelay.sendMessage(callSid, response);
+      ws.send(JSON.stringify(response));
       return Promise.resolve();
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
@@ -3768,56 +3423,38 @@ var VoiceChannel = class {
    */
   async handleIncomingCall(options) {
     const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
+    const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
     const conversationClient = this.tac.getConversationClient();
-    if (conversationClient) {
-      const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
-      const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
-      const conversation = await conversationClient.createConversation(conversationName);
-      const conversationId = conversation.id;
-      this.logger.debug(
-        { conversation_id: conversationId, call_sid: callSid },
-        "Created Maestro conversation for voice call"
-      );
-      const customerParticipant = await conversationClient.addParticipant(
-        conversationId,
-        [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
-        "CUSTOMER"
-      );
-      const profileId = customerParticipant.profileId || "";
-      const customerParticipantId = customerParticipant.id;
-      const aiAgentParticipant = await conversationClient.addParticipant(
-        conversationId,
-        [{ channel: "VOICE", address: toNumber, channelId: callSid }],
-        "AI_AGENT"
-      );
-      const aiAgentParticipantId = aiAgentParticipant.id;
-      return this.connectConversationRelay(
-        conversationRelayConfig,
-        {
-          conversation_id: conversationId,
-          profile_id: profileId,
-          customer_participant_id: customerParticipantId,
-          ai_agent_participant_id: aiAgentParticipantId
-        },
-        actionUrl ? { actionUrl } : void 0
-      );
-    } else {
-      if (!callSid) {
-        throw new Error("CallSid is required for ConversationRelay-only mode");
-      }
-      this.logger.debug(
-        { call_sid: callSid },
-        "Using ConversationRelay-only mode (no Maestro conversation)"
-      );
-      return this.connectConversationRelay(
-        conversationRelayConfig,
-        {
-          conversation_id: callSid
-          // Use CallSid as session identifier
-        },
-        actionUrl ? { actionUrl } : void 0
-      );
-    }
+    const conversation = await conversationClient.createConversation(conversationName);
+    const conversationId = conversation.id;
+    this.logger.debug(
+      { conversation_id: conversationId, call_sid: callSid },
+      "Created conversation for voice call"
+    );
+    const customerParticipant = await conversationClient.addParticipant(
+      conversationId,
+      [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
+      "CUSTOMER"
+    );
+    const profileId = customerParticipant.profileId || "";
+    const customerParticipantId = customerParticipant.id;
+    const aiAgentParticipant = await conversationClient.addParticipant(
+      conversationId,
+      [{ channel: "VOICE", address: toNumber, channelId: callSid }],
+      "AI_AGENT"
+    );
+    const aiAgentParticipantId = aiAgentParticipant.id;
+    return this.connectConversationRelay(
+      conversationRelayConfig,
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        customer_participant_id: customerParticipantId,
+        ai_agent_participant_id: aiAgentParticipantId
+      },
+      actionUrl ? { actionUrl } : void 0
+    );
   }
   // =========================================================================
   // ConversationRelay Callback Handling
@@ -3855,12 +3492,8 @@ var VoiceChannel = class {
    * Close all conversations associated with a call
    */
   async closeConversationsForCall(callSid) {
-    const conversationClient = this.tac.getConversationClient();
-    if (!conversationClient) {
-      this.logger.debug({ call_sid: callSid }, "Skipping conversation cleanup (crelay mode)");
-      return;
-    }
     try {
+      const conversationClient = this.tac.getConversationClient();
       const conversations = await conversationClient.listConversations({ channelId: callSid });
       this.logger.info(
         { call_sid: callSid, count: conversations.length },
@@ -3884,6 +3517,54 @@ var VoiceChannel = class {
   // =========================================================================
   // Stream Task Management
   // =========================================================================
+  /**
+   * Start tracking a streaming task for a conversation
+   *
+   * @param conversationId - The conversation ID
+   * @returns AbortController for the task
+   */
+  startStreamTask(conversationId) {
+    this.cancelStreamTask(conversationId);
+    const controller = new AbortController();
+    this.streamTasks.set(conversationId, controller);
+    this.logger.debug({ conversation_id: conversationId }, "Started stream task");
+    return controller;
+  }
+  /**
+   * Cancel an active streaming task
+   *
+   * @param conversationId - The conversation ID
+   * @returns true if a task was cancelled, false otherwise
+   */
+  cancelStreamTask(conversationId) {
+    const controller = this.streamTasks.get(conversationId);
+    if (controller) {
+      controller.abort();
+      this.streamTasks.delete(conversationId);
+      this.logger.debug({ conversation_id: conversationId }, "Cancelled stream task");
+      return true;
+    }
+    return false;
+  }
+  /**
+   * Complete a streaming task (remove from tracking)
+   *
+   * @param conversationId - The conversation ID
+   */
+  completeStreamTask(conversationId) {
+    this.streamTasks.delete(conversationId);
+    this.logger.debug({ conversation_id: conversationId }, "Completed stream task");
+  }
+  /**
+   * Check if a stream task is active
+   *
+   * @param conversationId - The conversation ID
+   * @returns true if an active task exists
+   */
+  hasActiveStreamTask(conversationId) {
+    const controller = this.streamTasks.get(conversationId);
+    return controller !== void 0 && !controller.signal.aborted;
+  }
   // =========================================================================
   // ConversationRelay TwiML Generation
   // =========================================================================
@@ -3906,7 +3587,7 @@ var VoiceChannel = class {
     const validatedConfig = validationResult.data;
     const { languages, ...conversationRelayAttributes } = validatedConfig;
     const filteredConfig = this.filterUnsetValues(conversationRelayAttributes);
-    const response = new VoiceResponse2();
+    const response = new VoiceResponse();
     const connect = response.connect(options?.actionUrl ? { action: options.actionUrl } : {});
     const relay = connect.conversationRelay(filteredConfig);
     if (languages && languages.length > 0) {
@@ -3953,268 +3634,18 @@ var VoiceChannel = class {
   extractProfileId(_payload) {
     return null;
   }
-};
-var ConversationRelayChannel = class {
-  channelType = "voice";
-  tac;
-  config;
-  logger;
-  activeConversations;
-  callbacks;
-  conversationRelay;
-  callSidToSessionId;
-  promptQueues;
-  constructor(tac) {
-    this.tac = tac;
-    this.config = tac.getConfig();
-    this.logger = tac.logger.child({ component: "crelay-channel" });
-    this.activeConversations = /* @__PURE__ */ new Map();
-    this.callbacks = {};
-    this.callSidToSessionId = /* @__PURE__ */ new Map();
-    this.promptQueues = /* @__PURE__ */ new Map();
-    if (this.config.tacMode !== "crelay") {
-      throw new Error(
-        "ConversationRelayChannel requires TAC_MODE=crelay. Use VoiceChannel for TAC_MODE=conversation."
-      );
-    }
-    this.conversationRelay = new ConversationRelay(tac.logger.child({ component: "crelay" }));
-    this.conversationRelay.onSetup((callSid, data) => {
-      this.handleSetupFromRelay(callSid, data);
-    });
-    this.conversationRelay.onPrompt((callSid, data) => {
-      this.handlePromptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onInterrupt((callSid, data) => {
-      this.handleInterruptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onClose((callSid) => {
-      this.handleCloseFromRelay(callSid);
-    });
-    this.conversationRelay.onError((callSid, error) => {
-      this.handleError(error, { callSid });
-    });
-    this.logger.info("ConversationRelayChannel initialized (CR-only mode)");
-  }
-  // =========================================================================
-  // Setup/Prompt/Interrupt Handlers (from ConversationRelay)
-  // =========================================================================
-  handleSetupFromRelay(callSid, data) {
-    const sessionId = callSid;
-    this.callSidToSessionId.set(callSid, sessionId);
-    let profileId;
-    if (data.customParameters?.profile_id && typeof data.customParameters.profile_id === "string" && isProfileId(data.customParameters.profile_id)) {
-      profileId = data.customParameters.profile_id;
-    }
-    const session = {
-      sessionId,
-      profileId,
-      channel: this.channelType,
-      startedAt: /* @__PURE__ */ new Date(),
-      metadata: {}
-    };
-    this.startConversation(sessionId, session);
-    this.logger.info(
-      { call_sid: callSid, session_id: sessionId, profile_id: profileId },
-      "Setup complete for CR-only call"
-    );
-  }
-  handlePromptFromRelay(callSid, data) {
-    const sessionId = this.callSidToSessionId.get(callSid);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, "No session found for CallSid in prompt");
-      return;
-    }
-    this.handlePromptMessage(sessionId, data);
-  }
-  handleInterruptFromRelay(callSid, data) {
-    const sessionId = this.callSidToSessionId.get(callSid);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, "No session found for CallSid in interrupt");
-      return;
-    }
-    this.handleInterruptMessage(sessionId, data);
-  }
-  handleCloseFromRelay(callSid) {
-    const sessionId = this.callSidToSessionId.get(callSid);
-    if (!sessionId) {
-      this.logger.warn({ call_sid: callSid }, "No session found for CallSid in close");
-      return;
-    }
-    void this.endConversation(sessionId);
-    this.callSidToSessionId.delete(callSid);
-  }
-  // =========================================================================
-  // Message Handlers
-  // =========================================================================
-  handlePromptMessage(sessionId, message) {
-    const { voicePrompt } = message;
-    const existingQueue = this.promptQueues.get(sessionId);
-    const promptTask = async () => {
-      if (existingQueue) await existingQueue;
-      await this.processPrompt(sessionId, voicePrompt || "");
-    };
-    this.promptQueues.set(sessionId, promptTask());
-  }
-  async processPrompt(sessionId, transcript) {
-    const session = this.getConversationSession(sessionId);
-    if (!session) return;
-    this.callbacks.onPrompt?.({
-      conversationId: sessionId,
-      transcript,
-      session
-    });
-  }
-  handleInterruptMessage(sessionId, message) {
-    const { reason, transcript } = message;
-    this.callbacks.onInterrupt?.({
-      conversationId: sessionId,
-      reason: reason ?? "unknown",
-      transcript: transcript ?? void 0
-    });
-  }
-  // =========================================================================
-  // Channel Interface Implementation
-  // =========================================================================
-  async sendResponse(conversationId, message, _metadata) {
-    const callSid = conversationId;
-    const textMessage = {
-      type: "text",
-      token: message,
-      last: true
-    };
-    this.conversationRelay.sendMessage(callSid, textMessage);
-  }
-  on(event, callback) {
-    switch (event) {
-      case "prompt":
-        this.callbacks.onPrompt = callback;
-        break;
-      case "interrupt":
-        this.callbacks.onInterrupt = callback;
-        break;
-      case "conversationStarted":
-        this.callbacks.onConversationStarted = callback;
-        break;
-      case "conversationEnded":
-        this.callbacks.onConversationEnded = callback;
-        break;
-      case "error":
-        this.callbacks.onError = callback;
-        break;
-    }
-  }
-  getConversationSession(conversationId) {
-    return this.activeConversations.get(conversationId);
-  }
-  isConversationActive(conversationId) {
-    return this.activeConversations.has(conversationId);
-  }
-  shutdown() {
-    this.conversationRelay.shutdown();
-    this.callSidToSessionId.clear();
-    this.promptQueues.clear();
-    this.activeConversations.clear();
-    delete this.callbacks.onConversationStarted;
-    delete this.callbacks.onConversationEnded;
-    delete this.callbacks.onError;
-  }
-  // =========================================================================
-  // WebSocket Handling
-  // =========================================================================
-  handleWebSocketConnection(ws) {
-    this.conversationRelay.handleConnection(ws);
-  }
-  // =========================================================================
-  // TwiML Generation
-  // =========================================================================
-  async handleIncomingCall(options) {
-    const { callSid, conversationRelayConfig, actionUrl } = options;
-    if (!callSid) {
-      throw new Error("callSid is required for ConversationRelay-only mode");
-    }
-    this.logger.debug({ call_sid: callSid }, "Generating TwiML for CR-only call");
-    return this.connectConversationRelay(
-      conversationRelayConfig,
-      { conversation_id: callSid },
-      actionUrl ? { actionUrl } : void 0
-    );
-  }
-  // =========================================================================
-  // Session Management
-  // =========================================================================
-  startConversation(conversationId, session) {
-    this.activeConversations.set(conversationId, session);
-    this.callbacks.onConversationStarted?.({ session });
-    this.logger.debug({ session_id: session.sessionId }, "Conversation started");
-  }
-  async endConversation(conversationId) {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            "Error in conversation ended callback"
-          );
-        }
-      }
-      this.activeConversations.delete(conversationId);
-      this.logger.debug({ session_id: session.sessionId }, "Conversation ended");
-    }
-  }
-  handleError(error, context) {
-    this.logger.error({ err: error, ...context }, "Channel error");
-    if (this.callbacks.onError) {
-      if (context) {
-        this.callbacks.onError({ error, context });
-      } else {
-        this.callbacks.onError({ error });
-      }
-    }
-  }
-  // =========================================================================
-  // ConversationRelay TwiML Utility
-  // =========================================================================
-  connectConversationRelay(config, parameters, options) {
-    const validationResult = ConversationRelayConfigSchema.safeParse(config);
-    if (!validationResult.success) {
-      const errorMessage = validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ");
-      throw new Error(`Invalid ConversationRelay configuration: ${errorMessage}`);
-    }
-    const validatedConfig = validationResult.data;
-    const filteredConfig = this.filterUnsetValues(validatedConfig);
-    const response = new VoiceResponse2();
-    const connect = response.connect(options?.actionUrl ? { action: options.actionUrl } : {});
-    const relay = connect.conversationRelay(
-      filteredConfig
-    );
-    if (parameters) {
-      const paramResult = CustomParametersSchema.safeParse(parameters);
-      if (!paramResult.success) {
-        throw new Error(`Invalid custom parameters: ${paramResult.error.message}`);
-      }
-      for (const [name, value] of Object.entries(paramResult.data)) {
-        if (value !== void 0) {
-          relay.parameter({ name, value });
-        }
-      }
-    }
-    return response.toString();
-  }
   /**
-   * Filter out undefined values from configuration object.
-   * Keeps null, false, 0, and empty strings as they are valid values.
+   * Cleanup channel state on shutdown
+   *
+   * Note: WebSocket connections are managed by the server and closed there.
+   * This method only cleans up internal channel state.
    */
-  filterUnsetValues(config) {
-    const filtered = {};
-    for (const [key, value] of Object.entries(config)) {
-      if (value !== void 0) {
-        filtered[key] = value;
-      }
-    }
-    return filtered;
+  shutdown() {
+    this.streamTasks.clear();
+    this.webSocketConnections.clear();
+    this.callSidToConversationId.clear();
+    this.promptQueues.clear();
+    super.shutdown();
   }
 };
 var logger = createLogger({ name: "tac-flex" });
@@ -4228,7 +3659,7 @@ function handleFlexHandoffLogic(formData, flexWorkflowSid) {
       contentType: "text/plain"
     };
   }
-  const response = new VoiceResponse2();
+  const response = new VoiceResponse();
   const handoffDataRaw = formData["HandoffData"] || "";
   if (handoffDataRaw) {
     let handoffData;
@@ -4932,6 +4363,6 @@ var TACServer = class {
   }
 };
 
-export { AuthorInfoSchema, BuiltInTools, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelayAttributesSchema, ConversationRelayCallbackPayloadSchema, ConversationRelayChannel, ConversationRelayConfigSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, CustomParametersSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, HandoffDataSchema, IntelligenceConfigurationSchema, InterruptMessageSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, LanguageAttributesSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, PromptMessageSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, SetupMessageSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACModeSchema, TACParticipantTypeSchema, TACServer, TACTool, TextTokenMessageSchema, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, WebSocketMessageSchema, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId };
+export { AuthorInfoSchema, BaseChannel, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelayAttributesSchema, ConversationRelayCallbackPayloadSchema, ConversationRelayConfigSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, CustomParametersSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, HandoffDataSchema, IntelligenceConfigurationSchema, InterruptMessageSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, LanguageAttributesSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, PromptMessageSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, SetupMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, TextTokenMessageSchema, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, WebSocketMessageSchema, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map
