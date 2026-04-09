@@ -15,7 +15,6 @@ import {
   ConversationSession,
   TACMemoryResponse,
   ConversationId,
-  ProfileId,
   TACServer,
 } from 'twilio-agent-connect';
 // Load environment variables from parent directory
@@ -169,7 +168,7 @@ tac.onMessageReady(async msg => {
       channel: msg.channel,
       startedAt: msg.conversation?.startedAt ?? new Date(),
       metadata: {},
-      profileId: msg.conversation?.profileId as ProfileId | undefined,
+      profileId: msg.conversation?.profileId,
       serviceId: msg.conversation?.serviceId,
     };
     const memoryMessage = buildMemoryMessage(memory ?? null, memorySession);
