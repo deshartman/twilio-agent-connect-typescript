@@ -1058,7 +1058,7 @@ var ConversationClient = class {
   constructor(config, logger2) {
     if (!config.conversationServiceId) {
       throw new Error(
-        "ConversationClient requires CONVERSATION_SERVICE_ID to be configured. Ensure TAC_MODE=conversation and CONVERSATION_SERVICE_ID is set."
+        "ConversationClient requires CONVERSATION_SERVICE_ID to be configured. Ensure TAC_MODE is set to conversation or passive, and CONVERSATION_SERVICE_ID is set."
       );
     }
     this.baseUrl = config.conversationsApiUrl;
@@ -2378,13 +2378,15 @@ var MessagingChannel = class {
   /**
    * Get an active conversation session
    */
-  getConversationSession(conversationId) {
+  getConversationSession(sessionId) {
+    const conversationId = sessionId;
     return this.activeConversations.get(conversationId);
   }
   /**
    * Check if a conversation is active
    */
-  isConversationActive(conversationId) {
+  isConversationActive(sessionId) {
+    const conversationId = sessionId;
     return this.activeConversations.has(conversationId);
   }
   /**
@@ -2408,6 +2410,7 @@ var MessagingChannel = class {
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
   }
   /**
    * Register event callbacks (override for messaging-specific events)
@@ -2776,7 +2779,8 @@ var SMSChannel = class extends MessagingChannel {
   /**
    * Send SMS response using Conversation Orchestrator Send API
    */
-  async sendResponse(conversationId, message, metadata) {
+  async sendResponse(sessionId, message, metadata) {
+    const conversationId = sessionId;
     this.logger.debug(
       {
         conversation_id: conversationId,
@@ -2871,7 +2875,8 @@ var ChatChannel = class extends MessagingChannel {
   /**
    * Send chat response using Conversation Orchestrator Send API
    */
-  async sendResponse(conversationId, message, metadata) {
+  async sendResponse(sessionId, message, metadata) {
+    const conversationId = sessionId;
     this.logger.debug(
       {
         conversation_id: conversationId,
@@ -3489,7 +3494,7 @@ var VoiceChannel = class {
       conversation: session ? {
         profileId: session.profileId,
         memory: msg.memory,
-        author: session.authorInfo?.address ?? "user",
+        author: session.authorInfo?.address ?? "unknown",
         serviceId: session.serviceId,
         authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
         startedAt: session.startedAt
@@ -3629,7 +3634,8 @@ var VoiceChannel = class {
     }
     return null;
   }
-  sendResponse(conversationId, message, metadata) {
+  sendResponse(sessionId, message, metadata) {
+    const conversationId = sessionId;
     try {
       let callSid;
       for (const [cSid, cId] of this.callSidToConversationId.entries()) {
@@ -3669,10 +3675,12 @@ var VoiceChannel = class {
         break;
     }
   }
-  getConversationSession(conversationId) {
+  getConversationSession(sessionId) {
+    const conversationId = sessionId;
     return this.activeConversations.get(conversationId);
   }
-  isConversationActive(conversationId) {
+  isConversationActive(sessionId) {
+    const conversationId = sessionId;
     return this.activeConversations.has(conversationId);
   }
   shutdown() {
@@ -3682,6 +3690,7 @@ var VoiceChannel = class {
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
   }
   handleWebSocketConnection(ws) {
     this.crelayVoice.handleConnection(ws);
@@ -4011,7 +4020,8 @@ var VoiceWebhookChannel = class extends MessagingChannel {
    * The customer's own CR server is responsible for actual TTS playback.
    * channelId (CallSid) is required for VOICE participants.
    */
-  async sendResponse(conversationId, message, metadata) {
+  async sendResponse(sessionId, message, metadata) {
+    const conversationId = sessionId;
     this.logger.debug(
       {
         conversation_id: conversationId,

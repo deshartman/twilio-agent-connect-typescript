@@ -145,7 +145,7 @@ export class VoiceChannel implements Channel {
         ? {
             profileId: session.profileId,
             memory: msg.memory,
-            author: session.authorInfo?.address ?? 'user',
+            author: session.authorInfo?.address ?? 'unknown',
             serviceId: session.serviceId,
             authorInfo: session.authorInfo ? { address: session.authorInfo.address } : undefined,
             startedAt: session.startedAt,
@@ -392,6 +392,7 @@ export class VoiceChannel implements Channel {
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
   }
 
   public handleWebSocketConnection(ws: WebSocket): void {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   TAC,
   TACConfig,
@@ -52,13 +52,9 @@ describe('Memory Functionality', () => {
       const mockMemoryResponse: MemoryRetrievalResponse = {
         observations: [],
         summaries: [],
-        sessions: [],
         communications: [],
-        metadata: {
-          total_observations: 0,
-          total_summaries: 0,
-          total_sessions: 0,
-          query_timestamp: new Date().toISOString(),
+        meta: {
+          queryTime: 0,
         },
       };
 
@@ -92,20 +88,16 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const mockLookupResponse = {
-        normalized_value: '+13175556789',
+        normalizedValue: '+13175556789',
         profiles: ['mem_profile_00000000000000000000000001'],
       };
 
       const mockMemoryResponse: MemoryRetrievalResponse = {
         observations: [],
         summaries: [],
-        sessions: [],
         communications: [],
-        metadata: {
-          total_observations: 0,
-          total_summaries: 0,
-          total_sessions: 0,
-          query_timestamp: new Date().toISOString(),
+        meta: {
+          queryTime: 0,
         },
       };
 
@@ -154,7 +146,7 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const mockLookupResponse = {
-        normalized_value: '+13175556789',
+        normalizedValue: '+13175556789',
         profiles: [
           'mem_profile_00000000000000000000000001',
           'mem_profile_00000000000000000000000002',
@@ -165,13 +157,9 @@ describe('Memory Functionality', () => {
       const mockMemoryResponse: MemoryRetrievalResponse = {
         observations: [],
         summaries: [],
-        sessions: [],
         communications: [],
-        metadata: {
-          total_observations: 0,
-          total_summaries: 0,
-          total_sessions: 0,
-          query_timestamp: new Date().toISOString(),
+        meta: {
+          queryTime: 0,
         },
       };
 
@@ -240,7 +228,7 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const mockLookupResponse = {
-        normalized_value: '+13175556789',
+        normalizedValue: '+13175556789',
         profiles: [],
       };
 

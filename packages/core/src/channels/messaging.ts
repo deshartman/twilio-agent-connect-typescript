@@ -270,6 +270,7 @@ export abstract class MessagingChannel implements Channel {
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
   }
 
   /**

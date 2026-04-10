@@ -45,7 +45,7 @@ getting_started/  # Example apps (OpenAI integration)
 ## Key Architecture
 
 - **TAC class** (`packages/core/src/lib/tac.ts`): Central orchestrator managing config, channels, callbacks, and API clients
-- **Channel composition** (`packages/core/src/channels/`): Channels use composition (not inheritance from TAC). Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `logger` for CRelay
+- **Channel architecture** (`packages/core/src/channels/`): Channels use composition with TAC (not inheritance from TAC). Messaging channels (SMS, Chat, VoiceWebhook) inherit from `MessagingChannel` abstract base. Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `logger` for CRelay
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars; environment-aware API URL computation (dev/stage/prod)

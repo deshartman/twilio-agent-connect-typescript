@@ -3736,7 +3736,7 @@ declare abstract class MessagingChannel implements Channel {
     /**
      * Send a response back to the user (implemented by subclasses)
      */
-    abstract sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    abstract sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
     /**
      * Start a new conversation session
      */
@@ -3752,11 +3752,11 @@ declare abstract class MessagingChannel implements Channel {
     /**
      * Get an active conversation session
      */
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    getConversationSession(sessionId: SessionId): ConversationSession | undefined;
     /**
      * Check if a conversation is active
      */
-    isConversationActive(conversationId: ConversationId): boolean;
+    isConversationActive(sessionId: SessionId): boolean;
     /**
      * Handle errors with proper context
      */
@@ -3823,7 +3823,7 @@ declare class SMSChannel extends MessagingChannel {
     /**
      * Send SMS response using Conversation Orchestrator Send API
      */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
 }
 
 /**
@@ -3858,7 +3858,7 @@ declare class ChatChannel extends MessagingChannel {
     /**
      * Send chat response using Conversation Orchestrator Send API
      */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
 }
 
 /**
@@ -3903,10 +3903,10 @@ declare class VoiceChannel implements Channel {
     private handlePromptMessage;
     private handleWebSocketDisconnect;
     getWebsocket(conversationId: ConversationId): WebSocket | null;
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
     on(event: string, callback: (...args: any[]) => void): void;
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    isConversationActive(conversationId: ConversationId): boolean;
+    getConversationSession(sessionId: SessionId): ConversationSession | undefined;
+    isConversationActive(sessionId: SessionId): boolean;
     shutdown(): void;
     handleWebSocketConnection(ws: WebSocket): void;
     protected startConversation(conversationId: ConversationId, profileId?: ProfileId): ConversationSession;
@@ -4013,7 +4013,7 @@ declare class VoiceWebhookChannel extends MessagingChannel {
      * The customer's own CR server is responsible for actual TTS playback.
      * channelId (CallSid) is required for VOICE participants.
      */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    sendResponse(sessionId: SessionId, message: string, metadata?: Record<string, unknown>): Promise<void>;
 }
 
 /**
