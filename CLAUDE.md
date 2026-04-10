@@ -45,7 +45,12 @@ getting_started/  # Example apps (OpenAI integration)
 ## Key Architecture
 
 - **TAC class** (`packages/core/src/lib/tac.ts`): Central orchestrator managing config, channels, callbacks, and API clients
-- **Channel architecture** (`packages/core/src/channels/`): Channels use composition with TAC (not inheritance from TAC). Messaging channels (SMS, Chat, VoiceWebhook) inherit from `MessagingChannel` abstract base. Constructor takes `{ config, logger, conversationClient, memoryRetriever? }` or just `logger` for CRelay
+- **TAC composition** (`packages/core/src/lib/tac.ts`): Channels are composed into TAC (held by reference), not inherited from TAC. TAC stores channels in `Map<ChannelType, Channel>` and delegates to them
+- **Channel inheritance hierarchy** (`packages/core/src/channels/`):
+  - Messaging channels (`SMSChannel`, `ChatChannel`, `VoiceWebhookChannel`) extend abstract `MessagingChannel` base class for shared webhook handling logic
+  - Non-messaging channels (`CRelayChannel`, `VoiceChannel`) implement `Channel` interface directly
+  - All channels share same `channelType: 'voice'` for voice channels (differentiated by TAC mode: crelay/conversation/passive)
+- **Channel construction**: Maestro channels take `{ config, logger, conversationClient, memoryRetriever? }`, CRelayChannel takes `logger` only
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars; environment-aware API URL computation (dev/stage/prod)
