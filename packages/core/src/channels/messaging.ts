@@ -688,20 +688,34 @@ export abstract class MessagingChannel implements Channel {
    */
   protected extractProfileId(payload: unknown): ProfileId | null {
     const webhookData = payload as MessagingWebhookPayload;
+    const conversationId = webhookData.data?.conversationId;
     const profileId = webhookData.data?.profileId;
 
     if (profileId && isProfileId(profileId)) {
-      this.logger.debug(
-        { profile_id: profileId, conversation_id: webhookData.data?.conversationId },
-        'Extracted profile ID from webhook payload'
-      );
       return profileId;
     }
 
-    this.logger.debug(
-      { conversation_id: webhookData.data?.conversationId },
-      'Profile ID missing or invalid in webhook payload'
-    );
+    // Add explicit logging for observability (matching extractConversationId pattern)
+    if (profileId) {
+      this.logger.warn(
+        {
+          provided_id: profileId,
+          operation: 'extract_profile_id',
+          expected_pattern: '^mem_profile_[0-9a-z]{26}$',
+          conversation_id: conversationId,
+        },
+        'Invalid profile ID format in webhook payload'
+      );
+    } else {
+      this.logger.debug(
+        {
+          operation: 'extract_profile_id',
+          conversation_id: conversationId,
+        },
+        'Profile ID missing in webhook payload'
+      );
+    }
+
     return null;
   }
 

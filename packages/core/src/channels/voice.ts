@@ -405,7 +405,8 @@ export class VoiceChannel implements Channel {
 
   protected startConversation(
     conversationId: ConversationId,
-    profileId?: ProfileId
+    profileId?: ProfileId,
+    serviceId?: string
   ): ConversationSession {
     if (this.activeConversations.has(conversationId)) {
       this.logger.debug({ conversation_id: conversationId }, 'Conversation already active');
@@ -418,6 +419,7 @@ export class VoiceChannel implements Channel {
       startedAt: new Date(),
       metadata: {},
       profileId: profileId,
+      serviceId: serviceId,
     };
 
     this.activeConversations.set(conversationId, session);

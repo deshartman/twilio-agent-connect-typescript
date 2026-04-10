@@ -42,7 +42,7 @@ export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
  * @property score - Semantic similarity score (0-1, higher = more relevant)
  * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
  *
- * @see /Users/dhartman/Development/01_Twilio/docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json:1083
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json
  */
 export const KnowledgeChunkResultSchema = z.object({
   content: z.string().max(65536),

@@ -76,6 +76,8 @@ export type MemoryCommunicationContent = z.infer<typeof MemoryCommunicationConte
  * Memory API has different field requirements than Maestro:
  * - No `conversation_id`, `account_id`, or `content.type` fields
  * - Participants use `id`, `name`, `type`, `profile_id`
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 export const MemoryCommunicationSchema = z.object({
   id: z.string(),
@@ -163,12 +165,7 @@ export type MemoryRetrievalRequest = z.infer<typeof MemoryRetrievalRequestSchema
  *
  * Contains observations, summaries, and communications from Memory API.
  *
- * @remarks
- * **Core fields verified**: `observations` and `summaries` are documented in official Memory API docs.
- * **Schema verification needed**: The `meta` field (including `meta.queryTime`) is not documented
- * in official API documentation and should be verified with the Twilio API team.
- *
- * @see https://docs.twilio.com/docs/platform/conversation-memory/api-quickstart
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 export const MemoryRetrievalResponseSchema = z.object({
   observations: z.array(ObservationInfoSchema),
@@ -199,6 +196,8 @@ export type ProfileLookupResponse = z.infer<typeof ProfileLookupResponseSchema>;
 
 /**
  * Profile response with traits
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 export const ProfileResponseSchema = z.object({
   id: z.string(),

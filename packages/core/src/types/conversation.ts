@@ -84,6 +84,8 @@ export type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
  * Communication from Conversations Service API (Maestro).
  *
  * Note: `createdAt` is optional per API spec.
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 export const CommunicationSchema = z.object({
   id: z.string(),
@@ -227,6 +229,8 @@ export function isMemoryStoreId(value: string): value is MemoryStoreId {
 
 /**
  * Conversation response from Conversations Service API
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 export const ConversationResponseSchema = z.object({
   id: z.string(),
@@ -321,6 +325,8 @@ export type ConversationGroupingType = z.infer<typeof ConversationGroupingTypeSc
 
 /**
  * Configuration settings for a conversation
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 export const ConversationConfigurationSchema = z.object({
   id: z.string(),

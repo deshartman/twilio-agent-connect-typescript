@@ -416,7 +416,7 @@ describe('Memory Functionality', () => {
       // Result is wrapped in TACMemoryResponse
       expect(result).toBeInstanceOf(TACMemoryResponse);
       expect(result.communications).toHaveLength(5);
-      result.communications.forEach((comm, i) => {
+      result.communications.forEach((comm: MemoryCommunication, i: number) => {
         expect(comm.id).toBe(`comm_${i}`);
         expect(comm.content.text).toBe(`Message ${i}`);
       });
