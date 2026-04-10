@@ -600,10 +600,10 @@ var KnowledgeBaseSchema = z.object({
   version: z.number()
 });
 var KnowledgeChunkResultSchema = z.object({
-  content: z.string(),
-  knowledgeId: z.string(),
+  content: z.string().max(65536),
+  knowledgeId: z.string().regex(/^know_knowledge_[0-7][0-9a-z]{25}$/),
   createdAt: z.string(),
-  score: z.number().optional()
+  score: z.number()
 });
 var KnowledgeSearchResponseSchema = z.object({
   chunks: z.array(KnowledgeChunkResultSchema)
@@ -2732,6 +2732,21 @@ var MessagingChannel = class {
     if (conversationId && isConversationId(conversationId)) {
       return conversationId;
     }
+    if (conversationId) {
+      this.logger.warn(
+        {
+          provided_id: conversationId,
+          operation: "extract_conversation_id",
+          expected_pattern: "^conv_conversation_[0-9a-z]{26}$"
+        },
+        "Invalid conversation ID format in webhook payload"
+      );
+    } else {
+      this.logger.debug(
+        { operation: "extract_conversation_id" },
+        "Conversation ID missing in webhook payload"
+      );
+    }
     return null;
   }
   /**
@@ -2739,18 +2754,30 @@ var MessagingChannel = class {
    */
   extractProfileId(payload) {
     const webhookData = payload;
+    const conversationId = webhookData.data?.conversationId;
     const profileId = webhookData.data?.profileId;
     if (profileId && isProfileId(profileId)) {
-      this.logger.debug(
-        { profile_id: profileId, conversation_id: webhookData.data?.conversationId },
-        "Extracted profile ID from webhook payload"
-      );
       return profileId;
     }
-    this.logger.debug(
-      { conversation_id: webhookData.data?.conversationId },
-      "Profile ID missing or invalid in webhook payload"
-    );
+    if (profileId) {
+      this.logger.warn(
+        {
+          provided_id: profileId,
+          operation: "extract_profile_id",
+          expected_pattern: "^mem_profile_[0-9a-z]{26}$",
+          conversation_id: conversationId
+        },
+        "Invalid profile ID format in webhook payload"
+      );
+    } else {
+      this.logger.debug(
+        {
+          operation: "extract_profile_id",
+          conversation_id: conversationId
+        },
+        "Profile ID missing in webhook payload"
+      );
+    }
     return null;
   }
   /**
@@ -3698,7 +3725,7 @@ var VoiceChannel = class {
   // ===========================================================================
   // Session Management
   // ===========================================================================
-  startConversation(conversationId, profileId) {
+  startConversation(conversationId, profileId, serviceId) {
     if (this.activeConversations.has(conversationId)) {
       this.logger.debug({ conversation_id: conversationId }, "Conversation already active");
       return this.activeConversations.get(conversationId);
@@ -3708,7 +3735,8 @@ var VoiceChannel = class {
       channel: this.channelType,
       startedAt: /* @__PURE__ */ new Date(),
       metadata: {},
-      profileId
+      profileId,
+      serviceId
     };
     this.activeConversations.set(conversationId, session);
     this.logger.debug(

@@ -187,6 +187,8 @@ type MemoryCommunicationContent = z.infer<typeof MemoryCommunicationContentSchem
  * Memory API has different field requirements than Maestro:
  * - No `conversation_id`, `account_id`, or `content.type` fields
  * - Participants use `id`, `name`, `type`, `profile_id`
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 declare const MemoryCommunicationSchema: z.ZodObject<{
     id: z.ZodString;
@@ -470,6 +472,8 @@ type MemoryRetrievalRequest = z.infer<typeof MemoryRetrievalRequestSchema>;
  * Memory retrieval response from the Memory API /Recall endpoint.
  *
  * Contains observations, summaries, and communications from Memory API.
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 declare const MemoryRetrievalResponseSchema: z.ZodObject<{
     observations: z.ZodArray<z.ZodObject<{
@@ -750,6 +754,8 @@ declare const ProfileLookupResponseSchema: z.ZodObject<{
 type ProfileLookupResponse = z.infer<typeof ProfileLookupResponseSchema>;
 /**
  * Profile response with traits
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_memory_v1.json
  */
 declare const ProfileResponseSchema: z.ZodObject<{
     id: z.ZodString;
@@ -1742,6 +1748,8 @@ type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
  * Communication from Conversations Service API (Maestro).
  *
  * Note: `createdAt` is optional per API spec.
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 declare const CommunicationSchema: z.ZodObject<{
     id: z.ZodString;
@@ -2214,6 +2222,8 @@ declare function isParticipantId(value: string): value is ParticipantId;
 declare function isMemoryStoreId(value: string): value is MemoryStoreId;
 /**
  * Conversation response from Conversations Service API
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 declare const ConversationResponseSchema: z.ZodObject<{
     id: z.ZodString;
@@ -2414,6 +2424,8 @@ declare const ConversationGroupingTypeSchema: z.ZodEnum<["GROUP_BY_PARTICIPANT_A
 type ConversationGroupingType = z.infer<typeof ConversationGroupingTypeSchema>;
 /**
  * Configuration settings for a conversation
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
  */
 declare const ConversationConfigurationSchema: z.ZodObject<{
     id: z.ZodString;
@@ -3123,22 +3135,35 @@ declare const KnowledgeBaseSchema: z.ZodObject<{
 type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
 /**
  * Search result chunk (from POST search endpoint)
+ *
+ * Combines base KnowledgeChunk data with semantic similarity scoring for search results.
+ * The Knowledge API returns up to 20 chunks per search, ranked by relevance.
+ *
+ * @remarks
+ * **SCHEMA VERIFIED**: Matches official Knowledge API v2 OpenAPI specification.
+ *
+ * @property content - The chunk content (max 65,536 characters / ~64KB)
+ * @property createdAt - ISO 8601 date-time when the chunk was created
+ * @property score - Semantic similarity score (0-1, higher = more relevant)
+ * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json
  */
 declare const KnowledgeChunkResultSchema: z.ZodObject<{
     content: z.ZodString;
     knowledgeId: z.ZodString;
     createdAt: z.ZodString;
-    score: z.ZodOptional<z.ZodNumber>;
+    score: z.ZodNumber;
 }, "strip", z.ZodTypeAny, {
     content: string;
     createdAt: string;
     knowledgeId: string;
-    score?: number | undefined;
+    score: number;
 }, {
     content: string;
     createdAt: string;
     knowledgeId: string;
-    score?: number | undefined;
+    score: number;
 }>;
 type KnowledgeChunkResult = z.infer<typeof KnowledgeChunkResultSchema>;
 /**
@@ -3149,31 +3174,31 @@ declare const KnowledgeSearchResponseSchema: z.ZodObject<{
         content: z.ZodString;
         knowledgeId: z.ZodString;
         createdAt: z.ZodString;
-        score: z.ZodOptional<z.ZodNumber>;
+        score: z.ZodNumber;
     }, "strip", z.ZodTypeAny, {
         content: string;
         createdAt: string;
         knowledgeId: string;
-        score?: number | undefined;
+        score: number;
     }, {
         content: string;
         createdAt: string;
         knowledgeId: string;
-        score?: number | undefined;
+        score: number;
     }>, "many">;
 }, "strip", z.ZodTypeAny, {
     chunks: {
         content: string;
         createdAt: string;
         knowledgeId: string;
-        score?: number | undefined;
+        score: number;
     }[];
 }, {
     chunks: {
         content: string;
         createdAt: string;
         knowledgeId: string;
-        score?: number | undefined;
+        score: number;
     }[];
 }>;
 type KnowledgeSearchResponse = z.infer<typeof KnowledgeSearchResponseSchema>;
@@ -3658,6 +3683,18 @@ declare class TAC {
 /**
  * Messaging webhook event types from Twilio Conversations Service
  * Supports the v2 format for SMS and Chat channels
+ *
+ * @remarks
+ * **SCHEMA VERIFICATION NEEDED**: This webhook payload structure is inferred from
+ * internal usage patterns and observation of actual webhook events. The official
+ * Twilio Maestro Conversations documentation does not explicitly specify the complete
+ * webhook event schema. This should be verified with the Twilio API team to ensure
+ * it matches the actual webhook contract.
+ *
+ * Key event types used: CONVERSATION_CREATED, COMMUNICATION_CREATED, CONVERSATION_UPDATED,
+ * PARTICIPANT_ADDED, PARTICIPANT_REMOVED
+ *
+ * @see https://docs.twilio.com/docs/platform/tac/core-concepts (general TAC docs)
  */
 interface MessagingWebhookPayload {
     eventType: string;
@@ -3910,7 +3947,7 @@ declare class VoiceChannel implements Channel {
     isConversationActive(sessionId: SessionId): boolean;
     shutdown(): void;
     handleWebSocketConnection(ws: WebSocket): void;
-    protected startConversation(conversationId: ConversationId, profileId?: ProfileId): ConversationSession;
+    protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
     protected endConversation(conversationId: ConversationId): Promise<void>;
     protected handleError(error: Error, context?: Record<string, unknown>): void;
     handleIncomingCall(options: {
