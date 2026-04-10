@@ -25,6 +25,7 @@ import {
   type ProfileId,
   type ChannelMessage,
   type MemoryRetriever,
+  type SessionId,
   isConversationId,
   isProfileId,
   type Channel,
@@ -325,10 +326,12 @@ export class VoiceChannel implements Channel {
   }
 
   public sendResponse(
-    conversationId: ConversationId,
+    sessionId: SessionId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void> {
+    const conversationId = sessionId as ConversationId;
+
     try {
       let callSid: string | undefined;
       for (const [cSid, cId] of this.callSidToConversationId.entries()) {
@@ -372,11 +375,13 @@ export class VoiceChannel implements Channel {
     }
   }
 
-  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
+  public getConversationSession(sessionId: SessionId): ConversationSession | undefined {
+    const conversationId = sessionId as ConversationId;
     return this.activeConversations.get(conversationId);
   }
 
-  public isConversationActive(conversationId: ConversationId): boolean {
+  public isConversationActive(sessionId: SessionId): boolean {
+    const conversationId = sessionId as ConversationId;
     return this.activeConversations.has(conversationId);
   }
 

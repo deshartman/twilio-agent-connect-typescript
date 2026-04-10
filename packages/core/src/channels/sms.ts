@@ -1,4 +1,4 @@
-import { ChannelType, ConversationId } from '../types/index';
+import { ChannelType, ConversationId, SessionId } from '../types/index';
 import { MessagingChannel } from './messaging';
 
 /**
@@ -23,10 +23,12 @@ export class SMSChannel extends MessagingChannel {
    * Send SMS response using Conversation Orchestrator Send API
    */
   public async sendResponse(
-    conversationId: ConversationId,
+    sessionId: SessionId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void> {
+    const conversationId = sessionId as ConversationId;
+
     this.logger.debug(
       {
         conversation_id: conversationId,

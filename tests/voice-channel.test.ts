@@ -8,6 +8,7 @@ import {
   createLogger,
   ConversationClient,
   ConversationId,
+  SessionId,
 } from '@twilio/tac-core';
 
 describe('VoiceChannel', () => {
@@ -52,8 +53,7 @@ describe('VoiceChannel', () => {
   describe('isConversationActive()', () => {
     it('should return false for unknown conversation', () => {
       const { channel } = createVoiceChannel();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const isActive = channel.isConversationActive('CA_unknown' as any);
+      const isActive = channel.isConversationActive('CA_unknown' as SessionId);
       expect(isActive).toBe(false);
     });
   });
@@ -393,9 +393,9 @@ describe('VoiceChannel', () => {
     it('should throw error when ConversationId not found', () => {
       const { channel } = createVoiceChannel();
 
-      // Channel interface: only knows about ConversationId
+      // Channel interface: accepts SessionId (ConversationId | CallSid)
       expect(() => {
-        channel.sendResponse('conv_conversation_01nonexistent' as ConversationId, 'Test message');
+        channel.sendResponse('conv_conversation_01nonexistent' as SessionId, 'Test message');
       }).toThrow('No CallSid found for conversation');
     });
   });
