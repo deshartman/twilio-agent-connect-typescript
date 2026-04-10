@@ -89,7 +89,7 @@ describe('Knowledge Tools', () => {
       const mockChunks: KnowledgeChunkResult[] = [
         {
           content: 'Test content',
-          knowledgeId: 'know_01abc',
+          knowledgeId: 'know_knowledge_01abc000000000000000000000',
           createdAt: '2024-01-01T00:00:00Z',
           score: 0.9,
         },

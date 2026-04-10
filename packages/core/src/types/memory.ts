@@ -162,6 +162,13 @@ export type MemoryRetrievalRequest = z.infer<typeof MemoryRetrievalRequestSchema
  * Memory retrieval response from the Memory API /Recall endpoint.
  *
  * Contains observations, summaries, and communications from Memory API.
+ *
+ * @remarks
+ * **Core fields verified**: `observations` and `summaries` are documented in official Memory API docs.
+ * **Schema verification needed**: The `meta` field (including `meta.queryTime`) is not documented
+ * in official API documentation and should be verified with the Twilio API team.
+ *
+ * @see https://docs.twilio.com/docs/platform/conversation-memory/api-quickstart
  */
 export const MemoryRetrievalResponseSchema = z.object({
   observations: z.array(ObservationInfoSchema),

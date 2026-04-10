@@ -19,6 +19,18 @@ import { TACMemoryResponse } from '../lib/tac-memory-response';
 /**
  * Messaging webhook event types from Twilio Conversations Service
  * Supports the v2 format for SMS and Chat channels
+ *
+ * @remarks
+ * **SCHEMA VERIFICATION NEEDED**: This webhook payload structure is inferred from
+ * internal usage patterns and observation of actual webhook events. The official
+ * Twilio Maestro Conversations documentation does not explicitly specify the complete
+ * webhook event schema. This should be verified with the Twilio API team to ensure
+ * it matches the actual webhook contract.
+ *
+ * Key event types used: CONVERSATION_CREATED, COMMUNICATION_CREATED, CONVERSATION_UPDATED,
+ * PARTICIPANT_ADDED, PARTICIPANT_REMOVED
+ *
+ * @see https://docs.twilio.com/docs/platform/tac/core-concepts (general TAC docs)
  */
 export interface MessagingWebhookPayload {
   eventType: string;
@@ -649,6 +661,23 @@ export abstract class MessagingChannel implements Channel {
 
     if (conversationId && isConversationId(conversationId)) {
       return conversationId;
+    }
+
+    // Add explicit logging for observability
+    if (conversationId) {
+      this.logger.warn(
+        {
+          provided_id: conversationId,
+          operation: 'extract_conversation_id',
+          expected_pattern: '^conv_conversation_[0-9a-z]{26}$',
+        },
+        'Invalid conversation ID format in webhook payload'
+      );
+    } else {
+      this.logger.debug(
+        { operation: 'extract_conversation_id' },
+        'Conversation ID missing in webhook payload'
+      );
     }
 
     return null;

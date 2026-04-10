@@ -111,13 +111,13 @@ describe('KnowledgeClient', () => {
       const mockChunks: KnowledgeChunkResult[] = [
         {
           content: 'Our product supports multiple languages including English and Spanish.',
-          knowledgeId: 'know_01abc123',
+          knowledgeId: 'know_knowledge_01abc123000000000000000000',
           createdAt: '2024-01-10T00:00:00Z',
           score: 0.95,
         },
         {
           content: 'You can change the language in the settings menu.',
-          knowledgeId: 'know_01def456',
+          knowledgeId: 'know_knowledge_01def456000000000000000000',
           createdAt: '2024-01-11T00:00:00Z',
           score: 0.85,
         },
@@ -210,7 +210,7 @@ describe('KnowledgeClient', () => {
         'know_knowledgebase_01abc123def456ghi789jkl0',
         'test query',
         5,
-        ['know_01abc', 'know_02def']
+        ['know_knowledge_01abc000000000000000000000', 'know_knowledge_02def000000000000000000000']
       );
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -219,7 +219,7 @@ describe('KnowledgeClient', () => {
           body: JSON.stringify({
             query: 'test query',
             top: 5,
-            knowledgeIds: ['know_01abc', 'know_02def'],
+            knowledgeIds: ['know_knowledge_01abc000000000000000000000', 'know_knowledge_02def000000000000000000000'],
           }),
         })
       );

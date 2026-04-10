@@ -30,12 +30,25 @@ export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
 
 /**
  * Search result chunk (from POST search endpoint)
+ *
+ * Combines base KnowledgeChunk data with semantic similarity scoring for search results.
+ * The Knowledge API returns up to 20 chunks per search, ranked by relevance.
+ *
+ * @remarks
+ * **SCHEMA VERIFIED**: Matches official Knowledge API v2 OpenAPI specification.
+ *
+ * @property content - The chunk content (max 65,536 characters / ~64KB)
+ * @property createdAt - ISO 8601 date-time when the chunk was created
+ * @property score - Semantic similarity score (0-1, higher = more relevant)
+ * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
+ *
+ * @see /Users/dhartman/Development/01_Twilio/docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json:1083
  */
 export const KnowledgeChunkResultSchema = z.object({
-  content: z.string(),
-  knowledgeId: z.string(),
+  content: z.string().max(65536),
+  knowledgeId: z.string().regex(/^know_knowledge_[0-7][0-9a-z]{25}$/),
   createdAt: z.string(),
-  score: z.number().optional(),
+  score: z.number(),
 });
 
 export type KnowledgeChunkResult = z.infer<typeof KnowledgeChunkResultSchema>;
