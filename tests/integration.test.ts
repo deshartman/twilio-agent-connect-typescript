@@ -28,15 +28,15 @@ describe('Integration Tests', () => {
         const participantResponse = {
           participants: [
             {
-              id: 'PA111',
-              conversationId: 'conv_conversation_01test1234567890abc',
+              id: 'conv_participant_01pa111456789012345',
+              conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
               accountId: 'ACtest123456789',
               type: 'HUMAN_AGENT',
               addresses: [{ channel: 'SMS', address: '+15551234567' }],
             },
             {
               id: 'PA222',
-              conversationId: 'conv_conversation_01test1234567890abc',
+              conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
               accountId: 'ACtest123456789',
               type: 'CUSTOMER',
               addresses: [{ channel: 'SMS', address: '+15559876543' }],
@@ -53,7 +53,7 @@ describe('Integration Tests', () => {
       // Mock sendCommunication call (returns 202 Accepted)
       const sendResponse = {
         message: 'Conversation setup complete',
-        conversationId: 'conv_conversation_01test1234567890abc',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         channelId: 'SM123abc',
       };
 
@@ -92,7 +92,7 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           profileId: 'profile_123',
         },
       });
@@ -101,7 +101,7 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           content: {
             type: 'TEXT',
             text: 'Hello TAC',
@@ -118,7 +118,7 @@ describe('Integration Tests', () => {
 
       // Verify callback was invoked with correct context
       expect(capturedContext).not.toBeNull();
-      expect(capturedContext.sessionId).toBe('conv_conversation_01test1234567890abc');
+      expect(capturedContext.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(capturedContext.message).toBe('Hello TAC');
       expect(capturedContext.author).toBe('+15559876543');
       expect(capturedContext.session).toBeDefined();
@@ -134,9 +134,9 @@ describe('Integration Tests', () => {
 
       // Start multiple conversations
       const conversations = [
-        'conv_conversation_01test1',
-        'conv_conversation_01test2',
-        'conv_conversation_01test3',
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
       ];
 
       for (const convId of conversations) {
@@ -165,9 +165,9 @@ describe('Integration Tests', () => {
 
       // Verify all conversations were processed
       expect(capturedMessages).toHaveLength(3);
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01test1');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01test2');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01test3');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
     });
 
     it('should filter out empty messages', async () => {
@@ -181,7 +181,7 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           content: {
             type: 'TEXT',
             text: 'Valid message',
@@ -197,7 +197,7 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           content: {
             type: 'TEXT',
             text: '',
@@ -212,7 +212,7 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           content: {
             type: 'TEXT',
             text: '   ', // Whitespace only
@@ -234,22 +234,22 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         },
       });
 
-      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
       // End conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           status: 'CLOSED',
         },
       });
 
-      expect(channel.isConversationActive('conv_conversation_01test1234567890abc')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
     });
   });
 
@@ -265,7 +265,7 @@ describe('Integration Tests', () => {
         channel.processWebhook({
           eventType: 'COMMUNICATION_CREATED',
           data: {
-            conversationId: 'conv_conversation_01test1234567890abc',
+            conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
             content: {
               type: 'TEXT',
               text: 'Test message',
@@ -292,13 +292,13 @@ describe('Integration Tests', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01test1234567890abc',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         },
       });
 
       // Trigger handoff
       await tac.triggerHandoff(
-        'conv_conversation_01test1234567890abc',
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
         'User requested human agent'
       );
 

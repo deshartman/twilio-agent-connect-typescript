@@ -206,18 +206,19 @@ export type ParticipantId = string & { readonly _brand: 'ParticipantId' };
 export type MemoryStoreId = string & { readonly _brand: 'MemoryStoreId' };
 
 /**
- * Type guards for branded types
+ * Type guards for branded types with format validation
+ * All Twilio Type IDs (TTID) follow: prefix + 26 character ULID ([0-9a-z]{26})
  */
 export function isConversationId(value: string): value is ConversationId {
-  return value.length > 0;
+  return /^conv_conversation_[0-9a-z]{26}$/.test(value);
 }
 
 export function isProfileId(value: string): value is ProfileId {
-  return value.length > 0;
+  return /^mem_profile_[0-9a-z]{26}$/.test(value);
 }
 
 export function isParticipantId(value: string): value is ParticipantId {
-  return value.length > 0;
+  return /^conv_participant_[0-9a-z]{26}$/.test(value);
 }
 
 export function isMemoryStoreId(value: string): value is MemoryStoreId {

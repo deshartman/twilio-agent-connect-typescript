@@ -5,7 +5,7 @@ import { ToolFunction, JSONSchema } from '@twilio/tac-core';
  *
  * Matches Python's TACTool dataclass with conversion methods.
  */
-export class TACTool<TParams = any, TResult = any> {
+export class TACTool<TParams = unknown, TResult = unknown> {
   constructor(
     public readonly name: string,
     public readonly description: string,
@@ -52,7 +52,7 @@ export class TACTool<TParams = any, TResult = any> {
  * Simplified approach matching Python's create_tool function.
  * No builder pattern - just a simple function call.
  */
-export function defineTool<TParams = any, TResult = any>(
+export function defineTool<TParams = unknown, TResult = unknown>(
   name: string,
   description: string,
   parameters: JSONSchema,

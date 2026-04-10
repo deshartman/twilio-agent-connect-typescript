@@ -65,8 +65,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     callStatus: 'ringing',
     accountSid: 'ACtest123',
     customParameters: {
-      conversation_id: 'conv_conversation_01chtest',
-      profile_id: 'mem_profile_test',
+      conversation_id: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+      profile_id: 'mem_profile_01ktestghijklmnopqrstuvwxy',
     },
   });
 
@@ -132,8 +132,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify memoryRetriever was called with the session and transcript
       expect(memoryRetriever).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01chtest',
-          profileId: 'mem_profile_test',
+          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
         }),
         'Hello, I need help with my order'
       );
@@ -141,13 +141,13 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify the ChannelMessage includes memory in conversation bundle
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01chtest');
+      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.messageType).toBe('user');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.channel).toBe('voice');
       expect(msg.metadata).toEqual({ type: 'prompt', lang: 'en-US', last: false });
       expect(msg.conversation).toBeDefined();
-      expect(msg.conversation?.profileId).toBe('mem_profile_test');
+      expect(msg.conversation?.profileId).toBe('mem_profile_01ktestghijklmnopqrstuvwxy');
       expect(msg.conversation?.memory).toBe(mockMemory);
       expect(msg.conversation?.author).toBe('+15551234567');
       expect(msg.conversation?.startedAt).toBeInstanceOf(Date);
@@ -182,7 +182,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify ChannelMessage emitted without memory
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01chtest');
+      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.messageType).toBe('user');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.conversation).toBeDefined();
@@ -220,7 +220,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Callback should still be invoked without memory
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01chtest');
+      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.conversation?.memory).toBeUndefined();
     });
@@ -257,13 +257,13 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01chtest',
+          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',
           metadata: { type: 'prompt', lang: 'en-US', last: false },
           conversation: expect.objectContaining({
-            profileId: 'mem_profile_test',
+            profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
             memory: mockMemory,
             author: '+15551234567',
             startedAt: expect.any(Date),
@@ -346,12 +346,12 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(captured).toHaveLength(1);
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01chtest',
+          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',
           conversation: expect.objectContaining({
-            profileId: 'mem_profile_test',
+            profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
             memory: mockMemory,
             author: '+15551234567',
           }),
@@ -389,7 +389,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(captured).toHaveLength(1);
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01chtest',
+          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',

@@ -190,8 +190,8 @@ describe('VoiceChannel', () => {
       callStatus: 'ringing',
       accountSid: 'ACtest123',
       customParameters: {
-        conversation_id: 'conv_conversation_01callback123test',
-        profile_id: 'mem_profile_cb_test',
+        conversation_id: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        profile_id: 'mem_profile_01ktestghijklmnopqrstuvwxy',
       },
     });
 
@@ -213,13 +213,13 @@ describe('VoiceChannel', () => {
       channel.handleWebSocketConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
       mockWs._emit('close');
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01callback123test');
+      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(captured[0].channel).toBe('voice');
     });
 
@@ -239,13 +239,13 @@ describe('VoiceChannel', () => {
       const mockWs = createMockWebSocket();
       channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
       mockWs._emit('close');
       await ended;
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
     });
 
     it('should support async callback', async () => {
@@ -270,7 +270,7 @@ describe('VoiceChannel', () => {
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01callback123test');
+      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
     });
 
     it('should clean up silently when no callback is registered', async () => {
@@ -279,12 +279,12 @@ describe('VoiceChannel', () => {
       const mockWs = createMockWebSocket();
       channel.handleWebSocketConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
-      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(true);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
       mockWs._emit('close');
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(channel.isConversationActive('conv_conversation_01callback123test')).toBe(false);
+      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
     });
   });
 
@@ -368,7 +368,7 @@ describe('VoiceChannel', () => {
     it('should close conversations on call completion', async () => {
       const { channel, conversationClient } = createVoiceChannel();
 
-      const mockConversation = { id: 'conv_conversation_01testconv' };
+      const mockConversation = { id: 'conv_conversation_01ktestabcdefghijklmnopqrs' };
       const listSpy = vi
         .spyOn(conversationClient, 'listConversations')
         .mockResolvedValue([mockConversation] as any);
@@ -385,7 +385,7 @@ describe('VoiceChannel', () => {
       });
 
       expect(listSpy).toHaveBeenCalledWith({ channelId: 'CA123' });
-      expect(updateSpy).toHaveBeenCalledWith('conv_conversation_01testconv', 'CLOSED');
+      expect(updateSpy).toHaveBeenCalledWith('conv_conversation_01ktestabcdefghijklmnopqrs', 'CLOSED');
     });
   });
 
@@ -395,7 +395,7 @@ describe('VoiceChannel', () => {
 
       // Channel interface: accepts SessionId (ConversationId | CallSid)
       expect(() => {
-        channel.sendResponse('conv_conversation_01nonexistent' as SessionId, 'Test message');
+        channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs' as SessionId, 'Test message');
       }).toThrow('No CallSid found for conversation');
     });
   });

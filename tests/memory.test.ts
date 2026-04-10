@@ -65,7 +65,7 @@ describe('Memory Functionality', () => {
 
       const session: ConversationSession = {
         conversationId: 'conv_test_123',
-        profileId: 'mem_profile_existing',
+        profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
         channel: 'sms',
         startedAt: new Date(),
       };
@@ -78,7 +78,7 @@ describe('Memory Functionality', () => {
       expect(result.rawData).toEqual(mockMemoryResponse);
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
         'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-        'mem_profile_existing',
+        'mem_profile_01ktestghijklmnopqrstuvwxy',
         { query: 'test query' }
       );
     });
@@ -89,7 +89,7 @@ describe('Memory Functionality', () => {
 
       const mockLookupResponse = {
         normalizedValue: '+13175556789',
-        profiles: ['mem_profile_00000000000000000000000001'],
+        profiles: ['mem_profile_01ktestghijklmnopqrstuvwxy'],
       };
 
       const mockMemoryResponse: MemoryRetrievalResponse = {
@@ -113,7 +113,7 @@ describe('Memory Functionality', () => {
         startedAt: new Date(),
         authorInfo: {
           address: '+1 (317) 555-6789',
-          participantId: 'participant_123',
+          participantId: 'conv_participant_01partic12345678901',
         },
       };
 
@@ -127,12 +127,12 @@ describe('Memory Functionality', () => {
       );
 
       // Verify profile_id was assigned
-      expect(session.profileId).toBe('mem_profile_00000000000000000000000001');
+      expect(session.profileId).toBe('mem_profile_01ktestghijklmnopqrstuvwxy');
 
       // Verify memory was retrieved with the looked up profile_id
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
         'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-        'mem_profile_00000000000000000000000001',
+        'mem_profile_01ktestghijklmnopqrstuvwxy',
         { query: 'test query' }
       );
 
@@ -148,9 +148,9 @@ describe('Memory Functionality', () => {
       const mockLookupResponse = {
         normalizedValue: '+13175556789',
         profiles: [
-          'mem_profile_00000000000000000000000001',
-          'mem_profile_00000000000000000000000002',
-          'mem_profile_00000000000000000000000003',
+          'mem_profile_01ktestghijklmnopqrstuvwxy',
+          'mem_profile_01ktestghijklmnopqrstuvwxy',
+          'mem_profile_01ktestghijklmnopqrstuvwxy',
         ],
       };
 
@@ -178,10 +178,10 @@ describe('Memory Functionality', () => {
       await tac.retrieveMemory(session);
 
       // Verify first profile was used
-      expect(session.profileId).toBe('mem_profile_00000000000000000000000001');
+      expect(session.profileId).toBe('mem_profile_01ktestghijklmnopqrstuvwxy');
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
         'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-        'mem_profile_00000000000000000000000001',
+        'mem_profile_01ktestghijklmnopqrstuvwxy',
         { query: undefined }
       );
     });
@@ -214,7 +214,7 @@ describe('Memory Functionality', () => {
         startedAt: new Date(),
         authorInfo: {
           address: '',
-          participantId: 'participant_123',
+          participantId: 'conv_participant_01partic12345678901',
         },
       };
 
@@ -277,12 +277,12 @@ describe('Memory Functionality', () => {
       const mockCommunications: Communication[] = [
         {
           id: 'comm_123',
-          conversationId: 'conv_conversation_01short123',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           accountId: 'AC123456',
           author: {
             address: '+12025551234',
             channel: 'SMS',
-            participantId: 'part_123',
+            participantId: 'conv_participant_01part12345678901234',
           },
           content: {
             type: 'TEXT',
@@ -292,7 +292,7 @@ describe('Memory Functionality', () => {
             {
               address: '+12025555678',
               channel: 'SMS',
-              participantId: 'part_456',
+              participantId: 'conv_participant_01part45678901234567',
             },
           ],
           createdAt: '2019-08-24T14:15:22Z',
@@ -304,7 +304,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01short123',
+        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -314,7 +314,7 @@ describe('Memory Functionality', () => {
 
       // Verify fallback was called
       expect(conversationClient.listCommunications).toHaveBeenCalledWith(
-        'conv_conversation_01short123'
+        'conv_conversation_01ktestabcdefghijklmnopqrs'
       );
 
       // Result is wrapped in TACMemoryResponse
@@ -338,7 +338,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue([]);
 
       const session: ConversationSession = {
-        conversationId: 'conv_conversation_01short123',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -364,7 +364,7 @@ describe('Memory Functionality', () => {
       );
 
       const session: ConversationSession = {
-        conversationId: 'conv_conversation_01short123',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -379,12 +379,12 @@ describe('Memory Functionality', () => {
 
       const mockCommunications: Communication[] = Array.from({ length: 5 }, (_, i) => ({
         id: `comm_${i}`,
-        conversationId: 'conv_conversation_01short123',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         accountId: 'AC123456',
         author: {
           address: '+12025551234',
           channel: 'SMS' as const,
-          participantId: 'part_123',
+          participantId: 'conv_participant_01part12345678901234',
         },
         content: {
           type: 'TEXT' as const,
@@ -394,7 +394,7 @@ describe('Memory Functionality', () => {
           {
             address: '+12025555678',
             channel: 'SMS' as const,
-            participantId: 'part_456',
+            participantId: 'conv_participant_01part45678901234567',
           },
         ],
         createdAt: '2019-08-24T14:15:22Z',
@@ -405,7 +405,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        conversationId: 'conv_conversation_01short123',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -536,13 +536,13 @@ describe('Memory Functionality', () => {
           id: 'comm_789',
           conversationId: 'CONV123',
           accountId: 'AC456',
-          author: { address: '+15551234567', channel: 'SMS', participantId: 'part_customer' },
+          author: { address: '+15551234567', channel: 'SMS', participantId: 'conv_participant_01customer12345678' },
           content: { type: 'TEXT', text: 'Hello from Maestro' },
           recipients: [
             {
               address: '+15559876543',
               channel: 'SMS',
-              participantId: 'part_agent',
+              participantId: 'conv_participant_01agent123456789012',
               deliveryStatus: 'DELIVERED',
             },
           ],
@@ -555,7 +555,7 @@ describe('Memory Functionality', () => {
       // Maestro-only fields populated
       expect(comm.conversationId).toBe('CONV123');
       expect(comm.accountId).toBe('AC456');
-      expect(comm.author.participantId).toBe('part_customer');
+      expect(comm.author.participantId).toBe('conv_participant_01customer12345678');
       expect(comm.content.type).toBe('TEXT');
       expect(comm.recipients[0].deliveryStatus).toBe('DELIVERED');
 
@@ -572,7 +572,7 @@ describe('Memory Functionality', () => {
           id: 'comm_voice',
           conversationId: 'CONV_VOICE',
           accountId: 'AC_VOICE',
-          author: { address: '+15551234567', channel: 'VOICE', participantId: 'part_voice' },
+          author: { address: '+15551234567', channel: 'VOICE', participantId: 'conv_participant_01voice123456789012' },
           content: {
             type: 'TRANSCRIPTION',
             text: 'Hello, I need help',
@@ -590,7 +590,7 @@ describe('Memory Functionality', () => {
               ],
             },
           },
-          recipients: [{ address: '+15559876543', channel: 'VOICE', participantId: 'part_agent' }],
+          recipients: [{ address: '+15559876543', channel: 'VOICE', participantId: 'conv_participant_01agent123456789012' }],
         },
       ]);
 

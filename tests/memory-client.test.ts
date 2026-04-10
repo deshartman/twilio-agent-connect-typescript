@@ -53,7 +53,7 @@ describe('MemoryClient', () => {
     it('should lookup profile successfully', async () => {
       const mockResponse: ProfileLookupResponse = {
         normalizedValue: '+13175556789',
-        profiles: ['mem_profile_00000000000000000000000001'],
+        profiles: ['mem_profile_01ktestghijklmnopqrstuvwxy'],
       };
 
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));

@@ -356,7 +356,7 @@ describe('TACServer idempotency token', () => {
       },
       body: JSON.stringify({
         eventType: 'COMMUNICATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test1234567890abc' },
+        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
       }),
     });
 
@@ -386,7 +386,7 @@ describe('TACServer idempotency token', () => {
       },
       body: JSON.stringify({
         eventType: 'COMMUNICATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test1234567890abc' },
+        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
       }),
     });
 
@@ -825,7 +825,7 @@ describe('TACServer conversation mode routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test' },
+        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
       }),
     });
     expect(response.status).not.toBe(404);
@@ -908,7 +908,7 @@ describe('TACServer passive mode routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01test' },
+        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
       }),
     });
     expect(response.status).not.toBe(404);

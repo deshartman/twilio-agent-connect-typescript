@@ -161,13 +161,13 @@ var ConversationSessionSchema = z.object({
   profile: z.custom().optional()
 });
 function isConversationId(value) {
-  return value.length > 0;
+  return /^conv_conversation_[0-9a-z]{26}$/.test(value);
 }
 function isProfileId(value) {
-  return value.length > 0;
+  return /^mem_profile_[0-9a-z]{26}$/.test(value);
 }
 function isParticipantId(value) {
-  return value.length > 0;
+  return /^conv_participant_[0-9a-z]{26}$/.test(value);
 }
 function isMemoryStoreId(value) {
   return /^mem_store_[0-9a-z]{26}$/.test(value);

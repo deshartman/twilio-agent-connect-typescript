@@ -2205,7 +2205,8 @@ type MemoryStoreId = string & {
     readonly _brand: 'MemoryStoreId';
 };
 /**
- * Type guards for branded types
+ * Type guards for branded types with format validation
+ * All Twilio Type IDs (TTID) follow: prefix + 26 character ULID ([0-9a-z]{26})
  */
 declare function isConversationId(value: string): value is ConversationId;
 declare function isProfileId(value: string): value is ProfileId;
@@ -4073,7 +4074,7 @@ declare class OperatorResultProcessor {
  *
  * Matches Python's TACTool dataclass with conversion methods.
  */
-declare class TACTool<TParams = any, TResult = any> {
+declare class TACTool<TParams = unknown, TResult = unknown> {
     readonly name: string;
     readonly description: string;
     readonly parameters: JSONSchema;
@@ -4098,7 +4099,7 @@ declare class TACTool<TParams = any, TResult = any> {
  * Simplified approach matching Python's create_tool function.
  * No builder pattern - just a simple function call.
  */
-declare function defineTool<TParams = any, TResult = any>(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>): TACTool<TParams, TResult>;
+declare function defineTool<TParams = unknown, TResult = unknown>(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>): TACTool<TParams, TResult>;
 
 /**
  * Parameters for memory retrieval tool
