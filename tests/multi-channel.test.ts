@@ -24,7 +24,7 @@ describe('Multi-Channel Orchestration', () => {
       twilioApiKey: 'SKtest123',
       twilioApiToken: 'test_api_token',
       twilioPhoneNumber: '+15551234567',
-      tacMode: 'conversation',
+      tacMode: 'passive',
       conversationServiceId: 'conv_configuration_01kmultitest12345678901234',
     });
 

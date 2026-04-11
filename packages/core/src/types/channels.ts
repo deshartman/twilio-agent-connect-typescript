@@ -18,7 +18,11 @@ import type { TACMemoryResponse } from '../lib/tac-memory-response';
 export type SessionId = CallSid | ConversationId;
 
 export function isSessionId(value: string): value is SessionId {
-  return value.length > 0;
+  // SessionId = CallSid | ConversationId - validate either format
+  const callSidPattern = /^CA[0-9a-f]{32}$/;
+  const conversationIdPattern = /^conv_conversation_[0-9a-z]{26}$/;
+
+  return callSidPattern.test(value) || conversationIdPattern.test(value);
 }
 
 /**

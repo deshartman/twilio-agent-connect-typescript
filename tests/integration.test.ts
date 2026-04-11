@@ -132,11 +132,11 @@ describe('Integration Tests', () => {
         capturedMessages.push(msg);
       });
 
-      // Start multiple conversations
+      // Start multiple conversations with distinct IDs
       const conversations = [
-        'conv_conversation_01ktestabcdefghijklmnopqrs',
-        'conv_conversation_01ktestabcdefghijklmnopqrs',
-        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        'conv_conversation_01ktest1abcdefghijklmnopqr',
+        'conv_conversation_01ktest2abcdefghijklmnopqr',
+        'conv_conversation_01ktest3abcdefghijklmnopqr',
       ];
 
       for (const convId of conversations) {
@@ -165,9 +165,9 @@ describe('Integration Tests', () => {
 
       // Verify all conversations were processed
       expect(capturedMessages).toHaveLength(3);
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest1abcdefghijklmnopqr');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest2abcdefghijklmnopqr');
+      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest3abcdefghijklmnopqr');
     });
 
     it('should filter out empty messages', async () => {
