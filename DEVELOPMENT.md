@@ -8,12 +8,15 @@ This document explains how to develop the Twilio Agent Connect and work with the
 twilio-agent-connect-typescript/
 ├── packages/                 # Framework packages
 │   ├── core/                # @twilio/tac-core
+│   ├── conversationrelay/   # @twilio/tac-conversationrelay
 │   ├── tools/               # @twilio/tac-tools
 │   └── server/              # @twilio/tac-server
 ├── getting_started/         # Getting started guide and examples
 │   ├── README.md            # Step-by-step tutorial
 │   └── examples/
-│       └── conversation/    # Conversation mode example (SMS + Voice)
+│       ├── conversation/    # Conversation mode example (SMS + Voice)
+│       ├── chat/            # Chat mode example
+│       └── crelay/          # CRelay mode example
 └── package.json             # Workspace root
 ```
 
@@ -107,6 +110,7 @@ npm run test:coverage
 
 # Run examples
 npm run example:getting-started  # OpenAI example (SMS + Voice)
+npm run example:chat             # Chat example
 ```
 
 ### 5. Adding New Packages
