@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { defineTool } from '@twilio/tac-tools';
+import { describe, it, expect, vi } from 'vitest';
+import { defineTool, createSendMessageTool, createHandoffTool } from '@twilio/tac-tools';
+import { TAC, TACConfig, TACMode, CallSid, ConversationId } from '@twilio/tac-core';
 
 describe('Tool System', () => {
   describe('defineTool', () => {
@@ -283,6 +284,183 @@ describe('Tool System', () => {
       expect(parsed.type).toBe('function');
       expect(parsed.function.name).toBe('test_tool');
       expect(parsed.function.description).toBe('A test tool');
+    });
+  });
+
+  describe('built-in tools with SessionId', () => {
+    const getTestConfig = () => ({
+      environment: 'dev' as const,
+      tacMode: 'conversation' as TACMode,
+      twilioAccountSid: 'ACtest123456789',
+      twilioAuthToken: 'test_token_123',
+      twilioApiKey: 'test_api_key',
+      twilioApiToken: 'test_api_token',
+      twilioPhoneNumber: '+15551234567',
+      conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    });
+
+    describe('createSendMessageTool', () => {
+      it('should accept ConversationId (Maestro channel)', async () => {
+        const mockChannel = {
+          channelType: 'sms' as const,
+          sendResponse: vi.fn().mockResolvedValue(undefined),
+          on: vi.fn(),
+          getConversationSession: vi.fn(),
+          isConversationActive: vi.fn(),
+          shutdown: vi.fn(),
+        };
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createSendMessageTool(mockChannel, conversationId);
+
+        const result = await tool.implementation({ message: 'Test message' });
+
+        expect(result.success).toBe(true);
+        expect(mockChannel.sendResponse).toHaveBeenCalledWith(
+          conversationId,
+          'Test message',
+          undefined
+        );
+      });
+
+      it('should accept CallSid (CRelay channel)', async () => {
+        const mockChannel = {
+          channelType: 'voice' as const,
+          sendResponse: vi.fn().mockResolvedValue(undefined),
+          on: vi.fn(),
+          getConversationSession: vi.fn(),
+          isConversationActive: vi.fn(),
+          shutdown: vi.fn(),
+        };
+
+        const callSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
+        const tool = createSendMessageTool(mockChannel, callSid);
+
+        const result = await tool.implementation({ message: 'Test message' });
+
+        expect(result.success).toBe(true);
+        expect(mockChannel.sendResponse).toHaveBeenCalledWith(callSid, 'Test message', undefined);
+      });
+
+      it('should handle sendResponse failures gracefully', async () => {
+        const mockChannel = {
+          channelType: 'sms' as const,
+          sendResponse: vi.fn().mockRejectedValue(new Error('Network error')),
+          on: vi.fn(),
+          getConversationSession: vi.fn(),
+          isConversationActive: vi.fn(),
+          shutdown: vi.fn(),
+        };
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createSendMessageTool(mockChannel, conversationId);
+
+        const result = await tool.implementation({ message: 'Test message' });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Network error');
+      });
+
+      it('should include metadata when provided', async () => {
+        const mockChannel = {
+          channelType: 'sms' as const,
+          sendResponse: vi.fn().mockResolvedValue(undefined),
+          on: vi.fn(),
+          getConversationSession: vi.fn(),
+          isConversationActive: vi.fn(),
+          shutdown: vi.fn(),
+        };
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createSendMessageTool(mockChannel, conversationId);
+        const metadata = { custom: 'data' };
+
+        await tool.implementation({ message: 'Test', metadata });
+
+        expect(mockChannel.sendResponse).toHaveBeenCalledWith(
+          conversationId,
+          'Test',
+          metadata
+        );
+      });
+    });
+
+    describe('createHandoffTool', () => {
+      it('should accept ConversationId (Maestro mode)', async () => {
+        const config = new TACConfig(getTestConfig());
+        const tac = new TAC({ config });
+        const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createHandoffTool(tac, conversationId);
+
+        const result = await tool.implementation({ reason: 'User requested agent' });
+
+        expect(result.success).toBe(true);
+        expect(triggerHandoffSpy).toHaveBeenCalledWith(
+          conversationId,
+          'User requested agent'
+        );
+      });
+
+      it('should accept CallSid (CRelay mode)', async () => {
+        const config = new TACConfig({
+          ...getTestConfig(),
+          tacMode: 'crelay',
+        });
+        const tac = new TAC({ config });
+        const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
+
+        const callSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
+        const tool = createHandoffTool(tac, callSid);
+
+        const result = await tool.implementation({ reason: 'Urgent issue' });
+
+        expect(result.success).toBe(true);
+        expect(triggerHandoffSpy).toHaveBeenCalledWith(callSid, 'Urgent issue');
+      });
+
+      it('should include urgency and context in handoff reason', async () => {
+        const config = new TACConfig(getTestConfig());
+        const tac = new TAC({ config });
+        const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createHandoffTool(tac, conversationId);
+
+        await tool.implementation({
+          reason: 'Complex issue',
+          urgency: 'high',
+          context: 'Customer has been waiting 15 minutes',
+        });
+
+        expect(triggerHandoffSpy).toHaveBeenCalledWith(
+          conversationId,
+          expect.stringContaining('Complex issue')
+        );
+        expect(triggerHandoffSpy).toHaveBeenCalledWith(
+          conversationId,
+          expect.stringContaining('Additional Context: Customer has been waiting 15 minutes')
+        );
+        expect(triggerHandoffSpy).toHaveBeenCalledWith(
+          conversationId,
+          expect.stringContaining('Urgency: high')
+        );
+      });
+
+      it('should handle triggerHandoff failures gracefully', async () => {
+        const config = new TACConfig(getTestConfig());
+        const tac = new TAC({ config });
+        vi.spyOn(tac, 'triggerHandoff').mockRejectedValue(new Error('Handoff failed'));
+
+        const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
+        const tool = createHandoffTool(tac, conversationId);
+
+        const result = await tool.implementation({ reason: 'Test' });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('Handoff failed');
+      });
     });
   });
 });

@@ -55,12 +55,6 @@ export class TACConfig {
         `TAC_MODE=${validatedConfig.tacMode} requires CONVERSATION_SERVICE_ID to be configured. ` +
           'Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".'
       );
-    } else if (validatedConfig.tacMode === 'crelay' && validatedConfig.conversationServiceId) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        'TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. ' +
-          'Maestro features will be ignored in crelay mode.'
-      );
     }
 
     // Compute service URLs based on environment

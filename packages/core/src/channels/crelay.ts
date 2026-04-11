@@ -166,8 +166,18 @@ export class CRelayChannel implements Channel {
     message: string,
     _metadata?: Record<string, unknown>
   ): Promise<void> {
-    this.crelayVoice.sendResponse(sessionId as CallSid, message);
-    return Promise.resolve();
+    try {
+      this.crelayVoice.sendResponse(sessionId as CallSid, message);
+      return Promise.resolve();
+    } catch (error) {
+      this.logger.error({ err: error, call_sid: sessionId }, 'Send response error');
+      this.handleError(error instanceof Error ? error : new Error(String(error)), {
+        callSid: sessionId as string,
+        message,
+        metadata: _metadata,
+      });
+      throw error;
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback
@@ -199,6 +209,17 @@ export class CRelayChannel implements Channel {
   public shutdown(): void {
     this.crelayVoice.shutdown();
     this.activeConversations.clear();
+  }
+
+  // ===========================================================================
+  // Error Handling
+  // ===========================================================================
+
+  protected handleError(error: Error, context?: Record<string, unknown>): void {
+    this.logger.error({ err: error, ...context }, 'Channel error');
+    if (this.callbacks.onError) {
+      this.callbacks.onError({ error, context: context ?? {} });
+    }
   }
 
   // ===========================================================================

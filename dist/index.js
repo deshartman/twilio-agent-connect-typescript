@@ -496,7 +496,9 @@ var CreateConversationSummariesResponseSchema = z.object({
 
 // packages/core/src/types/channels.ts
 function isSessionId(value) {
-  return value.length > 0;
+  const callSidPattern = /^CA[0-9a-f]{32}$/;
+  const conversationIdPattern = /^conv_conversation_[0-9a-z]{26}$/;
+  return callSidPattern.test(value) || conversationIdPattern.test(value);
 }
 var TACCustomParametersSchema = z.object({
   conversation_id: z.string().optional(),
@@ -633,10 +635,6 @@ var TACConfig = class _TACConfig {
     if ((validatedConfig.tacMode === "conversation" || validatedConfig.tacMode === "passive") && !validatedConfig.conversationServiceId) {
       throw new Error(
         `TAC_MODE=${validatedConfig.tacMode} requires CONVERSATION_SERVICE_ID to be configured. Either set CONVERSATION_SERVICE_ID or change TAC_MODE to "crelay".`
-      );
-    } else if (validatedConfig.tacMode === "crelay" && validatedConfig.conversationServiceId) {
-      console.warn(
-        "TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. Maestro features will be ignored in crelay mode."
       );
     }
     const serviceUrls = computeServiceUrls(validatedConfig.environment);
@@ -1853,6 +1851,15 @@ var TAC = class {
     const finalLogger = options.logger ?? createLogger({ name: "tac" });
     this.config = finalConfig;
     this.logger = finalLogger;
+    if (this.config.tacMode === "crelay" && this.config.conversationServiceId) {
+      this.logger.warn(
+        {
+          tac_mode: this.config.tacMode,
+          conversation_service_id: this.config.conversationServiceId
+        },
+        "TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. Maestro features will be ignored in crelay mode."
+      );
+    }
     this.channels = /* @__PURE__ */ new Map();
     if (this.config.memoryStoreId) {
       this.memoryClient = new MemoryClient(this.config, this.logger.child({ component: "memory" }));
@@ -3977,8 +3984,18 @@ var CRelayChannel = class {
   // Channel Interface
   // ===========================================================================
   sendResponse(sessionId, message, _metadata) {
-    this.crelayVoice.sendResponse(sessionId, message);
-    return Promise.resolve();
+    try {
+      this.crelayVoice.sendResponse(sessionId, message);
+      return Promise.resolve();
+    } catch (error) {
+      this.logger.error({ err: error, call_sid: sessionId }, "Send response error");
+      this.handleError(error instanceof Error ? error : new Error(String(error)), {
+        callSid: sessionId,
+        message,
+        metadata: _metadata
+      });
+      throw error;
+    }
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback
   on(event, callback) {
@@ -4006,6 +4023,15 @@ var CRelayChannel = class {
   shutdown() {
     this.crelayVoice.shutdown();
     this.activeConversations.clear();
+  }
+  // ===========================================================================
+  // Error Handling
+  // ===========================================================================
+  handleError(error, context) {
+    this.logger.error({ err: error, ...context }, "Channel error");
+    if (this.callbacks.onError) {
+      this.callbacks.onError({ error, context: context ?? {} });
+    }
   }
   // ===========================================================================
   // WebSocket + TwiML
@@ -4312,7 +4338,7 @@ function createMemoryTools(memoryClient, memoryStoreId) {
 }
 
 // packages/tools/src/built-in/messaging.ts
-function createSendMessageTool(channel, conversationId) {
+function createSendMessageTool(channel, sessionId) {
   return defineTool(
     BuiltInTools.SEND_MESSAGE,
     "Send a message to the user in the current conversation",
@@ -4333,7 +4359,7 @@ function createSendMessageTool(channel, conversationId) {
     },
     async (params) => {
       try {
-        await channel.sendResponse(conversationId, params.message, params.metadata);
+        await channel.sendResponse(sessionId, params.message, params.metadata);
         return {
           success: true,
           message_id: `msg_${Date.now()}`
@@ -4351,14 +4377,17 @@ function createSendMessageTool(channel, conversationId) {
 function createMessagingTools() {
   return {
     /**
-     * Create send message tool for specific channel and conversation
+     * Create send message tool for specific channel and session
+     *
+     * @param channel - The channel to send messages through
+     * @param sessionId - The session ID (accepts CallSid or ConversationId)
      */
-    forConversation: (channel, conversationId) => createSendMessageTool(channel, conversationId)
+    forSession: (channel, sessionId) => createSendMessageTool(channel, sessionId)
   };
 }
 
 // packages/tools/src/built-in/handoff.ts
-function createHandoffTool(tac, conversationId) {
+function createHandoffTool(tac, sessionId) {
   return defineTool(
     BuiltInTools.ESCALATE_TO_HUMAN,
     "Escalate the conversation to a human agent when the AI cannot help further",
@@ -4399,7 +4428,7 @@ Additional Context: ${params.context}`;
 
 Urgency: ${params.urgency}`;
         }
-        await tac.triggerHandoff(conversationId, fullReason);
+        await tac.triggerHandoff(sessionId, fullReason);
         return {
           success: true,
           handoff_id: `handoff_${Date.now()}`,
@@ -4430,9 +4459,12 @@ function getEstimatedWaitTime(urgency) {
 function createHandoffTools() {
   return {
     /**
-     * Create handoff tool for specific TAC instance and conversation
+     * Create handoff tool for specific TAC instance and session
+     *
+     * @param tac - The TAC instance
+     * @param sessionId - The session ID (accepts CallSid or ConversationId)
      */
-    forConversation: (tac, conversationId) => createHandoffTool(tac, conversationId)
+    forSession: (tac, sessionId) => createHandoffTool(tac, sessionId)
   };
 }
 

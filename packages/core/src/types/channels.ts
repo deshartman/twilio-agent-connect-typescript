@@ -102,7 +102,7 @@ export interface Channel {
   /**
    * Register event callback for TAC integration
    *
-   * @param event - Event name (e.g., 'prompt', 'interrupt', 'conversationEnded')
+   * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
    * @param callback - Event handler function
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

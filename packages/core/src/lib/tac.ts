@@ -82,6 +82,18 @@ export class TAC {
     this.config = finalConfig;
     this.logger = finalLogger;
 
+    // Log warning for misconfigured conversationServiceId in crelay mode
+    if (this.config.tacMode === 'crelay' && this.config.conversationServiceId) {
+      this.logger.warn(
+        {
+          tac_mode: this.config.tacMode,
+          conversation_service_id: this.config.conversationServiceId,
+        },
+        'TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. ' +
+          'Maestro features will be ignored in crelay mode.'
+      );
+    }
+
     this.channels = new Map();
 
     // Initialize Memory client only if memoryStoreId is provided

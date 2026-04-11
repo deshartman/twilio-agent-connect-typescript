@@ -1547,7 +1547,7 @@ interface Channel {
     /**
      * Register event callback for TAC integration
      *
-     * @param event - Event name (e.g., 'prompt', 'interrupt', 'conversationEnded')
+     * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
      * @param callback - Event handler function
      */
     on(event: string, callback: (...args: any[]) => void): void;
@@ -3997,6 +3997,7 @@ declare class CRelayChannel implements Channel {
     getConversationSession(sessionId: SessionId): ConversationSession | undefined;
     isConversationActive(sessionId: SessionId): boolean;
     shutdown(): void;
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
     handleWebSocketConnection(ws: WebSocket): void;
     handleIncomingCall(options: {
         callSid: string;
@@ -4178,16 +4179,22 @@ interface SendMessageResult {
 }
 /**
  * Create send message tool
+ *
+ * @param channel - The channel to send messages through
+ * @param sessionId - The session ID (accepts CallSid or ConversationId)
  */
-declare function createSendMessageTool(channel: Channel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
+declare function createSendMessageTool(channel: Channel, sessionId: SessionId): TACTool<SendMessageParams, SendMessageResult>;
 /**
  * Create factory function for messaging tools
  */
 declare function createMessagingTools(): {
     /**
-     * Create send message tool for specific channel and conversation
+     * Create send message tool for specific channel and session
+     *
+     * @param channel - The channel to send messages through
+     * @param sessionId - The session ID (accepts CallSid or ConversationId)
      */
-    forConversation: (channel: Channel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
+    forSession: (channel: Channel, sessionId: SessionId) => TACTool<SendMessageParams, SendMessageResult>;
 };
 
 /**
@@ -4210,16 +4217,22 @@ interface HandoffResult {
 }
 /**
  * Create human handoff tool
+ *
+ * @param tac - The TAC instance
+ * @param sessionId - The session ID (accepts CallSid or ConversationId)
  */
-declare function createHandoffTool(tac: TAC, conversationId: ConversationId): TACTool<HandoffParams, HandoffResult>;
+declare function createHandoffTool(tac: TAC, sessionId: SessionId): TACTool<HandoffParams, HandoffResult>;
 /**
  * Create factory function for handoff tools
  */
 declare function createHandoffTools(): {
     /**
-     * Create handoff tool for specific TAC instance and conversation
+     * Create handoff tool for specific TAC instance and session
+     *
+     * @param tac - The TAC instance
+     * @param sessionId - The session ID (accepts CallSid or ConversationId)
      */
-    forConversation: (tac: TAC, conversationId: ConversationId) => TACTool<HandoffParams, HandoffResult>;
+    forSession: (tac: TAC, sessionId: SessionId) => TACTool<HandoffParams, HandoffResult>;
 };
 
 /**

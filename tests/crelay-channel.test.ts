@@ -389,6 +389,57 @@ describe('CRelayChannel', () => {
       // CRelayVoice.sendResponse throws synchronously before Promise.resolve()
       expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(/No WebSocket connection found/);
     });
+
+    it('should call onError callback when sendResponse fails', () => {
+      const errorCallback = vi.fn();
+      channel.on('error', errorCallback);
+
+      expect(() => channel.sendResponse(CALL_SID, 'test message')).toThrow();
+
+      expect(errorCallback).toHaveBeenCalledTimes(1);
+      expect(errorCallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.any(Error),
+          context: expect.objectContaining({
+            callSid: CALL_SID,
+            message: 'test message',
+          }),
+        })
+      );
+    });
+
+    it('should include metadata in error context when provided', () => {
+      const errorCallback = vi.fn();
+      channel.on('error', errorCallback);
+      const metadata = { custom: 'data' };
+
+      expect(() => channel.sendResponse(CALL_SID, 'test', metadata)).toThrow();
+
+      expect(errorCallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.any(Error),
+          context: expect.objectContaining({
+            callSid: CALL_SID,
+            message: 'test',
+            metadata,
+          }),
+        })
+      );
+    });
+
+    it('should handle WebSocket not open error', () => {
+      const mockWs = createMockWebSocket();
+      mockWs.readyState = 0; // WebSocket.CONNECTING
+      channel.handleWebSocketConnection(mockWs);
+      mockWs.simulateMessage(setupMsg);
+
+      const errorCallback = vi.fn();
+      channel.on('error', errorCallback);
+
+      // This should fail because WebSocket is not OPEN
+      expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(/not open/);
+      expect(errorCallback).toHaveBeenCalled();
+    });
   });
 
   // =========================================================================
