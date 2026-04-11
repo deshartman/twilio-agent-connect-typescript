@@ -627,7 +627,8 @@ export abstract class MessagingChannel implements Channel {
       };
 
       void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err: unknown) => {
-        this.logger.error({ err, conversation_id: conversationId }, 'Error in message callback');
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.handleError(error, { conversationId, event: 'message' });
       });
     }
   }
