@@ -107,7 +107,7 @@ export function computeServiceUrls(environment: Environment): {
  */
 export const VoiceServerConfigSchema = z.object({
   host: z.string().default('0.0.0.0'),
-  port: z.number().int().positive().default(3000),
+  port: z.number().int().nonnegative().default(3000),
 });
 
 export type VoiceServerConfig = z.infer<typeof VoiceServerConfigSchema>;

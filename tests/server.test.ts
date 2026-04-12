@@ -31,9 +31,8 @@ vi.mock('twilio', () => {
   };
 });
 
-// Use different ports for parallel test execution
-let testPort = 4000;
-const getNextPort = () => testPort++;
+// Use port 0 to let OS assign available ports (prevents parallel test collisions)
+const getNextPort = () => 0;
 
 describe('TACServer Webhook Validation', () => {
   const getTestConfig = () => ({
@@ -51,12 +50,18 @@ describe('TACServer Webhook Validation', () => {
   let server: TACServer;
   let currentPort: number;
 
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
+
   beforeEach(() => {
     // Reset mock
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
 
-    // Get unique port for this test
+    // Get unique port for this test (will be 0 for OS assignment)
     currentPort = getNextPort();
 
     // Create TAC instance
@@ -89,9 +94,10 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
       // Make request to SMS endpoint
-      const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+      const response = await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -116,9 +122,10 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
       // Make request to SMS endpoint with valid webhook payload
-      const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+      const response = await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -141,8 +148,9 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
-      await fetch(`http://localhost:${currentPort}/webhook`, {
+      await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -171,9 +179,10 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
       // Make request without valid signature
-      const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+      const response = await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -199,8 +208,9 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
-      await fetch(`http://localhost:${currentPort}/webhook`, {
+      await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -229,8 +239,9 @@ describe('TACServer Webhook Validation', () => {
       });
 
       await server.start();
+      const actualPort = getActualPort(server);
 
-      await fetch(`http://localhost:${currentPort}/webhook`, {
+      await fetch(`http://localhost:${actualPort}/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -255,15 +266,15 @@ describe('TACServer Webhook Validation', () => {
 
     beforeEach(async () => {
       mockValidateRequest.mockReturnValue(false);
-      endpointTestPort = currentPort;
 
       server = new TACServer(tac, {
         development: true,
         validateWebhooks: true,
-        voice: { port: endpointTestPort },
+        voice: { port: currentPort },
       });
 
       await server.start();
+      endpointTestPort = getActualPort(server);
     });
 
     it('should validate /twiml webhook endpoint', async () => {
@@ -314,6 +325,12 @@ describe('TACServer idempotency token', () => {
   let smsChannel: SMSChannel;
   let currentPort: number;
 
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
+
   beforeEach(() => {
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
@@ -347,8 +364,9 @@ describe('TACServer idempotency token', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/webhook`, {
+    await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -378,8 +396,9 @@ describe('TACServer idempotency token', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/webhook`, {
+    await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -415,6 +434,12 @@ describe('TACServer with conversationRelayConfig', () => {
   let server: TACServer;
   let voiceChannel: VoiceChannel;
   let currentPort: number;
+
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
 
   beforeEach(() => {
     mockValidateRequest.mockReset();
@@ -479,9 +504,10 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
     // Make request to /voice endpoint
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -520,8 +546,9 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -557,8 +584,9 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -590,8 +618,9 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -622,8 +651,9 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -670,8 +700,9 @@ describe('TACServer with conversationRelayConfig', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    await fetch(`http://localhost:${currentPort}/twiml`, {
+    await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -709,6 +740,12 @@ describe('TACServer crelay mode', () => {
   let server: TACServer;
   let currentPort: number;
 
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
+
   beforeEach(() => {
     currentPort = getNextPort();
 
@@ -741,8 +778,9 @@ describe('TACServer crelay mode', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eventType: 'CONVERSATION_UPDATED', data: {} }),
@@ -757,6 +795,12 @@ describe('TACServer conversation mode routes', () => {
   let tac: TAC;
   let server: TACServer;
   let currentPort: number;
+
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
 
   beforeEach(() => {
     currentPort = getNextPort();
@@ -793,9 +837,10 @@ describe('TACServer conversation mode routes', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
     // TwiML route should exist (not 404)
-    const twimlResponse = await fetch(`http://localhost:${currentPort}/twiml`, {
+    const twimlResponse = await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'CallSid=CAtest&From=%2B15551234567&To=%2B15559876543',
@@ -803,7 +848,7 @@ describe('TACServer conversation mode routes', () => {
     expect(twimlResponse.status).not.toBe(404);
 
     // CR callback route should exist (not 404)
-    const crResponse = await fetch(`http://localhost:${currentPort}/conversation-relay-callback`, {
+    const crResponse = await fetch(`http://localhost:${actualPort}/conversation-relay-callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'CallSid=CAtest&CallStatus=completed',
@@ -818,9 +863,10 @@ describe('TACServer conversation mode routes', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
     // Messaging webhook should exist (not 404)
-    const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -836,6 +882,12 @@ describe('TACServer passive mode routes', () => {
   let tac: TAC;
   let server: TACServer;
   let currentPort: number;
+
+  // Helper to get actual port after server starts
+  const getActualPort = (srv: TACServer): number => {
+    const address = (srv as any).fastify.server.address();
+    return typeof address === 'string' ? 0 : address.port;
+  };
 
   beforeEach(() => {
     currentPort = getNextPort();
@@ -870,8 +922,9 @@ describe('TACServer passive mode routes', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    const response = await fetch(`http://localhost:${currentPort}/twiml`, {
+    const response = await fetch(`http://localhost:${actualPort}/twiml`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'CallSid=CAtest&From=%2B15551234567&To=%2B15559876543',
@@ -886,8 +939,9 @@ describe('TACServer passive mode routes', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    const response = await fetch(`http://localhost:${currentPort}/conversation-relay-callback`, {
+    const response = await fetch(`http://localhost:${actualPort}/conversation-relay-callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'CallSid=CAtest&CallStatus=completed',
@@ -902,8 +956,9 @@ describe('TACServer passive mode routes', () => {
     });
 
     await server.start();
+    const actualPort = getActualPort(server);
 
-    const response = await fetch(`http://localhost:${currentPort}/webhook`, {
+    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

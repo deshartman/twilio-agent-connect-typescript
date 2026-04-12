@@ -71,7 +71,7 @@ function computeServiceUrls(environment) {
 }
 var VoiceServerConfigSchema = z.object({
   host: z.string().default("0.0.0.0"),
-  port: z.number().int().positive().default(3e3)
+  port: z.number().int().nonnegative().default(3e3)
 });
 
 // packages/core/src/types/conversation.ts
@@ -2710,7 +2710,8 @@ var MessagingChannel = class {
         } : void 0
       };
       void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
-        this.logger.error({ err, conversation_id: conversationId }, "Error in message callback");
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.handleError(error, { conversationId, event: "message" });
       });
     }
   }
