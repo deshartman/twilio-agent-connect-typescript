@@ -15,7 +15,7 @@ type Environment = z.infer<typeof EnvironmentSchema>;
  * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
  * - 'passive': Passive Maestro orchestrator (webhooks only, no ConversationRelay)
  */
-declare const TACModeSchema: z.ZodEnum<["crelay", "conversation", "passive"]>;
+declare const TACModeSchema: z.ZodDefault<z.ZodEnum<["crelay", "conversation", "passive"]>>;
 type TACMode = z.infer<typeof TACModeSchema>;
 /**
  * Channel types supported by the framework
@@ -27,7 +27,7 @@ type ChannelType = z.infer<typeof ChannelTypeSchema>;
  */
 declare const TACConfigSchema: z.ZodObject<{
     environment: z.ZodDefault<z.ZodEnum<["dev", "stage", "prod"]>>;
-    tacMode: z.ZodEnum<["crelay", "conversation", "passive"]>;
+    tacMode: z.ZodDefault<z.ZodEnum<["crelay", "conversation", "passive"]>>;
     twilioAccountSid: z.ZodString;
     twilioAuthToken: z.ZodString;
     twilioApiKey: z.ZodString;
@@ -56,13 +56,13 @@ declare const TACConfigSchema: z.ZodObject<{
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
 }, {
-    tacMode: "crelay" | "conversation" | "passive";
     twilioAccountSid: string;
     twilioAuthToken: string;
     twilioApiKey: string;
     twilioApiToken: string;
     twilioPhoneNumber: string;
     environment?: "dev" | "stage" | "prod" | undefined;
+    tacMode?: "crelay" | "conversation" | "passive" | undefined;
     memoryStoreId?: string | undefined;
     traitGroups?: string[] | undefined;
     conversationServiceId?: string | undefined;
@@ -3100,6 +3100,23 @@ declare const ConversationSummaryItemSchema: z.ZodObject<{
 type ConversationSummaryItem = z.infer<typeof ConversationSummaryItemSchema>;
 
 /**
+ * Branded types for Knowledge IDs
+ */
+type KnowledgeBaseId = string & {
+    readonly _brand: 'KnowledgeBaseId';
+};
+type KnowledgeId = string & {
+    readonly _brand: 'KnowledgeId';
+};
+/**
+ * Type guard for KnowledgeBaseId
+ */
+declare function isKnowledgeBaseId(value: string): value is KnowledgeBaseId;
+/**
+ * Type guard for KnowledgeId
+ */
+declare function isKnowledgeId(value: string): value is KnowledgeId;
+/**
  * Knowledge base status enum
  */
 declare const KnowledgeBaseStatusSchema: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
@@ -3110,7 +3127,7 @@ type KnowledgeBaseStatus = z.infer<typeof KnowledgeBaseStatusSchema>;
 declare const KnowledgeBaseSchema: z.ZodObject<{
     id: z.ZodString;
     displayName: z.ZodString;
-    description: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
     status: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
@@ -3120,17 +3137,17 @@ declare const KnowledgeBaseSchema: z.ZodObject<{
     id: string;
     createdAt: string;
     updatedAt: string;
-    description: string;
     displayName: string;
     version: number;
+    description?: string | undefined;
 }, {
     status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
     id: string;
     createdAt: string;
     updatedAt: string;
-    description: string;
     displayName: string;
     version: number;
+    description?: string | undefined;
 }>;
 type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
 /**
@@ -3165,7 +3182,9 @@ declare const KnowledgeChunkResultSchema: z.ZodObject<{
     knowledgeId: string;
     score: number;
 }>;
-type KnowledgeChunkResult = z.infer<typeof KnowledgeChunkResultSchema>;
+type KnowledgeChunkResult = Omit<z.infer<typeof KnowledgeChunkResultSchema>, 'knowledgeId'> & {
+    knowledgeId: KnowledgeId;
+};
 /**
  * Search response wrapper
  */
@@ -3243,7 +3262,7 @@ declare class TACConfig {
      *
      * Loads configuration from the following environment variables:
      * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-     * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (required)
+     * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (defaults to 'conversation')
      * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
      * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
      * - TWILIO_API_KEY: Twilio API Key (required)
@@ -3475,7 +3494,7 @@ declare class KnowledgeClient {
      * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
      * @returns Promise containing knowledge base metadata
      */
-    getKnowledgeBase(knowledgeBaseId: string): Promise<KnowledgeBase>;
+    getKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Promise<KnowledgeBase>;
     /**
      * Search knowledge base for relevant content
      *
@@ -3485,7 +3504,7 @@ declare class KnowledgeClient {
      * @param knowledgeIds - Optional list of knowledge IDs to filter results
      * @returns Promise containing array of search result chunks
      */
-    searchKnowledgeBase(knowledgeBaseId: string, query: string, topK?: number, knowledgeIds?: string[]): Promise<KnowledgeChunkResult[]>;
+    searchKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, query: string, topK?: number, knowledgeIds?: KnowledgeId[]): Promise<KnowledgeChunkResult[]>;
     /**
      * Get Basic Auth header for HTTP requests
      */
@@ -4369,4 +4388,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, CRelayChannel, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionId, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACMode, TACModeSchema, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceServerConfig, VoiceServerConfigSchema, VoiceWebhookChannel, type VoiceWebhookChannelConfig, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };
+export { type AuthorInfo, AuthorInfoSchema, type BuiltInToolName, BuiltInTools, CRelayChannel, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, type ConversationSummaryItem, ConversationSummaryItemSchema, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, type Environment, EnvironmentSchema, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, MessagingChannel, type MessagingChannelConfig, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SendCommunicationParticipantAddress, SendCommunicationParticipantAddressSchema, type SendCommunicationRequest, SendCommunicationRequestSchema, type SendCommunicationResponse, SendCommunicationResponseSchema, type SessionContext, type SessionId, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACMode, TACModeSchema, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceServerConfig, VoiceServerConfigSchema, VoiceWebhookChannel, type VoiceWebhookChannelConfig, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };

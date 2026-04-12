@@ -4,6 +4,7 @@ import {
   KnowledgeChunkResult,
   KnowledgeSearchResponseSchema,
 } from '../types/index';
+import type { KnowledgeBaseId, KnowledgeId } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { Logger, createLogger } from '../lib/logger';
 
@@ -45,8 +46,8 @@ export class KnowledgeClient {
    * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
    * @returns Promise containing knowledge base metadata
    */
-  public async getKnowledgeBase(knowledgeBaseId: string): Promise<KnowledgeBase> {
-    const url = `${this.baseUrl}/v2/ControlPlane/KnowledgeBases/${knowledgeBaseId}`;
+  public async getKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Promise<KnowledgeBase> {
+    const url = `${this.baseUrl}/v2/ControlPlane/KnowledgeBases/${knowledgeBaseId as string}`;
 
     const options: RequestOptions = {
       method: 'GET',
@@ -77,12 +78,12 @@ export class KnowledgeClient {
    * @returns Promise containing array of search result chunks
    */
   public async searchKnowledgeBase(
-    knowledgeBaseId: string,
+    knowledgeBaseId: KnowledgeBaseId,
     query: string,
     topK: number = 5,
-    knowledgeIds?: string[]
+    knowledgeIds?: KnowledgeId[]
   ): Promise<KnowledgeChunkResult[]> {
-    const url = `${this.baseUrl}/v2/KnowledgeBases/${knowledgeBaseId}/Search`;
+    const url = `${this.baseUrl}/v2/KnowledgeBases/${knowledgeBaseId as string}/Search`;
 
     const requestBody: Record<string, unknown> = {
       query,
@@ -112,7 +113,7 @@ export class KnowledgeClient {
 
     const data = await response.json();
     const validated = KnowledgeSearchResponseSchema.parse(data);
-    return validated.chunks;
+    return validated.chunks as KnowledgeChunkResult[];
   }
 
   /**

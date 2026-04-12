@@ -58,7 +58,7 @@ describe('Knowledge Tools', () => {
     it('should create tool with explicit name and description', () => {
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_product_faq',
           description: 'Search the product FAQ for answers',
@@ -72,7 +72,7 @@ describe('Knowledge Tools', () => {
     it('should only have query parameter in schema', () => {
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_kb',
           description: 'Search knowledge base',
@@ -101,7 +101,7 @@ describe('Knowledge Tools', () => {
 
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_kb',
           description: 'Search',
@@ -122,7 +122,7 @@ describe('Knowledge Tools', () => {
 
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_kb',
           description: 'Search',
@@ -143,7 +143,7 @@ describe('Knowledge Tools', () => {
     it('should convert to OpenAI format correctly', () => {
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_product_faq',
           description: 'Search the product FAQ',
@@ -161,7 +161,7 @@ describe('Knowledge Tools', () => {
     it('should convert to Anthropic format correctly', () => {
       const tool = createKnowledgeSearchTool(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'search_product_faq',
           description: 'Search the product FAQ',
@@ -179,7 +179,7 @@ describe('Knowledge Tools', () => {
   describe('createKnowledgeSearchToolAsync()', () => {
     it('should auto-generate name and description from KB metadata', async () => {
       const mockKB: KnowledgeBase = {
-        id: 'know_knowledgebase_01abc123def456ghi789jkl0',
+        id: 'know_knowledgebase_01abc123def456ghi789jkl012',
         displayName: 'Product FAQ',
         description: 'Frequently asked questions about products',
         status: 'ACTIVE',
@@ -192,7 +192,7 @@ describe('Knowledge Tools', () => {
 
       const tool = await createKnowledgeSearchToolAsync(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0'
+        'know_knowledgebase_01abc123def456ghi789jkl012'
       );
 
       expect(tool.name).toBe('search_product_faq');
@@ -204,7 +204,7 @@ describe('Knowledge Tools', () => {
 
       const tool = await createKnowledgeSearchToolAsync(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012',
         {
           name: 'custom_name',
           description: 'Custom description',
@@ -218,7 +218,7 @@ describe('Knowledge Tools', () => {
 
     it('should generate fallback description when KB has empty description', async () => {
       const mockKB: KnowledgeBase = {
-        id: 'know_knowledgebase_01abc123def456ghi789jkl0',
+        id: 'know_knowledgebase_01abc123def456ghi789jkl012',
         displayName: 'Support Docs',
         description: '',
         status: 'ACTIVE',
@@ -231,7 +231,7 @@ describe('Knowledge Tools', () => {
 
       const tool = await createKnowledgeSearchToolAsync(
         knowledgeClient,
-        'know_knowledgebase_01abc123def456ghi789jkl0'
+        'know_knowledgebase_01abc123def456ghi789jkl012'
       );
 
       expect(tool.description).toBe('Search the Support Docs knowledge base');
@@ -242,7 +242,7 @@ describe('Knowledge Tools', () => {
     it('should create factory with forKnowledgeBase method', () => {
       const factory = createKnowledgeTools(knowledgeClient);
 
-      const tool = factory.forKnowledgeBase('know_knowledgebase_01abc123def456ghi789jkl0', {
+      const tool = factory.forKnowledgeBase('know_knowledgebase_01abc123def456ghi789jkl012', {
         name: 'test_tool',
         description: 'Test description',
       });
@@ -253,7 +253,7 @@ describe('Knowledge Tools', () => {
 
     it('should create factory with forKnowledgeBaseAsync method', async () => {
       const mockKB: KnowledgeBase = {
-        id: 'know_knowledgebase_01abc123def456ghi789jkl0',
+        id: 'know_knowledgebase_01abc123def456ghi789jkl012',
         displayName: 'My KB',
         description: 'My knowledge base',
         status: 'ACTIVE',
@@ -266,7 +266,7 @@ describe('Knowledge Tools', () => {
 
       const factory = createKnowledgeTools(knowledgeClient);
       const tool = await factory.forKnowledgeBaseAsync(
-        'know_knowledgebase_01abc123def456ghi789jkl0'
+        'know_knowledgebase_01abc123def456ghi789jkl012'
       );
 
       expect(tool.name).toBe('search_my_kb');

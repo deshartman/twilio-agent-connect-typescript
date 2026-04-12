@@ -1,6 +1,26 @@
 import { z } from 'zod';
 
 /**
+ * Branded types for Knowledge IDs
+ */
+export type KnowledgeBaseId = string & { readonly _brand: 'KnowledgeBaseId' };
+export type KnowledgeId = string & { readonly _brand: 'KnowledgeId' };
+
+/**
+ * Type guard for KnowledgeBaseId
+ */
+export function isKnowledgeBaseId(value: string): value is KnowledgeBaseId {
+  return /^know_knowledgebase_[0-7][0-9a-z]{25}$/.test(value);
+}
+
+/**
+ * Type guard for KnowledgeId
+ */
+export function isKnowledgeId(value: string): value is KnowledgeId {
+  return /^know_knowledge_[0-7][0-9a-z]{25}$/.test(value);
+}
+
+/**
  * Knowledge base status enum
  */
 export const KnowledgeBaseStatusSchema = z.enum([
@@ -17,9 +37,9 @@ export type KnowledgeBaseStatus = z.infer<typeof KnowledgeBaseStatusSchema>;
  * Knowledge base metadata (from GET endpoint)
  */
 export const KnowledgeBaseSchema = z.object({
-  id: z.string(),
+  id: z.string().regex(/^know_knowledgebase_[0-7][0-9a-z]{25}$/, 'Invalid KnowledgeBase ID format'),
   displayName: z.string(),
-  description: z.string(),
+  description: z.string().optional(),
   status: KnowledgeBaseStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -51,7 +71,12 @@ export const KnowledgeChunkResultSchema = z.object({
   score: z.number(),
 });
 
-export type KnowledgeChunkResult = z.infer<typeof KnowledgeChunkResultSchema>;
+export type KnowledgeChunkResult = Omit<
+  z.infer<typeof KnowledgeChunkResultSchema>,
+  'knowledgeId'
+> & {
+  knowledgeId: KnowledgeId;
+};
 
 /**
  * Search response wrapper

@@ -15,7 +15,7 @@ var TACModeSchema = z.enum(["crelay", "conversation", "passive"], {
   errorMap: () => ({
     message: 'TAC_MODE must be "crelay", "conversation", or "passive"'
   })
-});
+}).default("conversation");
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
 var TACConfigSchema = z.object({
   environment: EnvironmentSchema,
@@ -585,6 +585,12 @@ var ConversationSummaryItemSchema = z.object({
   occurredAt: z.string(),
   source: z.string().optional()
 });
+function isKnowledgeBaseId(value) {
+  return /^know_knowledgebase_[0-7][0-9a-z]{25}$/.test(value);
+}
+function isKnowledgeId(value) {
+  return /^know_knowledge_[0-7][0-9a-z]{25}$/.test(value);
+}
 var KnowledgeBaseStatusSchema = z.enum([
   "QUEUED",
   "PROVISIONING",
@@ -593,9 +599,9 @@ var KnowledgeBaseStatusSchema = z.enum([
   "DELETING"
 ]);
 var KnowledgeBaseSchema = z.object({
-  id: z.string(),
+  id: z.string().regex(/^know_knowledgebase_[0-7][0-9a-z]{25}$/, "Invalid KnowledgeBase ID format"),
   displayName: z.string(),
-  description: z.string(),
+  description: z.string().optional(),
   status: KnowledgeBaseStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -675,7 +681,7 @@ var TACConfig = class _TACConfig {
    *
    * Loads configuration from the following environment variables:
    * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-   * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (required)
+   * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (defaults to 'conversation')
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -699,7 +705,6 @@ var TACConfig = class _TACConfig {
    */
   static fromEnv() {
     const requiredVars = [
-      { key: EnvironmentVariables.TAC_MODE, name: "TAC_MODE" },
       { key: EnvironmentVariables.TWILIO_ACCOUNT_SID, name: "TWILIO_ACCOUNT_SID" },
       { key: EnvironmentVariables.TWILIO_AUTH_TOKEN, name: "TWILIO_AUTH_TOKEN" },
       { key: EnvironmentVariables.TWILIO_API_KEY, name: "TWILIO_API_KEY" },
@@ -4487,7 +4492,11 @@ function createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config) {
       description: config.description
     },
     async (params) => {
-      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
+      return knowledgeClient.searchKnowledgeBase(
+        knowledgeBaseId,
+        params.query,
+        topK
+      );
     }
   );
 }
@@ -4927,6 +4936,6 @@ var TACServer = class {
   }
 };
 
-export { AuthorInfoSchema, BuiltInTools, CRelayChannel, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACModeSchema, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };
+export { AuthorInfoSchema, BuiltInTools, CRelayChannel, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACModeSchema, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId, isSessionId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

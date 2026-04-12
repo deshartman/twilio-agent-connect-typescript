@@ -1,4 +1,4 @@
-import { KnowledgeClient, KnowledgeChunkResult } from '@twilio/tac-core';
+import { KnowledgeClient, KnowledgeChunkResult, KnowledgeBaseId } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
 /**
@@ -47,7 +47,11 @@ export function createKnowledgeSearchTool(
       description: config.description,
     },
     async (params: KnowledgeSearchParams) => {
-      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
+      return knowledgeClient.searchKnowledgeBase(
+        knowledgeBaseId as KnowledgeBaseId,
+        params.query,
+        topK
+      );
     }
   );
 }
@@ -73,7 +77,7 @@ export async function createKnowledgeSearchToolAsync(
 
   // Fetch knowledge base metadata if name or description not provided
   if (!name || !description) {
-    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId);
+    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId as KnowledgeBaseId);
     if (!name) {
       // Generate tool name from display name (normalized snake_case)
       const normalized = kb.displayName

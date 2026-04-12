@@ -99,7 +99,7 @@ export class TACConfig {
    *
    * Loads configuration from the following environment variables:
    * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
-   * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (required)
+   * - TAC_MODE: Operating mode - 'crelay', 'conversation', or 'passive' (defaults to 'conversation')
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -124,7 +124,6 @@ export class TACConfig {
   public static fromEnv(): TACConfig {
     // Check for required environment variables
     const requiredVars = [
-      { key: EnvironmentVariables.TAC_MODE, name: 'TAC_MODE' },
       { key: EnvironmentVariables.TWILIO_ACCOUNT_SID, name: 'TWILIO_ACCOUNT_SID' },
       { key: EnvironmentVariables.TWILIO_AUTH_TOKEN, name: 'TWILIO_AUTH_TOKEN' },
       { key: EnvironmentVariables.TWILIO_API_KEY, name: 'TWILIO_API_KEY' },

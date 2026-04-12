@@ -52,7 +52,7 @@ describe('KnowledgeClient', () => {
   describe('getKnowledgeBase()', () => {
     it('should fetch knowledge base metadata successfully', async () => {
       const mockResponse: KnowledgeBase = {
-        id: 'know_knowledgebase_01abc123def456ghi789jkl0',
+        id: 'know_knowledgebase_01abc123def456ghi789jkl012',
         displayName: 'Product FAQ',
         description: 'Frequently asked questions about our products',
         status: 'ACTIVE',
@@ -64,7 +64,7 @@ describe('KnowledgeClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await knowledgeClient.getKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0'
+        'know_knowledgebase_01abc123def456ghi789jkl012' as any
       );
 
       expect(result).toEqual(mockResponse);

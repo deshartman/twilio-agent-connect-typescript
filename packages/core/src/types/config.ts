@@ -12,11 +12,13 @@ export type Environment = z.infer<typeof EnvironmentSchema>;
  * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
  * - 'passive': Passive Maestro orchestrator (webhooks only, no ConversationRelay)
  */
-export const TACModeSchema = z.enum(['crelay', 'conversation', 'passive'], {
-  errorMap: () => ({
-    message: 'TAC_MODE must be "crelay", "conversation", or "passive"',
-  }),
-});
+export const TACModeSchema = z
+  .enum(['crelay', 'conversation', 'passive'], {
+    errorMap: () => ({
+      message: 'TAC_MODE must be "crelay", "conversation", or "passive"',
+    }),
+  })
+  .default('conversation');
 export type TACMode = z.infer<typeof TACModeSchema>;
 
 /**
