@@ -271,14 +271,13 @@ describe('TACConfig', () => {
     });
 
     it('should throw error when no environment variables are set', () => {
-      // vi.stubEnv is not called — env vars are whatever the real environment has
-      // Delete the ones that matter to ensure the test works
-      delete process.env.TAC_MODE;
-      delete process.env.TWILIO_ACCOUNT_SID;
-      delete process.env.TWILIO_AUTH_TOKEN;
-      delete process.env.TWILIO_API_KEY;
-      delete process.env.TWILIO_API_TOKEN;
-      delete process.env.TWILIO_PHONE_NUMBER;
+      // Clear all env vars by stubbing empty values (properly restored by afterEach)
+      vi.stubEnv('TAC_MODE', '');
+      vi.stubEnv('TWILIO_ACCOUNT_SID', '');
+      vi.stubEnv('TWILIO_AUTH_TOKEN', '');
+      vi.stubEnv('TWILIO_API_KEY', '');
+      vi.stubEnv('TWILIO_API_TOKEN', '');
+      vi.stubEnv('TWILIO_PHONE_NUMBER', '');
 
       expect(() => {
         TACConfig.fromEnv();

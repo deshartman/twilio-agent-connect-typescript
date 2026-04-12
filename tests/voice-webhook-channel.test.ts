@@ -388,6 +388,7 @@ describe('VoiceWebhookChannel', () => {
             channel: 'VOICE',
             participantId: 'conv_participant_01customer12345678',
           },
+          channelId: 'CA00000000000000000000000000000000',
         },
       });
 
@@ -450,6 +451,7 @@ describe('VoiceWebhookChannel', () => {
             channel: 'VOICE',
             participantId: 'conv_participant_01pa123456789012345',
           },
+          channelId: 'CA00000000000000000000000000000000',
         },
       });
 

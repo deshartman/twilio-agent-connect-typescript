@@ -98,6 +98,12 @@ export class VoiceWebhookChannel extends MessagingChannel {
       const channelId =
         typeof session.metadata?.channelId === 'string' ? session.metadata.channelId : undefined;
 
+      if (!channelId) {
+        throw new Error(
+          `No channelId (CallSid) found in session metadata for conversation ${conversationId}`
+        );
+      }
+
       const recipientAddress = session.authorInfo.address;
 
       // Fetch current participants from Maestro
@@ -148,7 +154,7 @@ export class VoiceWebhookChannel extends MessagingChannel {
           type: 'TEXT',
           text: message,
         },
-        ...(channelId !== undefined && { channelId }),
+        channelId,
       });
 
       this.logger.info(
