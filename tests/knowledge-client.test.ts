@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TACConfig, TACMode, KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core';
+import { TACConfig, TACMode, KnowledgeBase, KnowledgeBaseId, KnowledgeChunkResult } from '@twilio/tac-core';
 import { KnowledgeClient } from '../packages/core/src/clients/knowledge';
 
 /**
@@ -64,7 +64,7 @@ describe('KnowledgeClient', () => {
       global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
 
       const result = await knowledgeClient.getKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl012' as any
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId
       );
 
       expect(result).toEqual(mockResponse);

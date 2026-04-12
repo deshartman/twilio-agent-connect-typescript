@@ -59,7 +59,7 @@ export type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
  *
  * @property content - The chunk content (max 65,536 characters / ~64KB)
  * @property createdAt - ISO 8601 date-time when the chunk was created
- * @property score - Semantic similarity score (0-1, higher = more relevant)
+ * @property score - Semantic similarity score (0-1, higher = more relevant). **Always returned by API** - changed from optional to required to match actual API behavior.
  * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
  *
  * @see /docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json

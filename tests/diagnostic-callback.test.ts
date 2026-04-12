@@ -58,8 +58,8 @@ describe('Diagnostic: Callback Wiring', () => {
       },
     });
 
-    // Add small delay to let event loop process
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Flush microtasks
+    await Promise.resolve();
 
     expect(callbackInvoked).toBe(true);
     expect(messages).toHaveLength(1);
@@ -91,8 +91,8 @@ describe('Diagnostic: Callback Wiring', () => {
       },
     });
 
-    // Same delay
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Flush microtasks
+    await Promise.resolve();
 
     expect(messages).toHaveLength(1);
     expect(messages[0].message).toBe('Test message');
