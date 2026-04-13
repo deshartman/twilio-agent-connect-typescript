@@ -3432,6 +3432,26 @@ declare class ConversationClient {
      */
     addParticipant(sessionId: SessionId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
     /**
+     * Add a participant if not already present, or fetch existing participant
+     *
+     * Handles race condition between SDK active ingestion and Maestro passive ingestion
+     * (capture rules). When both TAC and Maestro capture rules try to add participants,
+     * they race. This method handles the race defensively:
+     *
+     * 1. Check if participant already exists (Maestro may have added it)
+     * 2. If not, try to add it
+     * 3. If add fails with 409 Conflict (TOCTOU race - Maestro added between check and add),
+     *    re-fetch the participant list and return the one Maestro just added
+     *
+     * This ensures idempotent behavior regardless of timing.
+     *
+     * @param sessionId - The session ID (internally cast to ConversationId)
+     * @param addresses - Array of conversation addresses
+     * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
+     * @returns Promise containing the participant (existing or newly created)
+     */
+    addOrFetchParticipant(sessionId: SessionId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
+    /**
      * List participants in a conversation
      *
      * @param sessionId - The session ID (internally cast to ConversationId)

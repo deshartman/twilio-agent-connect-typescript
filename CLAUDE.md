@@ -125,6 +125,10 @@ CRelayChannel takes only a logger (bare parameter, not destructured):
 const channel = new CRelayChannel(createLogger({ name: 'app' }));
 ```
 
+## Participant Management: Race Condition Handling
+
+Maestro capture rules (passive ingestion) and TAC's `addParticipant()` calls (active ingestion) can race. VoiceChannel uses `addOrFetchParticipant()` which checks first, then adds if missing, and catches 409 Conflict to re-fetch what Maestro added. Use `addOrFetchParticipant()` instead of `addParticipant()` when both ingestion modes are active.
+
 ## Dependencies
 
 **Runtime**: twilio, fastify, @fastify/websocket, @fastify/formbody, ws, zod, pino, pino-pretty, dotenv, fastify-graceful-shutdown

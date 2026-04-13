@@ -486,7 +486,7 @@ export class VoiceChannel implements Channel {
       'Created Maestro conversation for voice call'
     );
 
-    const customerParticipant = await this.conversationClient.addParticipant(
+    const customerParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: 'VOICE', address: fromNumber, channelId: callSid }],
       'CUSTOMER'
@@ -494,7 +494,7 @@ export class VoiceChannel implements Channel {
     const profileId = customerParticipant.profileId || '';
     const customerParticipantId = customerParticipant.id;
 
-    const aiAgentParticipant = await this.conversationClient.addParticipant(
+    const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: 'VOICE', address: toNumber, channelId: callSid }],
       'AI_AGENT'

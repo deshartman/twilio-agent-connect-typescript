@@ -237,6 +237,75 @@ export class ConversationClient {
   }
 
   /**
+   * Add a participant if not already present, or fetch existing participant
+   *
+   * Handles race condition between SDK active ingestion and Maestro passive ingestion
+   * (capture rules). When both TAC and Maestro capture rules try to add participants,
+   * they race. This method handles the race defensively:
+   *
+   * 1. Check if participant already exists (Maestro may have added it)
+   * 2. If not, try to add it
+   * 3. If add fails with 409 Conflict (TOCTOU race - Maestro added between check and add),
+   *    re-fetch the participant list and return the one Maestro just added
+   *
+   * This ensures idempotent behavior regardless of timing.
+   *
+   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param addresses - Array of conversation addresses
+   * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
+   * @returns Promise containing the participant (existing or newly created)
+   */
+  public async addOrFetchParticipant(
+    sessionId: SessionId,
+    addresses: ConversationAddress[],
+    participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'
+  ): Promise<ConversationParticipant> {
+    const conversationId = sessionId as ConversationId;
+
+    // First, check if participant already exists (e.g., added by Maestro capture rules)
+    const existingParticipants = await this.listParticipants(conversationId);
+    const existingParticipant = existingParticipants.find(p => p.type === participantType);
+
+    if (existingParticipant) {
+      this.logger.info(
+        { conversation_id: conversationId, participant_type: participantType },
+        'Participant already exists, using existing participant'
+      );
+      return existingParticipant;
+    }
+
+    // Participant doesn't exist, add it
+    this.logger.info(
+      { conversation_id: conversationId, participant_type: participantType },
+      'Adding new participant'
+    );
+    try {
+      return await this.addParticipant(conversationId, addresses, participantType);
+    } catch (error) {
+      // If we get a 409 Conflict, it means Maestro added the participant between our check and our add
+      // (TOCTOU race condition). Re-fetch the participant list to get the one Maestro just added.
+      if (error instanceof Error && error.message.includes('409')) {
+        this.logger.info(
+          { conversation_id: conversationId, participant_type: participantType },
+          'Caught 409 conflict - participant was added by Maestro between check and add, fetching existing participant'
+        );
+        const updatedParticipants = await this.listParticipants(conversationId);
+        const nowExistingParticipant = updatedParticipants.find(p => p.type === participantType);
+        if (nowExistingParticipant) {
+          return nowExistingParticipant;
+        }
+        // Participant still not found after 409, which should be impossible - re-throw
+        this.logger.error(
+          { conversation_id: conversationId, participant_type: participantType },
+          '409 conflict but participant not found after re-fetch - this should not happen'
+        );
+      }
+      // Not a 409 or couldn't find the participant after re-fetch, re-throw
+      throw error;
+    }
+  }
+
+  /**
    * List participants in a conversation
    *
    * @param sessionId - The session ID (internally cast to ConversationId)

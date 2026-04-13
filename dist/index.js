@@ -1213,6 +1213,63 @@ var ConversationClient = class {
     return ConversationParticipantSchema.parse(data);
   }
   /**
+   * Add a participant if not already present, or fetch existing participant
+   *
+   * Handles race condition between SDK active ingestion and Maestro passive ingestion
+   * (capture rules). When both TAC and Maestro capture rules try to add participants,
+   * they race. This method handles the race defensively:
+   *
+   * 1. Check if participant already exists (Maestro may have added it)
+   * 2. If not, try to add it
+   * 3. If add fails with 409 Conflict (TOCTOU race - Maestro added between check and add),
+   *    re-fetch the participant list and return the one Maestro just added
+   *
+   * This ensures idempotent behavior regardless of timing.
+   *
+   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param addresses - Array of conversation addresses
+   * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
+   * @returns Promise containing the participant (existing or newly created)
+   */
+  async addOrFetchParticipant(sessionId, addresses, participantType) {
+    const conversationId = sessionId;
+    const existingParticipants = await this.listParticipants(conversationId);
+    const existingParticipant = existingParticipants.find((p) => p.type === participantType);
+    if (existingParticipant) {
+      this.logger.info(
+        { conversation_id: conversationId, participant_type: participantType },
+        "Participant already exists, using existing participant"
+      );
+      return existingParticipant;
+    }
+    this.logger.info(
+      { conversation_id: conversationId, participant_type: participantType },
+      "Adding new participant"
+    );
+    try {
+      return await this.addParticipant(conversationId, addresses, participantType);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("409")) {
+        this.logger.info(
+          { conversation_id: conversationId, participant_type: participantType },
+          "Caught 409 conflict - participant was added by Maestro between check and add, fetching existing participant"
+        );
+        const updatedParticipants = await this.listParticipants(conversationId);
+        const nowExistingParticipant = updatedParticipants.find(
+          (p) => p.type === participantType
+        );
+        if (nowExistingParticipant) {
+          return nowExistingParticipant;
+        }
+        this.logger.error(
+          { conversation_id: conversationId, participant_type: participantType },
+          "409 conflict but participant not found after re-fetch - this should not happen"
+        );
+      }
+      throw error;
+    }
+  }
+  /**
    * List participants in a conversation
    *
    * @param sessionId - The session ID (internally cast to ConversationId)
@@ -3799,14 +3856,14 @@ var VoiceChannel = class {
       { conversation_id: conversationId, call_sid: callSid },
       "Created Maestro conversation for voice call"
     );
-    const customerParticipant = await this.conversationClient.addParticipant(
+    const customerParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
       "CUSTOMER"
     );
     const profileId = customerParticipant.profileId || "";
     const customerParticipantId = customerParticipant.id;
-    const aiAgentParticipant = await this.conversationClient.addParticipant(
+    const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: "VOICE", address: toNumber, channelId: callSid }],
       "AI_AGENT"
@@ -4101,6 +4158,11 @@ var VoiceWebhookChannel = class extends MessagingChannel {
         );
       }
       const channelId = typeof session.metadata?.channelId === "string" ? session.metadata.channelId : void 0;
+      if (!channelId) {
+        throw new Error(
+          `No channelId (CallSid) found in session metadata for conversation ${conversationId}`
+        );
+      }
       const recipientAddress = session.authorInfo.address;
       const participants = await this.conversationClient.listParticipants(conversationId);
       const voiceParticipants = participants.filter(
@@ -4138,7 +4200,7 @@ var VoiceWebhookChannel = class extends MessagingChannel {
           type: "TEXT",
           text: message
         },
-        ...channelId !== void 0 && { channelId }
+        channelId
       });
       this.logger.info(
         { conversation_id: conversationId, channel_id: channelId },

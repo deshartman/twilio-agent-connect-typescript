@@ -337,6 +337,153 @@ describe('ConversationClient', () => {
     });
   });
 
+  describe('addOrFetchParticipant()', () => {
+    it('should return existing participant if already present', async () => {
+      const existingParticipant = {
+        id: 'PA123',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        accountId: 'ACtest123',
+        type: 'CUSTOMER',
+        addresses: [{ channel: 'VOICE', address: '+15551234567' }],
+        profileId: 'profile_123',
+      };
+
+      // Mock listParticipants to return existing participant
+      global.fetch = vi.fn().mockResolvedValue(
+        createMockResponse({ participants: [existingParticipant] }, { ok: true })
+      );
+
+      const result = await conversationClient.addOrFetchParticipant(
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        [{ channel: 'VOICE', address: '+15551234567' }],
+        'CUSTOMER'
+      );
+
+      expect(result).toEqual(existingParticipant);
+      // Should only call listParticipants, not addParticipant
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/Participants'),
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('should add participant if not present', async () => {
+      const newParticipant = {
+        id: 'PA456',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        accountId: 'ACtest123',
+        type: 'AI_AGENT',
+        addresses: [{ channel: 'VOICE', address: '+15559876543' }],
+      };
+
+      // First call: listParticipants returns empty
+      // Second call: addParticipant succeeds
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(createMockResponse({ participants: [] }, { ok: true }))
+        .mockResolvedValueOnce(createMockResponse(newParticipant, { ok: true, status: 201 }));
+
+      const result = await conversationClient.addOrFetchParticipant(
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        [{ channel: 'VOICE', address: '+15559876543' }],
+        'AI_AGENT'
+      );
+
+      expect(result).toEqual(newParticipant);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle 409 conflict and re-fetch participant (TOCTOU race)', async () => {
+      const maestroAddedParticipant = {
+        id: 'PA789',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        accountId: 'ACtest123',
+        type: 'CUSTOMER',
+        addresses: [{ channel: 'SMS', address: '+15551112222' }],
+        profileId: 'profile_xyz',
+      };
+
+      // First call: listParticipants returns empty (participant not yet added)
+      // Second call: addParticipant fails with 409 (Maestro added it between check and add)
+      // Third call: listParticipants returns the participant Maestro just added
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(createMockResponse({ participants: [] }, { ok: true }))
+        .mockResolvedValueOnce(
+          createMockResponse(null, { ok: false, status: 409, statusText: 'Conflict' })
+        )
+        .mockResolvedValueOnce(
+          createMockResponse({ participants: [maestroAddedParticipant] }, { ok: true })
+        );
+
+      const result = await conversationClient.addOrFetchParticipant(
+        'conv_conversation_01ktestabcdefghijklmnopqrs',
+        [{ channel: 'SMS', address: '+15551112222' }],
+        'CUSTOMER'
+      );
+
+      expect(result).toEqual(maestroAddedParticipant);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+      // Verify sequence: GET (list), POST (add), GET (re-fetch after 409)
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.objectContaining({ method: 'GET' })
+      );
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        2,
+        expect.anything(),
+        expect.objectContaining({ method: 'POST' })
+      );
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('should throw on 409 if participant still not found after re-fetch', async () => {
+      // First call: listParticipants returns empty
+      // Second call: addParticipant fails with 409
+      // Third call: listParticipants still returns empty (shouldn't happen, but test edge case)
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(createMockResponse({ participants: [] }, { ok: true }))
+        .mockResolvedValueOnce(
+          createMockResponse(null, { ok: false, status: 409, statusText: 'Conflict' })
+        )
+        .mockResolvedValueOnce(createMockResponse({ participants: [] }, { ok: true }));
+
+      await expect(
+        conversationClient.addOrFetchParticipant(
+          'conv_conversation_01ktestabcdefghijklmnopqrs',
+          [{ channel: 'VOICE', address: '+15551234567' }],
+          'CUSTOMER'
+        )
+      ).rejects.toThrow('409');
+    });
+
+    it('should throw on non-409 errors', async () => {
+      // First call: listParticipants returns empty
+      // Second call: addParticipant fails with 500
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(createMockResponse({ participants: [] }, { ok: true }))
+        .mockResolvedValueOnce(
+          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
+        );
+
+      await expect(
+        conversationClient.addOrFetchParticipant(
+          'conv_conversation_01ktestabcdefghijklmnopqrs',
+          [{ channel: 'VOICE', address: '+15551234567' }],
+          'CUSTOMER'
+        )
+      ).rejects.toThrow('500');
+    });
+  });
+
   describe('sendCommunication()', () => {
     it('should send communication successfully', async () => {
       const mockResponse = {

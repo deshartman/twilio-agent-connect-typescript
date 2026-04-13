@@ -29,6 +29,7 @@ describe('VoiceChannel', () => {
     const conversationClient = {
       createConversation: vi.fn(),
       addParticipant: vi.fn(),
+      addOrFetchParticipant: vi.fn(),
       listConversations: vi.fn(),
       updateConversation: vi.fn(),
       listParticipants: vi.fn(),
@@ -76,7 +77,7 @@ describe('VoiceChannel', () => {
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
@@ -103,7 +104,7 @@ describe('VoiceChannel', () => {
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
@@ -140,7 +141,7 @@ describe('VoiceChannel', () => {
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'CH_test',
       } as any);
-      vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
+      vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
         id: 'PA_test',
         profileId: 'mem_test',
       } as any);
