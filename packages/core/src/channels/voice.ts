@@ -325,7 +325,9 @@ export class VoiceChannel implements Channel {
     return null;
   }
 
-  public sendResponse(
+  // Wrapping sync code in async to honor Channel interface's Promise<void> contract
+  // eslint-disable-next-line @typescript-eslint/require-await
+  public async sendResponse(
     sessionId: SessionId,
     message: string,
     metadata?: Record<string, unknown>
@@ -346,7 +348,6 @@ export class VoiceChannel implements Channel {
       }
 
       this.crelayVoice.sendResponse(callSid as CallSid, message);
-      return Promise.resolve();
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,

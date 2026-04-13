@@ -161,14 +161,15 @@ export class CRelayChannel implements Channel {
   // Channel Interface
   // ===========================================================================
 
-  public sendResponse(
+  // Wrapping sync code in async to honor Channel interface's Promise<void> contract
+  // eslint-disable-next-line @typescript-eslint/require-await
+  public async sendResponse(
     sessionId: SessionId,
     message: string,
     _metadata?: Record<string, unknown>
   ): Promise<void> {
     try {
       this.crelayVoice.sendResponse(sessionId as CallSid, message);
-      return Promise.resolve();
     } catch (error) {
       this.logger.error({ err: error, call_sid: sessionId }, 'Send response error');
       this.handleError(error instanceof Error ? error : new Error(String(error)), {

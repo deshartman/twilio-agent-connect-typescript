@@ -391,13 +391,16 @@ describe('VoiceChannel', () => {
   });
 
   describe('sendResponse', () => {
-    it('should throw error when ConversationId not found', () => {
+    it('should throw error when ConversationId not found', async () => {
       const { channel } = createVoiceChannel();
 
       // Channel interface: accepts SessionId (ConversationId | CallSid)
-      expect(() => {
-        channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs' as SessionId, 'Test message');
-      }).toThrow('No CallSid found for conversation');
+      await expect(
+        channel.sendResponse(
+          'conv_conversation_01ktestabcdefghijklmnopqrs' as SessionId,
+          'Test message'
+        )
+      ).rejects.toThrow('No CallSid found for conversation');
     });
   });
 });

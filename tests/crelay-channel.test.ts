@@ -385,16 +385,18 @@ describe('CRelayChannel', () => {
       });
     });
 
-    it('should throw when no WebSocket connection exists for the session', () => {
-      // CRelayVoice.sendResponse throws synchronously before Promise.resolve()
-      expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(/No WebSocket connection found/);
+    it('should throw when no WebSocket connection exists for the session', async () => {
+      // CRelayVoice.sendResponse errors are now async promise rejections
+      await expect(channel.sendResponse(CALL_SID, 'test')).rejects.toThrow(
+        /No WebSocket connection found/
+      );
     });
 
-    it('should call onError callback when sendResponse fails', () => {
+    it('should call onError callback when sendResponse fails', async () => {
       const errorCallback = vi.fn();
       channel.on('error', errorCallback);
 
-      expect(() => channel.sendResponse(CALL_SID, 'test message')).toThrow();
+      await expect(channel.sendResponse(CALL_SID, 'test message')).rejects.toThrow();
 
       expect(errorCallback).toHaveBeenCalledTimes(1);
       expect(errorCallback).toHaveBeenCalledWith(
@@ -408,12 +410,12 @@ describe('CRelayChannel', () => {
       );
     });
 
-    it('should include metadata in error context when provided', () => {
+    it('should include metadata in error context when provided', async () => {
       const errorCallback = vi.fn();
       channel.on('error', errorCallback);
       const metadata = { custom: 'data' };
 
-      expect(() => channel.sendResponse(CALL_SID, 'test', metadata)).toThrow();
+      await expect(channel.sendResponse(CALL_SID, 'test', metadata)).rejects.toThrow();
 
       expect(errorCallback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -427,7 +429,7 @@ describe('CRelayChannel', () => {
       );
     });
 
-    it('should handle WebSocket not open error', () => {
+    it('should handle WebSocket not open error', async () => {
       const mockWs = createMockWebSocket();
       mockWs.readyState = 0; // WebSocket.CONNECTING
       channel.handleWebSocketConnection(mockWs);
@@ -437,7 +439,7 @@ describe('CRelayChannel', () => {
       channel.on('error', errorCallback);
 
       // This should fail because WebSocket is not OPEN
-      expect(() => channel.sendResponse(CALL_SID, 'test')).toThrow(/not open/);
+      await expect(channel.sendResponse(CALL_SID, 'test')).rejects.toThrow(/not open/);
       expect(errorCallback).toHaveBeenCalled();
     });
   });

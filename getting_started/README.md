@@ -82,9 +82,9 @@ Update `VOICE_PUBLIC_DOMAIN` in your `.env` file with the full ngrok URL (includ
 
 See [`examples/.env.example`](examples/.env.example) for all available configuration options. Key variables:
 
-### TAC Mode (Required)
+### TAC Mode (Optional; defaults to `conversation`)
 
-- `TAC_MODE`: Operating mode — `crelay`, `conversation`, or `passive`
+- `TAC_MODE`: Operating mode — `crelay`, `conversation`, or `passive` (defaults to `conversation` if unset)
 
 ### Twilio Credentials (Required)
 
