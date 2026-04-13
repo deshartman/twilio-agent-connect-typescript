@@ -77,7 +77,12 @@ describe('TACServer Webhook Validation', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
@@ -349,7 +354,12 @@ describe('TACServer idempotency token', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
@@ -459,7 +469,12 @@ describe('TACServer with conversationRelayConfig', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
@@ -735,7 +750,7 @@ describe('TACServer with conversationRelayConfig', () => {
   });
 });
 
-describe('TACServer crelay mode', () => {
+describe.sequential('TACServer crelay mode', () => {
   let tac: TAC;
   let server: TACServer;
   let currentPort: number;
@@ -766,7 +781,12 @@ describe('TACServer crelay mode', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
@@ -791,7 +811,7 @@ describe('TACServer crelay mode', () => {
   });
 });
 
-describe('TACServer conversation mode routes', () => {
+describe.sequential('TACServer conversation mode routes', () => {
   let tac: TAC;
   let server: TACServer;
   let currentPort: number;
@@ -825,7 +845,12 @@ describe('TACServer conversation mode routes', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
@@ -878,7 +903,7 @@ describe('TACServer conversation mode routes', () => {
   });
 });
 
-describe('TACServer passive mode routes', () => {
+describe.sequential('TACServer passive mode routes', () => {
   let tac: TAC;
   let server: TACServer;
   let currentPort: number;
@@ -910,7 +935,12 @@ describe('TACServer passive mode routes', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop().catch(() => {});
+      try {
+        await server.stop();
+      } catch (error) {
+        console.error('Server cleanup error:', error);
+        // Allow test to complete - don't fail on cleanup
+      }
     }
     tac.shutdown();
   });
