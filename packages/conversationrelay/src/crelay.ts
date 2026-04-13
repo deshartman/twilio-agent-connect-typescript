@@ -11,7 +11,7 @@
  * NO dependency on @twilio/tac-core — completely standalone.
  */
 
-import { WebSocket } from 'ws';
+import { WebSocket, type RawData } from 'ws';
 import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 import type { Logger } from 'pino';
 import {
@@ -119,9 +119,10 @@ export class CRelayVoice {
   public handleConnection(ws: WebSocket): void {
     let callSid: CallSid | null = null;
 
-    ws.on('message', (data: Buffer) => {
+    ws.on('message', (data: RawData) => {
       try {
-        const messageText = data.toString();
+        // ConversationRelay always sends text (JSON) messages, delivered as Buffer by ws
+        const messageText = (data as Buffer).toString();
         const messageData = JSON.parse(messageText) as unknown;
 
         this.logger.debug({ raw_message: messageData }, 'Received ConversationRelay message');

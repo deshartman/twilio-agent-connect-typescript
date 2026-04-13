@@ -4,7 +4,7 @@
  * Generic session abstractions that work with any identifier (CallSid, ConversationId, etc.)
  */
 
-import type { ChannelType } from './index';
+import type { ChannelType } from './config';
 
 /**
  * Base session context - works with any session identifier
