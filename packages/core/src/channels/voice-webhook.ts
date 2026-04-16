@@ -1,5 +1,5 @@
 /**
- * VoiceWebhookChannel — Passive mode voice channel (TAC_MODE=passive)
+ * VoiceWebhookChannel — Webhook-only voice channel for custom CR server setups
  *
  * Handles voice conversations via Maestro webhooks ONLY (no ConversationRelay).
  * Customer has their own CR server; TAC handles Maestro orchestration.

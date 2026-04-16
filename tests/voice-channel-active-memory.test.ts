@@ -13,7 +13,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   let voiceChannel: VoiceChannel;
 
   const getTestConfig = () => ({
-    environment: 'dev' as const,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'SKtest_api_key',

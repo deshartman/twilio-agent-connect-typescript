@@ -58,15 +58,15 @@ const SYSTEM_MESSAGE: OpenAI.Chat.ChatCompletionSystemMessageParam = {
 tac.onMessageReady(async msg => {
   if (msg.messageType !== 'user') return;
 
-  const convId = msg.conversationId;
+  const conversationId = msg.conversationId;
   const memory = msg.conversation?.memory;
 
-  console.log(`Processing chat message for conversation ${convId}`);
+  console.log(`Processing chat message for conversation ${conversationId}`);
 
   try {
     // Initialize conversation history if needed
-    if (!conversationMessages[convId as string]) {
-      conversationMessages[convId as string] = [SYSTEM_MESSAGE];
+    if (!conversationMessages[conversationId as string]) {
+      conversationMessages[conversationId as string] = [SYSTEM_MESSAGE];
     }
 
     // Build user message with memory context
@@ -99,7 +99,7 @@ tac.onMessageReady(async msg => {
     }
 
     // Add user message to history
-    conversationMessages[convId as string].push({
+    conversationMessages[conversationId as string].push({
       role: 'user',
       content: userMessage,
     });
@@ -107,23 +107,23 @@ tac.onMessageReady(async msg => {
     // Call OpenAI
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
-      messages: conversationMessages[convId as string],
+      messages: conversationMessages[conversationId as string],
     });
 
     const llmResponse = response.choices[0]?.message?.content ?? '';
 
     if (llmResponse) {
       // Add assistant response to history
-      conversationMessages[convId as string].push({
+      conversationMessages[conversationId as string].push({
         role: 'assistant',
         content: llmResponse,
       });
 
       // Send response via chat channel
-      await chatChannel.sendResponse(convId, llmResponse);
+      await chatChannel.sendResponse(conversationId, llmResponse);
     }
   } catch (error) {
-    console.error(`Error processing message for conversation ${convId}:`, error);
+    console.error(`Error processing message for conversation ${conversationId}:`, error);
   }
 });
 

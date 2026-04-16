@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { defineTool, createSendMessageTool, createHandoffTool } from '@twilio/tac-tools';
-import { TAC, TACConfig, CallSid, ConversationId } from '@twilio/tac-core';
+import { TAC, TACConfig, ConversationId } from '@twilio/tac-core';
 
 describe('Tool System', () => {
   describe('defineTool', () => {
@@ -289,7 +289,6 @@ describe('Tool System', () => {
 
   describe('built-in tools with ConversationId', () => {
     const getTestConfig = () => ({
-      environment: 'dev' as const,
       twilioAccountSid: 'ACtest123456789',
       twilioAuthToken: 'test_token_123',
       twilioApiKey: 'test_api_key',
@@ -320,25 +319,6 @@ describe('Tool System', () => {
           'Test message',
           undefined
         );
-      });
-
-      it('should accept CallSid (CRelay channel)', async () => {
-        const mockChannel = {
-          channelType: 'voice' as const,
-          sendResponse: vi.fn().mockResolvedValue(undefined),
-          on: vi.fn(),
-          getConversationSession: vi.fn(),
-          isConversationActive: vi.fn(),
-          shutdown: vi.fn(),
-        };
-
-        const callSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
-        const tool = createSendMessageTool(mockChannel, callSid);
-
-        const result = await tool.implementation({ message: 'Test message' });
-
-        expect(result.success).toBe(true);
-        expect(mockChannel.sendResponse).toHaveBeenCalledWith(callSid, 'Test message', undefined);
       });
 
       it('should handle sendResponse failures gracefully', async () => {
@@ -400,20 +380,6 @@ describe('Tool System', () => {
           conversationId,
           'User requested agent'
         );
-      });
-
-      it('should accept CallSid (CRelay mode)', async () => {
-        const config = new TACConfig(getTestConfig());
-        const tac = new TAC({ config });
-        const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
-
-        const callSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
-        const tool = createHandoffTool(tac, callSid);
-
-        const result = await tool.implementation({ reason: 'Urgent issue' });
-
-        expect(result.success).toBe(true);
-        expect(triggerHandoffSpy).toHaveBeenCalledWith(callSid, 'Urgent issue');
       });
 
       it('should include urgency and context in handoff reason', async () => {

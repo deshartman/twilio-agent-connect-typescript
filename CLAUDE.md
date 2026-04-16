@@ -102,7 +102,7 @@ The `getChannelDeps()` method returns:
 
 ## Participant Management: Race Condition Handling
 
-Maestro capture rules (passive ingestion) and TAC's `addParticipant()` calls (active ingestion) can race. VoiceChannel uses `addOrFetchParticipant()` which checks first, then adds if missing, and catches 409 Conflict to re-fetch what Maestro added. Use `addOrFetchParticipant()` instead of `addParticipant()` when both ingestion modes are active.
+Maestro capture rules and TAC's explicit `addParticipant()` calls can race when both try to add participants simultaneously. VoiceChannel uses `addOrFetchParticipant()` which checks first, then adds if missing, and catches 409 Conflict to re-fetch what Maestro added. Use `addOrFetchParticipant()` instead of `addParticipant()` to handle this race condition gracefully.
 
 ## Dependencies
 

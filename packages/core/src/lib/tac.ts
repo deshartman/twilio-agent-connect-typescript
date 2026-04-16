@@ -498,7 +498,7 @@ export class TAC {
       if (!this.conversationClient) {
         throw new Error(
           'Cannot retrieve memory: Memory API not configured and ConversationClient not available. ' +
-            'Ensure either MEMORY_STORE_ID is configured or TAC_MODE=conversation with CONVERSATION_SERVICE_ID.'
+            'Ensure either MEMORY_STORE_ID is configured or CONVERSATION_SERVICE_ID is set.'
         );
       }
 

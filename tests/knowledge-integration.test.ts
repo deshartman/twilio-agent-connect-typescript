@@ -43,7 +43,6 @@ describe('Knowledge Integration', () => {
 
   beforeEach(() => {
     const config = new TACConfig({
-      environment: 'dev',
       twilioAccountSid: 'ACtest123',
       twilioAuthToken: 'test_token',
       twilioApiKey: 'SKtest123',

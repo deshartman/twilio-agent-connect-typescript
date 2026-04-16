@@ -67,7 +67,7 @@ sequenceDiagram
     Server-->>Browser: Access Token
 
     Browser->>TC: 2. Create Conversation & Send Message (SDK)
-    TC-->>CO: 3. Passive hydration
+    TC-->>CO: 3. Conversation sync
 
     CO->>Server: 4. POST /conversation (COMMUNICATION_CREATED)
 

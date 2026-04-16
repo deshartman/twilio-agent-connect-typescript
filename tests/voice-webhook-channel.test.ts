@@ -15,7 +15,6 @@ describe('VoiceWebhookChannel', () => {
   });
 
   const config = new TACConfig({
-    environment: 'prod',
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

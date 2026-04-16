@@ -330,6 +330,12 @@ export class TACServer {
           await reply.code(200).send({ status: 'ok' });
         }
       );
+    } else {
+      this.tac.logger.warn(
+        'No messaging channels (SMS/Chat) are registered. ' +
+          'Webhook route will not be registered. ' +
+          'If you expect to handle SMS or Chat messages, register channels with tac.registerChannel() before creating TACServer.'
+      );
     }
 
     // ── Conversation Intelligence webhook (optional) ──────────────

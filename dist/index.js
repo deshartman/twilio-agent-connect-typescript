@@ -10,20 +10,18 @@ import twilio2 from 'twilio';
 import gracefulShutdown from 'fastify-graceful-shutdown';
 
 // packages/core/src/types/tac.ts
-var EnvironmentSchema = z.enum(["dev", "stage", "prod"]).default("prod");
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
 var TACConfigSchema = z.object({
-  environment: EnvironmentSchema,
   twilioAccountSid: z.string().min(1, "Twilio Account SID is required"),
   twilioAuthToken: z.string().min(1, "Twilio Auth Token is required"),
   twilioApiKey: z.string().min(1, "Twilio API Key is required"),
   twilioApiToken: z.string().min(1, "Twilio API Token is required"),
   twilioPhoneNumber: z.string().min(1, "Twilio Phone Number is required"),
-  memoryStoreId: z.string().regex(/^mem_store_[0-9a-z]{26}$/, "Invalid Memory Store ID format").optional(),
+  memoryStoreId: z.string().regex(/^mem_(service|store)_[0-9a-z]{26}$/, "Invalid Memory Store ID format").optional(),
   traitGroups: z.array(z.string()).optional(),
-  conversationServiceId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format").min(
-    1,
-    "CONVERSATION_SERVICE_ID is required. Set it to your Maestro Conversations Service ID."
+  conversationServiceId: z.string().regex(
+    /^(comms_service|conv_configuration)_[0-9a-z]{26}$/,
+    "Invalid Conversation Configuration ID format"
   ),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
@@ -31,7 +29,6 @@ var TACConfigSchema = z.object({
   cintelSummaryOperatorSid: z.string().optional()
 });
 var EnvironmentVariables = {
-  ENVIRONMENT: "ENVIRONMENT",
   TWILIO_ACCOUNT_SID: "TWILIO_ACCOUNT_SID",
   TWILIO_AUTH_TOKEN: "TWILIO_AUTH_TOKEN",
   TWILIO_API_KEY: "TWILIO_API_KEY",
@@ -45,26 +42,6 @@ var EnvironmentVariables = {
   TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID",
   TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID"
 };
-function computeServiceUrls(environment) {
-  const baseUrls = {
-    dev: {
-      memoryApiUrl: "https://memory.dev-us1.twilio.com",
-      conversationsApiUrl: "https://conversations.dev-us1.twilio.com",
-      knowledgeApiUrl: "https://knowledge.dev.twilio.com"
-    },
-    stage: {
-      memoryApiUrl: "https://memory.stage-us1.twilio.com",
-      conversationsApiUrl: "https://conversations.stage-us1.twilio.com",
-      knowledgeApiUrl: "https://knowledge.stage.twilio.com"
-    },
-    prod: {
-      memoryApiUrl: "https://memory.twilio.com",
-      conversationsApiUrl: "https://conversations.twilio.com",
-      knowledgeApiUrl: "https://knowledge.twilio.com"
-    }
-  };
-  return baseUrls[environment];
-}
 var VoiceServerConfigSchema = z.object({
   host: z.string().default("0.0.0.0"),
   port: z.number().int().nonnegative().default(3e3)
@@ -189,7 +166,7 @@ var ConversationParticipantSchema = z.object({
   conversationId: z.string(),
   accountId: z.string(),
   name: z.string().optional(),
-  type: z.enum(["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]).optional(),
+  type: z.enum(["HUMAN_AGENT", "CUSTOMER", "AI_AGENT", "AGENT", "UNKNOWN"]).optional(),
   profileId: z.string().nullable().optional(),
   addresses: z.array(ConversationAddressSchema).default([]),
   createdAt: z.string().optional(),
@@ -495,6 +472,76 @@ var TACCustomParametersSchema = z.object({
   customer_participant_id: z.string().optional(),
   ai_agent_participant_id: z.string().optional()
 });
+z.object({
+  /** Language code (e.g., 'en-US', 'es-ES', 'en-AU') */
+  code: z.string(),
+  /** TTS provider for this language */
+  ttsProvider: z.string().optional(),
+  /** TTS voice for this language */
+  voice: z.string().optional(),
+  /** TTS language (may differ from code) */
+  ttsLanguage: z.string().optional(),
+  /** Transcription provider for this language */
+  transcriptionProvider: z.string().optional(),
+  /** Speech model for transcription */
+  speechModel: z.string().optional(),
+  /** Transcription language (may differ from code) */
+  transcriptionLanguage: z.string().optional()
+});
+z.object({
+  /** WebSocket URL for ConversationRelay (required) */
+  url: z.string().url(),
+  // Welcome greeting settings
+  /** Initial greeting to play when call connects */
+  welcomeGreeting: z.string().optional(),
+  /** Whether welcome greeting can be interrupted */
+  welcomeGreetingInterruptible: z.enum(["any", "speech", "none"]).optional(),
+  // Transcription settings
+  /** Transcription provider (e.g., 'Deepgram', 'Google') */
+  transcriptionProvider: z.string().optional(),
+  /** Language for transcription (e.g., 'en-US') */
+  transcriptionLanguage: z.string().optional(),
+  /** Speech model for transcription (e.g., 'nova-3-general') */
+  speechModel: z.string().optional(),
+  // TTS settings
+  /** Text-to-speech provider (e.g., 'Google', 'ElevenLabs') */
+  ttsProvider: z.string().optional(),
+  /** Language for TTS (e.g., 'en-US') */
+  ttsLanguage: z.string().optional(),
+  /** Voice identifier for TTS (e.g., 'en-US-Journey-O') */
+  voice: z.string().optional(),
+  /** ElevenLabs text normalization setting */
+  elevenlabsTextNormalization: z.string().optional(),
+  // Interaction settings
+  /** When agent speech can be interrupted */
+  interruptible: z.enum(["any", "speech", "none"]).optional(),
+  /** Interrupt detection sensitivity */
+  interruptSensitivity: z.enum(["low", "medium", "high"]).optional(),
+  /** Enable DTMF tone detection */
+  dtmfDetection: z.boolean().optional(),
+  /** Recognition hints for domain-specific vocabulary */
+  hints: z.string().optional(),
+  /** Whether prompts should be reported when TTS is playing and interrupt is disabled */
+  reportInputDuringAgentSpeech: z.boolean().optional(),
+  // Advanced settings
+  /** Enable partial prompts (streaming) */
+  partialPrompts: z.boolean().optional(),
+  /** Enable profanity filtering */
+  profanityFilter: z.boolean().optional(),
+  /** Allow preemption of agent speech */
+  preemptible: z.boolean().optional(),
+  /** Default language code */
+  language: z.string().optional(),
+  /** Debug options for troubleshooting (string per SDK, not boolean) */
+  debug: z.string().optional(),
+  // Intelligence service
+  /** Conversational Intelligence Service ID or unique name */
+  intelligenceService: z.string().optional(),
+  // Conversation orchestrator
+  /** Twilio Conversation Orchestrator configuration ID */
+  conversationConfiguration: z.string().optional()
+});
+z.record(z.unknown());
 var JSONSchemaSchema = z.object({
   type: z.enum(["object", "string", "number", "boolean", "array"]),
   properties: z.record(z.any()).optional(),
@@ -608,7 +655,6 @@ var KnowledgeSearchResponseSchema = z.object({
 
 // packages/core/src/lib/config.ts
 var TACConfig = class _TACConfig {
-  environment;
   twilioAccountSid;
   twilioAuthToken;
   twilioApiKey;
@@ -621,13 +667,8 @@ var TACConfig = class _TACConfig {
   cintelConfigurationId;
   cintelObservationOperatorSid;
   cintelSummaryOperatorSid;
-  memoryApiUrl;
-  conversationsApiUrl;
-  knowledgeApiUrl;
   constructor(data) {
     const validatedConfig = TACConfigSchema.parse(data);
-    const serviceUrls = computeServiceUrls(validatedConfig.environment);
-    this.environment = validatedConfig.environment;
     this.twilioAccountSid = validatedConfig.twilioAccountSid;
     this.twilioAuthToken = validatedConfig.twilioAuthToken;
     this.twilioApiKey = validatedConfig.twilioApiKey;
@@ -652,15 +693,11 @@ var TACConfig = class _TACConfig {
     if (validatedConfig.cintelSummaryOperatorSid) {
       this.cintelSummaryOperatorSid = validatedConfig.cintelSummaryOperatorSid;
     }
-    this.memoryApiUrl = serviceUrls.memoryApiUrl;
-    this.conversationsApiUrl = serviceUrls.conversationsApiUrl;
-    this.knowledgeApiUrl = serviceUrls.knowledgeApiUrl;
   }
   /**
    * Create TACConfig from environment variables.
    *
    * Loads configuration from the following environment variables:
-   * - ENVIRONMENT: TAC environment (dev, stage, or prod) - defaults to 'prod'
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
@@ -697,7 +734,6 @@ var TACConfig = class _TACConfig {
       }
     }
     const rawConfig = {
-      environment: process.env[EnvironmentVariables.ENVIRONMENT] ?? "prod",
       twilioAccountSid: process.env[EnvironmentVariables.TWILIO_ACCOUNT_SID],
       twilioAuthToken: process.env[EnvironmentVariables.TWILIO_AUTH_TOKEN],
       twilioApiKey: process.env[EnvironmentVariables.TWILIO_API_KEY],
@@ -745,11 +781,10 @@ function createLogger(options) {
 
 // packages/core/src/clients/memory.ts
 var MemoryClient = class {
-  baseUrl;
+  baseUrl = "https://memory.twilio.com";
   credentials;
   logger;
   constructor(config, logger2) {
-    this.baseUrl = config.memoryApiUrl;
     this.credentials = {
       username: config.twilioApiKey,
       password: config.twilioApiToken
@@ -1033,17 +1068,11 @@ var MemoryClient = class {
 
 // packages/core/src/clients/conversation.ts
 var ConversationClient = class {
-  baseUrl;
+  baseUrl = "https://conversations.twilio.com";
   credentials;
   conversationServiceId;
   logger;
   constructor(config, logger2) {
-    if (!config.conversationServiceId) {
-      throw new Error(
-        "ConversationClient requires CONVERSATION_SERVICE_ID to be configured. Ensure TAC_MODE is set to conversation or passive, and CONVERSATION_SERVICE_ID is set."
-      );
-    }
-    this.baseUrl = config.conversationsApiUrl;
     this.credentials = {
       username: config.twilioApiKey,
       password: config.twilioApiToken
@@ -1408,11 +1437,10 @@ var ConversationClient = class {
 
 // packages/core/src/clients/knowledge.ts
 var KnowledgeClient = class {
-  baseUrl;
+  baseUrl = "https://knowledge.twilio.com";
   credentials;
   logger;
   constructor(config, logger2) {
-    this.baseUrl = config.knowledgeApiUrl;
     this.credentials = {
       username: config.twilioApiKey,
       password: config.twilioApiToken
@@ -2224,7 +2252,7 @@ var TAC = class {
     } else {
       if (!this.conversationClient) {
         throw new Error(
-          "Cannot retrieve memory: Memory API not configured and ConversationClient not available. Ensure either MEMORY_STORE_ID is configured or TAC_MODE=conversation with CONVERSATION_SERVICE_ID."
+          "Cannot retrieve memory: Memory API not configured and ConversationClient not available. Ensure either MEMORY_STORE_ID is configured or CONVERSATION_SERVICE_ID is set."
         );
       }
       this.logger.info("Twilio Memory not configured, falling back to Conversations API");
@@ -2855,7 +2883,9 @@ var SMSChannel = class extends MessagingChannel {
           (addr) => addr.channel === "SMS" && addr.address === this.config.twilioPhoneNumber
         )
       );
-      const agentParticipant = smsParticipants.find((p) => p.type === "AI_AGENT" || p.type === "HUMAN_AGENT") ?? smsParticipants[0];
+      const agentParticipant = smsParticipants.find(
+        (p) => p.type === "AI_AGENT" || p.type === "HUMAN_AGENT" || p.type === "AGENT"
+      ) ?? smsParticipants[0];
       if (!agentParticipant) {
         throw new Error(
           `Agent participant not found for conversation ${conversationId} with phone ${this.config.twilioPhoneNumber}`
@@ -2951,7 +2981,7 @@ var ChatChannel = class extends MessagingChannel {
       }
       const recipientAddress = session.authorInfo.address;
       const participants = await this.conversationClient.listParticipants(conversationId);
-      let agentParticipant = participants.find((p) => p.type === "AI_AGENT");
+      let agentParticipant = participants.find((p) => p.type === "AI_AGENT" || p.type === "AGENT");
       if (!agentParticipant) {
         this.logger.debug(
           {
@@ -2982,7 +3012,9 @@ var ChatChannel = class extends MessagingChannel {
             "Failed to create AI_AGENT participant, attempting to list participants again"
           );
           const retriedParticipants = await this.conversationClient.listParticipants(conversationId);
-          agentParticipant = retriedParticipants.find((p) => p.type === "AI_AGENT");
+          agentParticipant = retriedParticipants.find(
+            (p) => p.type === "AI_AGENT" || p.type === "AGENT"
+          );
           if (!agentParticipant) {
             throw new Error(
               `Failed to create or find AI_AGENT participant for conversation ${conversationId}`
@@ -3087,7 +3119,7 @@ z.object({
   token: z.string(),
   last: z.boolean().optional().default(true)
 });
-var LanguageAttributesSchema = z.object({
+var LanguageAttributesSchema2 = z.object({
   /** Language code (e.g., 'en-US', 'es-ES', 'en-AU') */
   code: z.string(),
   /** TTS provider for this language */
@@ -3103,7 +3135,7 @@ var LanguageAttributesSchema = z.object({
   /** Transcription language (may differ from code) */
   transcriptionLanguage: z.string().optional()
 });
-var ConversationRelayAttributesSchema = z.object({
+var ConversationRelayAttributesSchema2 = z.object({
   /** WebSocket URL for ConversationRelay (required) */
   url: z.string().url(),
   // Welcome greeting settings
@@ -3153,11 +3185,11 @@ var ConversationRelayAttributesSchema = z.object({
   /** Conversational Intelligence Service ID or unique name */
   intelligenceService: z.string().optional()
 });
-var ConversationRelayConfigSchema = ConversationRelayAttributesSchema.extend({
+var ConversationRelayConfigSchema = ConversationRelayAttributesSchema2.extend({
   /** Optional language configurations as child <Language> elements */
-  languages: z.array(LanguageAttributesSchema).optional()
+  languages: z.array(LanguageAttributesSchema2).optional()
 });
-var CustomParametersSchema = z.record(z.string(), z.unknown()).refine(
+var CustomParametersSchema2 = z.record(z.string(), z.unknown()).refine(
   (params) => {
     return Object.keys(params).every((key) => key.trim().length > 0);
   },
@@ -3404,7 +3436,7 @@ var ConversationRelay = class _ConversationRelay {
     }
     const validatedConfig = validationResult.data;
     if (parameters) {
-      const paramsValidation = CustomParametersSchema.safeParse(parameters);
+      const paramsValidation = CustomParametersSchema2.safeParse(parameters);
       if (!paramsValidation.success) {
         const errorMessage = paramsValidation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ");
         throw new Error(`Invalid custom parameters: ${errorMessage}`);
@@ -4567,6 +4599,10 @@ var TACServer = class {
           await reply.code(200).send({ status: "ok" });
         }
       );
+    } else {
+      this.tac.logger.warn(
+        "No messaging channels (SMS/Chat) are registered. Webhook route will not be registered. If you expect to handle SMS or Chat messages, register channels with tac.registerChannel() before creating TACServer."
+      );
     }
     if (this.config.webhookPaths.cintel) {
       this.fastify.post(
@@ -4705,6 +4741,6 @@ var TACServer = class {
   }
 };
 
-export { AuthorInfoSchema, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentSchema, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, computeServiceUrls, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { AuthorInfoSchema, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map
