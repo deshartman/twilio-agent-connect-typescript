@@ -23,7 +23,7 @@ import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Twilio from 'twilio';
-import { TAC, TACConfig, ChatChannel, ConversationId } from 'twilio-agent-connect';
+import { TAC, TACConfig, ChatChannel } from 'twilio-agent-connect';
 
 // Load environment variables from parent directory
 config({ path: '../.env' });
@@ -58,15 +58,15 @@ const SYSTEM_MESSAGE: OpenAI.Chat.ChatCompletionSystemMessageParam = {
 tac.onMessageReady(async msg => {
   if (msg.messageType !== 'user') return;
 
-  const convId = msg.sessionId;
+  const convId = msg.conversationId;
   const memory = msg.conversation?.memory;
 
   console.log(`Processing chat message for conversation ${convId}`);
 
   try {
     // Initialize conversation history if needed
-    if (!conversationMessages[convId]) {
-      conversationMessages[convId] = [SYSTEM_MESSAGE];
+    if (!conversationMessages[convId as string]) {
+      conversationMessages[convId as string] = [SYSTEM_MESSAGE];
     }
 
     // Build user message with memory context
@@ -99,7 +99,7 @@ tac.onMessageReady(async msg => {
     }
 
     // Add user message to history
-    conversationMessages[convId].push({
+    conversationMessages[convId as string].push({
       role: 'user',
       content: userMessage,
     });
@@ -107,20 +107,20 @@ tac.onMessageReady(async msg => {
     // Call OpenAI
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
-      messages: conversationMessages[convId],
+      messages: conversationMessages[convId as string],
     });
 
     const llmResponse = response.choices[0]?.message?.content ?? '';
 
     if (llmResponse) {
       // Add assistant response to history
-      conversationMessages[convId].push({
+      conversationMessages[convId as string].push({
         role: 'assistant',
         content: llmResponse,
       });
 
       // Send response via chat channel
-      await chatChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+      await chatChannel.sendResponse(convId, llmResponse);
     }
   } catch (error) {
     console.error(`Error processing message for conversation ${convId}:`, error);
@@ -129,8 +129,8 @@ tac.onMessageReady(async msg => {
 
 // Register conversation ended handler
 tac.onConversationEnded(({ session }) => {
-  console.log(`Chat conversation ${session.sessionId} ended`);
-  delete conversationMessages[session.sessionId];
+  console.log(`Chat conversation ${session.conversationId} ended`);
+  delete conversationMessages[session.conversationId as string];
 });
 
 // Get __dirname equivalent for ESM

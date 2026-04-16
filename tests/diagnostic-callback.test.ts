@@ -20,7 +20,6 @@ describe('Diagnostic: Callback Wiring', () => {
       twilioApiKey: 'SKtest123',
       twilioApiToken: 'test_api_token',
       twilioPhoneNumber: '+15551234567',
-      tacMode: 'conversation',
       conversationServiceId: 'conv_configuration_01kdiagtest123456789012345',
     });
 

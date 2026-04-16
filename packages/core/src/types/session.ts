@@ -14,9 +14,9 @@ import type { ChannelType } from './config';
  */
 export interface SessionContext {
   /**
-   * Session identifier - generic string that can be CallSid, ConversationId, or any identifier
+   * Conversation identifier
    */
-  sessionId: string;
+  conversationId: string;
 
   /**
    * Channel type for this session

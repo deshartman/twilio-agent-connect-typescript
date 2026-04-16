@@ -48,9 +48,9 @@ getting_started/  # Example apps (OpenAI integration)
 - **TAC composition** (`packages/core/src/lib/tac.ts`): Channels are composed into TAC (held by reference), not inherited from TAC. TAC stores channels in `Map<ChannelType, Channel>` and delegates to them
 - **Channel inheritance hierarchy** (`packages/core/src/channels/`):
   - Messaging channels (`SMSChannel`, `ChatChannel`, `VoiceWebhookChannel`) extend abstract `MessagingChannel` base class for shared webhook handling logic
-  - Non-messaging channels (`CRelayChannel`, `VoiceChannel`) implement `Channel` interface directly
-  - All channels share same `channelType: 'voice'` for voice channels (differentiated by TAC mode: crelay/conversation/passive)
-- **Channel construction**: Maestro channels take `{ config, logger, conversationClient, memoryRetriever? }`, CRelayChannel takes `logger` only
+  - `VoiceChannel` implements `Channel` interface directly
+  - All channels share same `channelType: 'voice'` for voice channels
+- **Channel construction**: All channels take `{ config, logger, conversationClient, memoryRetriever? }` via `tac.getChannelDeps()`
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars; environment-aware API URL computation (dev/stage/prod)
@@ -59,71 +59,46 @@ getting_started/  # Example apps (OpenAI integration)
 
 ## Channel Architecture
 
-TAC provides three operating modes, selected via `TAC_MODE`:
+TAC provides multi-channel conversation orchestration using Maestro Conversations Service.
 
-### CRelayChannel (CR-only mode)
-- **Mode**: `TAC_MODE=crelay`
-- **Use case**: Voice-only applications without Maestro Conversations Service
-- **Channels**: `CRelayChannel` only (wraps `CRelayVoice` from CR package)
-- **Features**: WebSocket voice protocol, basic session tracking, all CR events (setup, prompt, interrupt, dtmf, info)
-- **No**: ConversationClient, Memory, Knowledge, multi-channel
-- **Session ID**: CallSid
-- **Import**: `import { CRelayChannel } from '@twilio/tac-core'`
+### Channels
+- **VoiceChannel**: Voice calls via ConversationRelay WebSocket + Maestro
+- **SMSChannel**: SMS messages via Maestro webhooks
+- **ChatChannel**: Web chat via Maestro webhooks
+- **VoiceWebhookChannel**: (Advanced) Voice via webhooks only - manual construction for BYO CR server
 
-### VoiceChannel + SMS/Chat (Conversation mode)
-- **Mode**: `TAC_MODE=conversation`
-- **Use case**: Multi-channel with full Maestro integration
-- **Channels**: `VoiceChannel` (CR + Maestro), `SMSChannel`, `ChatChannel`
-- **Features**: Memory, profiles, multi-channel orchestration, participant management, rich CR events
-- **Requires**: `CONVERSATION_SERVICE_ID`
-- **Session ID**: ConversationId from Maestro
-- **Import**: `import { VoiceChannel, SMSChannel, ChatChannel } from '@twilio/tac-core'`
-
-### VoiceWebhookChannel + SMS/Chat (Passive mode)
-- **Mode**: `TAC_MODE=passive`
-- **Use case**: BYO ConversationRelay server, TAC handles Maestro orchestration only
-- **Channels**: `VoiceWebhookChannel`, `SMSChannel`, `ChatChannel`
-- **Features**: Same Maestro features as conversation mode, but no WebSocket/TwiML routes
-- **Requires**: `CONVERSATION_SERVICE_ID`
-- **Session ID**: ConversationId from Maestro
-- **Import**: `import { VoiceWebhookChannel, SMSChannel, ChatChannel } from '@twilio/tac-core'`
+### Session Identity
+- Session ID is always `ConversationId` (Maestro conversation identifier)
+- Single conversation thread across all channels (voice, SMS, chat)
+- Session identity provided via `CONVERSATION_SERVICE_ID` (required)
 
 ### Unified ChannelMessage
 
 All channels emit a unified `ChannelMessage` via `onMessageReady`:
 ```typescript
 {
-  sessionId: SessionId;             // CallSid (CR) or ConversationId (Maestro)
+  conversationId: ConversationId;  // Maestro conversation identifier
   messageType: 'user' | 'system';  // 'user' = generate response, 'system' = context only
   message: string;                 // Human-readable text for LLM
   channel: ChannelType;            // 'voice' | 'sms' | 'chat'
   metadata?: Record<string, unknown>;  // Source type in metadata.type
-  conversation?: { ... };          // Only in conversation/passive modes (Maestro)
+  conversation?: { ... };          // Maestro conversation context (memory, profile, etc.)
 }
 ```
 
-### Session Identity Types
-
-Each layer uses the appropriate branded type:
-- **Channel interface / TAC**: `SessionId = CallSid | ConversationId` — the honest union abstraction
-- **CRelayChannel**: `CallSid` internally — CR-specific call identifier
-- **Maestro channels**: `ConversationId` internally — Maestro conversation identifier
-- **Tools package**: `ConversationId` — Maestro-specific (handoff contract redesign pending)
-
-`ChannelMessage.sessionId` is typed as `SessionId`, so `msg.sessionId` flows directly to `sendResponse()` without casts in CR mode. Conversation-mode examples calling concrete Maestro channel types cast `msg.sessionId as ConversationId`.
-
 ### Channel Construction
 
-Maestro channels (VoiceChannel, SMSChannel, ChatChannel, VoiceWebhookChannel) take explicit deps:
+All channels take explicit dependencies via `tac.getChannelDeps()`:
 ```typescript
-const channel = new SMSChannel(tac.getChannelDeps());
-// or manually: new SMSChannel({ config, logger, conversationClient, memoryRetriever })
+const channel = new VoiceChannel(tac.getChannelDeps());
+// or manually: new VoiceChannel({ config, logger, conversationClient, memoryRetriever })
 ```
 
-CRelayChannel takes only a logger (bare parameter, not destructured):
-```typescript
-const channel = new CRelayChannel(createLogger({ name: 'app' }));
-```
+The `getChannelDeps()` method returns:
+- `config`: TACConfig instance
+- `logger`: Pino logger
+- `conversationClient`: ConversationClient (always available - CONVERSATION_SERVICE_ID is required)
+- `memoryRetriever`: MemoryRetriever function (if Memory is configured)
 
 ## Participant Management: Race Condition Handling
 
@@ -174,12 +149,14 @@ const server = new TACServer(tac, {
 
 All ConversationRelay attributes except `url` are supported (see `packages/conversationrelay/src/types.ts`). The `url` field is automatically set by the server based on the request host and WebSocket path.
 
-### Mode-Conditional Routes
+### Server Routes
 
-TACServer only registers routes needed for the active mode:
-- **crelay**: WebSocket + TwiML + ConversationRelay callback + silent sink on `/webhook` (gracefully handles Maestro events if user has a Conversations Service webhook URL on the same domain)
-- **conversation**: WebSocket + TwiML + CR callback + messaging webhook + cintel (if configured)
-- **passive**: messaging webhook + cintel (if configured) — no WebSocket, TwiML, or CR callback
+TACServer registers the following routes for multi-channel conversation orchestration:
+- **Voice routes**: WebSocket endpoint (`/ws`), TwiML webhook (`/twiml`), ConversationRelay callback (`/conversation-relay-callback`)
+- **Messaging routes**: Maestro webhook endpoint (`/webhook`) for SMS, Chat, and voice webhook events
+- **Optional routes**: Conversation Intelligence webhook (`/cintel`) - only registered if `webhookPaths.cintel` is configured
+
+All routes are registered automatically based on channel availability. The server supports full Maestro integration with ConversationRelay WebSocket for voice.
 
 ## Pull Requests
 

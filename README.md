@@ -12,7 +12,7 @@ Explore the [getting_started](getting_started) directory to see the SDK in actio
 ## Key Features
 
 - **Multi-Channel Support**: SMS, Voice (ConversationRelay), and Chat channels
-- **Three Operating Modes**: CR-only (`crelay`), full Maestro (`conversation`), or BYO CR server (`passive`)
+- **Unified Architecture**: Uses Maestro Conversations Service for all channels with ConversationRelay for voice
 - **Memory Management**: Automatic integration with Twilio Memory for persistent user context
 - **Conversation Lifecycle**: Automatic tracking of conversation sessions and state
 - **Type-Safe**: Full TypeScript support with strict type checking
@@ -49,15 +49,17 @@ If you have an existing project, you can install directly from GitHub:
 npm install git@github.com:twilio-innovation/twilio-agent-connect-typescript.git
 ```
 
-## Operating Modes
+## Architecture
 
-TAC supports three operating modes via the `TAC_MODE` environment variable:
+TAC uses **Maestro Conversations Service** for unified conversation orchestration across all channels:
 
-| Mode | Description | Channels | Requires |
-|------|-------------|----------|----------|
-| `crelay` | Voice-only via ConversationRelay, no Maestro | `CRelayChannel` | — |
-| `conversation` | Multi-channel with full Maestro integration | `VoiceChannel`, `SMSChannel`, `ChatChannel` | `CONVERSATION_SERVICE_ID` |
-| `passive` | Maestro-only (bring your own CR server) | `VoiceWebhookChannel`, `SMSChannel`, `ChatChannel` | `CONVERSATION_SERVICE_ID` |
+- **Voice**: Integrates ConversationRelay WebSocket with Maestro for real-time bidirectional streaming
+- **SMS**: Maestro webhook ingestion and response delivery
+- **Chat**: Maestro webhook ingestion and response delivery
+
+All channels require `CONVERSATION_SERVICE_ID` to be configured in your environment.
+
+For advanced use cases, `VoiceWebhookChannel` is available for bring-your-own ConversationRelay server setups (webhook-only, no WebSocket management).
 
 ## Quick Examples
 
@@ -65,7 +67,7 @@ Create Memory and Conversation services through the [Twilio Console](https://1co
 
 ### Multi-Channel with OpenAI SDK
 
-Build an AI agent that works across both Voice and SMS channels with conversation memory and user context. Requires `TAC_MODE=conversation`.
+Build an AI agent that works across both Voice and SMS channels with conversation memory and user context.
 
 First, install the required dependencies in the repository:
 
@@ -108,7 +110,7 @@ tac.onMessageReady(async msg => {
   // Only generate responses for user messages, not system events
   if (msg.messageType !== 'user') return;
 
-  const convId = msg.sessionId;
+  const convId = msg.conversationId;
 
   if (!conversationHistory[convId]) {
     conversationHistory[convId] = [];
@@ -126,9 +128,9 @@ tac.onMessageReady(async msg => {
 
   // Send response based on channel
   if (msg.channel === 'voice') {
-    await voiceChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+    await voiceChannel.sendResponse(msg.conversationId as ConversationId, llmResponse);
   } else if (msg.channel === 'sms') {
-    await smsChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+    await smsChannel.sendResponse(msg.conversationId as ConversationId, llmResponse);
   }
 });
 

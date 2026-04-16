@@ -1,4 +1,4 @@
-import { BuiltInTools, SessionId, TAC } from '@twilio/tac-core';
+import { BuiltInTools, ConversationId, TAC } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
 /**
@@ -25,11 +25,11 @@ interface HandoffResult {
  * Create human handoff tool
  *
  * @param tac - The TAC instance
- * @param sessionId - The session ID (accepts CallSid or ConversationId)
+ * @param conversationId - The conversation ID
  */
 export function createHandoffTool(
   tac: TAC,
-  sessionId: SessionId
+  conversationId: ConversationId
 ): TACTool<HandoffParams, HandoffResult> {
   return defineTool(
     BuiltInTools.ESCALATE_TO_HUMAN,
@@ -71,8 +71,8 @@ export function createHandoffTool(
           fullReason += `\n\nUrgency: ${params.urgency}`;
         }
 
-        // Trigger the handoff callback - TAC.triggerHandoff accepts SessionId and casts internally
-        await tac.triggerHandoff(sessionId, fullReason);
+        // Trigger the handoff callback
+        await tac.triggerHandoff(conversationId, fullReason);
 
         return {
           success: true,
@@ -115,8 +115,9 @@ export function createHandoffTools() {
      * Create handoff tool for specific TAC instance and session
      *
      * @param tac - The TAC instance
-     * @param sessionId - The session ID (accepts CallSid or ConversationId)
+     * @param conversationId - The conversation ID
      */
-    forSession: (tac: TAC, sessionId: SessionId) => createHandoffTool(tac, sessionId),
+    forSession: (tac: TAC, conversationId: ConversationId) =>
+      createHandoffTool(tac, conversationId),
   };
 }

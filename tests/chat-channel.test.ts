@@ -16,7 +16,6 @@ describe('Chat Channel', () => {
 
   const config = new TACConfig({
     environment: 'prod',
-    tacMode: 'conversation',
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -75,7 +74,7 @@ describe('Chat Channel', () => {
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
       expect(startedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
           channel: 'chat',
         }),
@@ -107,7 +106,7 @@ describe('Chat Channel', () => {
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
       expect(messageCallback).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello from chat',
           channel: 'chat',
@@ -217,7 +216,7 @@ describe('Chat Channel', () => {
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
       expect(endedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           channel: 'chat',
         }),
       });

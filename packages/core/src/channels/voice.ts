@@ -1,16 +1,16 @@
 /**
- * VoiceChannel — CR + Maestro voice channel (TAC_MODE=conversation)
+ * VoiceChannel — CR + Maestro voice channel
  *
  * Handles voice conversations using ConversationRelay WebSocket protocol
  * WITH full Maestro Conversations Service integration. Always has ConversationClient.
- * Uses CRelayVoice from the CR package for WebSocket protocol handling.
+ * Uses ConversationRelay from the CR package for WebSocket protocol handling.
  *
  * All CR events are emitted as unified 'message' events with conversation bundle.
  */
 
 import { WebSocket } from 'ws';
 import {
-  CRelayVoice,
+  ConversationRelay,
   type CallSid,
   type SetupMessage,
   type PromptMessage,
@@ -25,7 +25,6 @@ import {
   type ProfileId,
   type ChannelMessage,
   type MemoryRetriever,
-  type SessionId,
   isConversationId,
   isProfileId,
   type Channel,
@@ -39,7 +38,7 @@ import { TACMemoryResponse } from '../lib/tac-memory-response';
 /**
  * Voice Channel — Conversation mode (CR + Maestro)
  *
- * Uses CRelayVoice for WebSocket protocol handling. Always has ConversationClient.
+ * Uses ConversationRelay for WebSocket protocol handling. Always has ConversationClient.
  * Creates Maestro conversations and participants in handleIncomingCall().
  * Emits all CR events as unified 'message' events with conversation bundle.
  */
@@ -49,7 +48,7 @@ export class VoiceChannel implements Channel {
   protected readonly conversationClient: ConversationClient;
   protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
-  private readonly crelayVoice: CRelayVoice;
+  private readonly conversationRelay: ConversationRelay;
   private readonly callSidToConversationId: Map<string, ConversationId>;
   private readonly memoryRetriever?: MemoryRetriever | undefined;
 
@@ -67,23 +66,23 @@ export class VoiceChannel implements Channel {
     this.callbacks = {};
     this.callSidToConversationId = new Map();
 
-    // Initialize CRelayVoice for WebSocket protocol handling
-    this.crelayVoice = new CRelayVoice(deps.logger.child({ component: 'crelay' }));
+    // Initialize ConversationRelay for WebSocket protocol handling
+    this.conversationRelay = new ConversationRelay(deps.logger.child({ component: 'crelay' }));
 
-    // Wire up CRelayVoice callbacks
-    this.crelayVoice.onSessionStarted((callSid, _session, data) => {
+    // Wire up ConversationRelay callbacks
+    this.conversationRelay.onSessionStarted((callSid, _session, data) => {
       this.handleSetupFromRelay(callSid, data);
     });
 
-    this.crelayVoice.onMessage((callSid, _message, data) => {
+    this.conversationRelay.onMessage((callSid, _message, data) => {
       this.handlePromptFromRelay(callSid, data);
     });
 
-    this.crelayVoice.onInterrupt((callSid, data) => {
+    this.conversationRelay.onInterrupt((callSid, data) => {
       this.handleInterruptFromRelay(callSid, data);
     });
 
-    this.crelayVoice.onDtmf((callSid, data) => {
+    this.conversationRelay.onDtmf((callSid, data) => {
       const conversationId = this.callSidToConversationId.get(callSid as string);
       if (conversationId) {
         this.emitMessage(conversationId, {
@@ -94,7 +93,7 @@ export class VoiceChannel implements Channel {
       }
     });
 
-    this.crelayVoice.onInfo((callSid, data) => {
+    this.conversationRelay.onInfo((callSid, data) => {
       const conversationId = this.callSidToConversationId.get(callSid as string);
       if (conversationId) {
         this.emitMessage(conversationId, {
@@ -105,11 +104,11 @@ export class VoiceChannel implements Channel {
       }
     });
 
-    this.crelayVoice.onSessionEnded(callSid => {
+    this.conversationRelay.onSessionEnded(callSid => {
       this.handleCloseFromRelay(callSid);
     });
 
-    this.crelayVoice.onError((callSid, error) => {
+    this.conversationRelay.onError((callSid, error) => {
       this.handleError(error, { callSid: callSid as string });
     });
 
@@ -136,7 +135,7 @@ export class VoiceChannel implements Channel {
     const session = this.getConversationSession(conversationId);
 
     const channelMessage: ChannelMessage = {
-      sessionId: conversationId,
+      conversationId: conversationId,
       messageType: msg.messageType,
       message: msg.message,
       channel: 'voice',
@@ -161,7 +160,7 @@ export class VoiceChannel implements Channel {
   }
 
   // ===========================================================================
-  // CRelayVoice → VoiceChannel Bridge
+  // ConversationRelay → VoiceChannel Bridge
   // ===========================================================================
 
   private handleSetupFromRelay(_callSid: CallSid, data: SetupMessage): void {
@@ -319,7 +318,7 @@ export class VoiceChannel implements Channel {
   public getWebsocket(conversationId: ConversationId): WebSocket | null {
     for (const [callSid, convId] of this.callSidToConversationId.entries()) {
       if (convId === conversationId) {
-        return this.crelayVoice.getWebSocket(callSid as CallSid);
+        return this.conversationRelay.getWebSocket(callSid as CallSid);
       }
     }
     return null;
@@ -328,12 +327,10 @@ export class VoiceChannel implements Channel {
   // Wrapping sync code in async to honor Channel interface's Promise<void> contract
   // eslint-disable-next-line @typescript-eslint/require-await
   public async sendResponse(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void> {
-    const conversationId = sessionId as ConversationId;
-
     try {
       let callSid: string | undefined;
       for (const [cSid, cId] of this.callSidToConversationId.entries()) {
@@ -347,7 +344,7 @@ export class VoiceChannel implements Channel {
         throw new Error(`No CallSid found for conversation ${conversationId}`);
       }
 
-      this.crelayVoice.sendResponse(callSid as CallSid, message);
+      this.conversationRelay.sendResponse(callSid as CallSid, message);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,
@@ -376,18 +373,16 @@ export class VoiceChannel implements Channel {
     }
   }
 
-  public getConversationSession(sessionId: SessionId): ConversationSession | undefined {
-    const conversationId = sessionId as ConversationId;
+  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
     return this.activeConversations.get(conversationId);
   }
 
-  public isConversationActive(sessionId: SessionId): boolean {
-    const conversationId = sessionId as ConversationId;
+  public isConversationActive(conversationId: ConversationId): boolean {
     return this.activeConversations.has(conversationId);
   }
 
   public shutdown(): void {
-    this.crelayVoice.shutdown();
+    this.conversationRelay.shutdown();
     this.callSidToConversationId.clear();
     this.activeConversations.clear();
     delete this.callbacks.onConversationStarted;
@@ -397,7 +392,7 @@ export class VoiceChannel implements Channel {
   }
 
   public handleWebSocketConnection(ws: WebSocket): void {
-    this.crelayVoice.handleConnection(ws);
+    this.conversationRelay.handleConnection(ws);
   }
 
   // ===========================================================================
@@ -415,7 +410,7 @@ export class VoiceChannel implements Channel {
     }
 
     const session: ConversationSession = {
-      sessionId: conversationId,
+      conversationId: conversationId,
       channel: this.channelType,
       startedAt: new Date(),
       metadata: {},
@@ -502,7 +497,7 @@ export class VoiceChannel implements Channel {
     );
     const aiAgentParticipantId = aiAgentParticipant.id;
 
-    return this.crelayVoice.generateTwiML(
+    return this.conversationRelay.generateTwiML(
       conversationRelayConfig,
       {
         conversation_id: conversationId,

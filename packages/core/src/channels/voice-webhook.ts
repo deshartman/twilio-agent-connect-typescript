@@ -9,7 +9,7 @@
  * Responses are sent via Maestro Send API with channel='VOICE'.
  */
 
-import { ChannelType, ConversationId, MemoryRetriever, SessionId } from '../types/index';
+import { ChannelType, ConversationId, MemoryRetriever } from '../types/index';
 import { MessagingChannel } from './messaging';
 import type { TACConfig } from '../lib/config';
 import type { ConversationClient } from '../clients/conversation';
@@ -66,12 +66,10 @@ export class VoiceWebhookChannel extends MessagingChannel {
    * channelId (CallSid) is required for VOICE participants.
    */
   public async sendResponse(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void> {
-    const conversationId = sessionId as ConversationId;
-
     this.logger.debug(
       {
         conversation_id: conversationId,

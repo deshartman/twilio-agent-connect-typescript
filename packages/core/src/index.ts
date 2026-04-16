@@ -42,8 +42,6 @@ export type { ChatChannelConfig } from './channels/chat';
 
 export { VoiceChannel } from './channels/voice';
 
-export { CRelayChannel } from './channels/crelay';
-
 export { VoiceWebhookChannel } from './channels/voice-webhook';
 export type { VoiceWebhookChannelConfig } from './channels/voice-webhook';
 

@@ -1,4 +1,4 @@
-import { BuiltInTools, SessionId, Channel } from '@twilio/tac-core';
+import { BuiltInTools, ConversationId, Channel } from '@twilio/tac-core';
 import { TACTool, defineTool } from '../lib/builder';
 
 /**
@@ -22,11 +22,11 @@ interface SendMessageResult {
  * Create send message tool
  *
  * @param channel - The channel to send messages through
- * @param sessionId - The session ID (accepts CallSid or ConversationId)
+ * @param conversationId - The conversation ID
  */
 export function createSendMessageTool(
   channel: Channel,
-  sessionId: SessionId
+  conversationId: ConversationId
 ): TACTool<SendMessageParams, SendMessageResult> {
   return defineTool(
     BuiltInTools.SEND_MESSAGE,
@@ -48,8 +48,7 @@ export function createSendMessageTool(
     },
     async (params: SendMessageParams) => {
       try {
-        // Use sessionId directly - Channel.sendResponse accepts SessionId and casts internally
-        await channel.sendResponse(sessionId, params.message, params.metadata);
+        await channel.sendResponse(conversationId, params.message, params.metadata);
 
         return {
           success: true,
@@ -74,9 +73,9 @@ export function createMessagingTools() {
      * Create send message tool for specific channel and session
      *
      * @param channel - The channel to send messages through
-     * @param sessionId - The session ID (accepts CallSid or ConversationId)
+     * @param conversationId - The conversation ID
      */
-    forSession: (channel: Channel, sessionId: SessionId) =>
-      createSendMessageTool(channel, sessionId),
+    forSession: (channel: Channel, conversationId: ConversationId) =>
+      createSendMessageTool(channel, conversationId),
   };
 }

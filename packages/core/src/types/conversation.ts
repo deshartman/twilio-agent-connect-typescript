@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ChannelTypeSchema } from './config';
-import type { SessionId } from './channels';
 
 /**
  * Participant address type for different communication channels
@@ -166,13 +165,21 @@ export interface Profile {
 }
 
 /**
+ * Branded types for type safety
+ */
+export type ConversationId = string & { readonly _brand: 'ConversationId' };
+export type ProfileId = string & { readonly _brand: 'ProfileId' };
+export type ParticipantId = string & { readonly _brand: 'ParticipantId' };
+export type MemoryStoreId = string & { readonly _brand: 'MemoryStoreId' };
+
+/**
  * Conversation session context
  *
  * Extends SessionContext with Maestro-specific fields (participant, profile, service data).
  */
 export const ConversationSessionSchema = z.object({
   // Base SessionContext fields
-  sessionId: z.string().min(1, 'Session ID is required'),
+  conversationId: z.string().min(1, 'Conversation ID is required'),
   channel: ChannelTypeSchema,
   startedAt: z.date(),
   metadata: z.record(z.unknown()).optional().default({}),
@@ -192,20 +199,12 @@ export const ConversationSessionSchema = z.object({
  */
 export type ConversationSession = Omit<
   z.infer<typeof ConversationSessionSchema>,
-  'sessionId' | 'profileId' | 'serviceId'
+  'conversationId' | 'profileId' | 'serviceId'
 > & {
-  sessionId: SessionId;
+  conversationId: ConversationId;
   profileId?: ProfileId | undefined;
   serviceId?: string | undefined;
 };
-
-/**
- * Branded types for type safety
- */
-export type ConversationId = string & { readonly _brand: 'ConversationId' };
-export type ProfileId = string & { readonly _brand: 'ProfileId' };
-export type ParticipantId = string & { readonly _brand: 'ParticipantId' };
-export type MemoryStoreId = string & { readonly _brand: 'MemoryStoreId' };
 
 /**
  * Type guards for branded types with format validation

@@ -7,7 +7,6 @@ import {
   ChannelEvents,
   ChannelMessage,
   MemoryRetriever,
-  SessionId,
   isConversationId,
   isProfileId,
 } from '../types/index';
@@ -148,7 +147,7 @@ export abstract class MessagingChannel implements Channel {
    * Send a response back to the user (implemented by subclasses)
    */
   public abstract sendResponse(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void>;
@@ -175,7 +174,7 @@ export abstract class MessagingChannel implements Channel {
 
     const session: ConversationSession = {
       // Base SessionContext fields
-      sessionId: conversationId, // Generic session identifier
+      conversationId: conversationId,
       channel: this.channelType,
       startedAt: new Date(),
       metadata: {},
@@ -246,16 +245,14 @@ export abstract class MessagingChannel implements Channel {
   /**
    * Get an active conversation session
    */
-  public getConversationSession(sessionId: SessionId): ConversationSession | undefined {
-    const conversationId = sessionId as ConversationId;
+  public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
     return this.activeConversations.get(conversationId);
   }
 
   /**
    * Check if a conversation is active
    */
-  public isConversationActive(sessionId: SessionId): boolean {
-    const conversationId = sessionId as ConversationId;
+  public isConversationActive(conversationId: ConversationId): boolean {
     return this.activeConversations.has(conversationId);
   }
 
@@ -609,7 +606,7 @@ export abstract class MessagingChannel implements Channel {
     if (this.callbacks.onMessage) {
       this.logger.debug({ conversation_id: conversationId }, 'Emitting message event');
       const channelMessage: ChannelMessage = {
-        sessionId: conversationId,
+        conversationId: conversationId,
         messageType: 'user',
         message,
         channel: this.channelType,

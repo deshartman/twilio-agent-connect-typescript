@@ -3,7 +3,6 @@ import {
   VoiceChannel,
   TAC,
   TACConfig,
-  TACMode,
   createLogger,
   ConversationClient,
   TACMemoryResponse,
@@ -15,7 +14,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'SKtest_api_key',
@@ -40,10 +38,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   const createMockWebSocket = (): any => {
     const handlers: Record<string, ((...args: any[]) => void)[]> = {};
     return {
-      on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+      on(event: string, handler: (...args: any[]) => void) {
         if (!handlers[event]) handlers[event] = [];
         handlers[event].push(handler);
-      }),
+      },
       send: vi.fn(),
       close: vi.fn(),
       readyState: 1,
@@ -132,7 +130,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify memoryRetriever was called with the session and transcript
       expect(memoryRetriever).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
         }),
         'Hello, I need help with my order'
@@ -141,7 +139,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify the ChannelMessage includes memory in conversation bundle
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(msg.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.messageType).toBe('user');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.channel).toBe('voice');
@@ -182,7 +180,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Verify ChannelMessage emitted without memory
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(msg.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.messageType).toBe('user');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.conversation).toBeDefined();
@@ -220,7 +218,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       // Callback should still be invoked without memory
       expect(captured).toHaveLength(1);
       const msg = captured[0];
-      expect(msg.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(msg.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.message).toBe('Hello, I need help with my order');
       expect(msg.conversation?.memory).toBeUndefined();
     });
@@ -257,7 +255,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',
@@ -346,7 +344,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(captured).toHaveLength(1);
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',
@@ -389,7 +387,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(captured).toHaveLength(1);
       expect(captured[0]).toEqual(
         expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
           channel: 'voice',

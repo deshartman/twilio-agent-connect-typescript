@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TACConfig, Communication } from '@twilio/tac-core';
-import type { TACMode } from '@twilio/tac-core';
 import { ConversationClient } from '../packages/core/src/clients/conversation';
 
 /**
@@ -26,7 +25,6 @@ function createMockResponse(
 describe('ConversationClient', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

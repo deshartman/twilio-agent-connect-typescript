@@ -24,7 +24,6 @@ describe('Multi-Channel Orchestration', () => {
       twilioApiKey: 'SKtest123',
       twilioApiToken: 'test_api_token',
       twilioPhoneNumber: '+15551234567',
-      tacMode: 'passive',
       conversationServiceId: 'conv_configuration_01kmultitest12345678901234',
     });
 
@@ -71,7 +70,7 @@ describe('Multi-Channel Orchestration', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].channel).toBe('sms');
       expect(messages[0].message).toBe('Hello via SMS');
-      expect(messages[0].sessionId).toBe(testConversationId);
+      expect(messages[0].conversationId).toBe(testConversationId);
 
       // Step 2: Same user continues on Voice (same conversationId)
       await voiceChannel.processWebhook({
@@ -86,7 +85,7 @@ describe('Multi-Channel Orchestration', () => {
       expect(messages).toHaveLength(2);
       expect(messages[1].channel).toBe('voice');
       expect(messages[1].message).toBe('Continuing via Voice');
-      expect(messages[1].sessionId).toBe(testConversationId);
+      expect(messages[1].conversationId).toBe(testConversationId);
 
       // Verify both channels track same conversation
       expect(smsChannel.isConversationActive(testConversationId)).toBe(true);
@@ -189,9 +188,9 @@ describe('Multi-Channel Orchestration', () => {
       expect(messages[2].channel).toBe('chat');
 
       // All messages from same conversation
-      expect(messages[0].sessionId).toBe(testConversationId);
-      expect(messages[1].sessionId).toBe(testConversationId);
-      expect(messages[2].sessionId).toBe(testConversationId);
+      expect(messages[0].conversationId).toBe(testConversationId);
+      expect(messages[1].conversationId).toBe(testConversationId);
+      expect(messages[2].conversationId).toBe(testConversationId);
     });
 
     it('should handle concurrent messages on different channels', async () => {
@@ -322,7 +321,7 @@ describe('Multi-Channel Orchestration', () => {
       const endedCallbacks: string[] = [];
 
       tac.onConversationEnded((data) => {
-        endedCallbacks.push(data.session.sessionId);
+        endedCallbacks.push(data.session.conversationId);
       });
 
       // Start conversation on multiple channels
@@ -395,7 +394,6 @@ describe('Multi-Channel Orchestration', () => {
         twilioApiKey: 'SKtest123',
         twilioApiToken: 'test_api_token',
         twilioPhoneNumber: '+15551234567',
-        tacMode: 'conversation',
         conversationServiceId: 'conv_configuration_01kmultitest12345678901234',
       });
 

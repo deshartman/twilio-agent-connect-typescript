@@ -1,5 +1,5 @@
 /**
- * CRelayVoice — ConversationRelay Voice Handler
+ * ConversationRelay — Twilio ConversationRelay Voice Handler
  *
  * Owns ALL ConversationRelay protocol logic:
  * - WebSocket connection management and message routing
@@ -43,12 +43,12 @@ type SessionEndedCallback = (callSid: CallSid) => void;
 type ErrorCallback = (callSid: CallSid, error: Error) => void;
 
 /**
- * CRelayVoice — ConversationRelay voice handler
+ * ConversationRelay — Twilio ConversationRelay voice handler
  *
  * Manages WebSocket connections, session lifecycle, and event routing
  * for the Twilio ConversationRelay protocol.
  */
-export class CRelayVoice {
+export class ConversationRelay {
   private readonly logger: Logger;
   private readonly connections: Map<CallSid, WebSocket>;
   private readonly sessions: Map<CallSid, CRelaySession>;
@@ -322,7 +322,7 @@ export class CRelayVoice {
     const { languages, ...conversationRelayAttributes } = validatedConfig;
 
     // Filter out undefined values to keep TwiML clean
-    const filteredConfig = CRelayVoice.filterUnsetValues(conversationRelayAttributes);
+    const filteredConfig = ConversationRelay.filterUnsetValues(conversationRelayAttributes);
 
     // Build TwiML using SDK
     const response = new VoiceResponse();
@@ -332,7 +332,7 @@ export class CRelayVoice {
     // Add language configurations as child <Language> elements
     if (languages && languages.length > 0) {
       for (const lang of languages) {
-        const filteredLang = CRelayVoice.filterUnsetValues(lang);
+        const filteredLang = ConversationRelay.filterUnsetValues(lang);
         relay.language(filteredLang);
       }
     }

@@ -5,25 +5,9 @@
  * Channels use composition instead of inheritance.
  */
 
-import type { CallSid } from '@twilio/tac-conversationrelay';
 import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
 import type { TACMemoryResponse } from '../lib/tac-memory-response';
-
-/**
- * SessionId — the key used by the Channel interface.
- *
- * In CR-only mode this is a CallSid; in Conversation/Passive mode it's a Maestro ConversationId.
- */
-export type SessionId = CallSid | ConversationId;
-
-export function isSessionId(value: string): value is SessionId {
-  // SessionId = CallSid | ConversationId - validate either format
-  const callSidPattern = /^CA[0-9a-f]{32}$/;
-  const conversationIdPattern = /^conv_conversation_[0-9a-z]{26}$/;
-
-  return callSidPattern.test(value) || conversationIdPattern.test(value);
-}
 
 /**
  * Unified message shape emitted by all channels via the 'message' event.
@@ -34,7 +18,7 @@ export function isSessionId(value: string): value is SessionId {
  * - conversation bundle is only present in Conversation/Passive modes (Maestro)
  */
 export interface ChannelMessage {
-  sessionId: SessionId;
+  conversationId: ConversationId;
   messageType: 'user' | 'system';
   message: string;
   channel: ChannelType;
@@ -89,12 +73,12 @@ export interface Channel {
   /**
    * Send a response message to the user
    *
-   * @param sessionId - Channel session identifier (CallSid or ConversationId)
+   * @param conversationId - Conversation identifier
    * @param message - The message text to send
    * @param metadata - Optional metadata to include
    */
   sendResponse(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     message: string,
     metadata?: Record<string, unknown>
   ): Promise<void>;
@@ -111,18 +95,18 @@ export interface Channel {
   /**
    * Get conversation session by identifier
    *
-   * @param sessionId - Channel session identifier
+   * @param conversationId - Conversation identifier
    * @returns Session if active, undefined otherwise
    */
-  getConversationSession(sessionId: SessionId): ConversationSession | undefined;
+  getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
 
   /**
    * Check if conversation is active
    *
-   * @param sessionId - Channel session identifier
+   * @param conversationId - Conversation identifier
    * @returns True if conversation is active
    */
-  isConversationActive(sessionId: SessionId): boolean;
+  isConversationActive(conversationId: ConversationId): boolean;
 
   /**
    * Shutdown channel and cleanup resources

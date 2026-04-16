@@ -9,12 +9,10 @@ import {
   TACMemoryResponse,
   MemoryCommunication,
 } from '@twilio/tac-core';
-import type { TACMode } from '@twilio/tac-core';
 
 describe('Memory Functionality', () => {
   const getTestConfigWithoutMemory = () => ({
     environment: 'prod' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -64,7 +62,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(memoryClient!, 'retrieveMemories').mockResolvedValue(mockMemoryResponse);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
         channel: 'sms',
         startedAt: new Date(),
@@ -107,7 +105,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(memoryClient!, 'retrieveMemories').mockResolvedValue(mockMemoryResponse);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -168,7 +166,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(memoryClient!, 'retrieveMemories').mockResolvedValue(mockMemoryResponse);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -191,7 +189,7 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -208,7 +206,7 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -236,7 +234,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(memoryClient!, 'lookupProfile').mockResolvedValue(mockLookupResponse);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -258,7 +256,7 @@ describe('Memory Functionality', () => {
       );
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -304,7 +302,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -338,7 +336,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue([]);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -364,7 +362,7 @@ describe('Memory Functionality', () => {
       );
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),
@@ -405,7 +403,7 @@ describe('Memory Functionality', () => {
       vi.spyOn(conversationClient, 'listCommunications').mockResolvedValue(mockCommunications);
 
       const session: ConversationSession = {
-        sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
         profileId: undefined,
         channel: 'sms',
         startedAt: new Date(),

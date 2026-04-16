@@ -1,0 +1,242 @@
+import Fastify, {
+  FastifyInstance,
+  FastifyServerOptions,
+  FastifyRequest,
+  FastifyReply,
+} from 'fastify';
+import formbody from '@fastify/formbody';
+import websocket from '@fastify/websocket';
+import type { WebSocket } from 'ws';
+import twilio from 'twilio';
+
+import { ConversationRelay } from '../crelay.js';
+import type { ConversationRelayConfig } from '../types.js';
+
+/**
+ * Server configuration for CRelay-only mode
+ */
+export interface CRelayServerConfig {
+  /** Fastify server options */
+  fastify?: FastifyServerOptions;
+
+  /** Server host (default: 0.0.0.0) */
+  host?: string;
+
+  /** Server port (default: 3000) */
+  port?: number;
+
+  /** Custom webhook paths */
+  webhookPaths?: {
+    twiml?: string;
+    ws?: string;
+    callback?: string;
+    webhook?: string;
+  };
+
+  /** ConversationRelay configuration (welcomeGreeting, TTS, etc.) */
+  conversationRelayConfig?: Omit<ConversationRelayConfig, 'url'>;
+
+  /** Enable development logging (pino-pretty) */
+  development?: boolean;
+
+  /** Enable Twilio webhook signature validation (default: true) */
+  validateWebhooks?: boolean;
+
+  /** Twilio auth token (required for webhook validation) */
+  twilioAuthToken?: string;
+}
+
+/**
+ * CRelayServer — Standalone voice-only server using ConversationRelay
+ *
+ * Lightweight server for voice-only applications. No Maestro, no Memory, no multi-channel.
+ * Provides TwiML endpoint, WebSocket endpoint, and callback handler.
+ */
+export class CRelayServer {
+  private readonly fastify: FastifyInstance;
+  private readonly conversationRelay: ConversationRelay;
+  private readonly config: Required<
+    Omit<CRelayServerConfig, 'fastify' | 'twilioAuthToken' | 'conversationRelayConfig'>
+  > & {
+    conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
+    twilioAuthToken: string | undefined;
+  };
+
+  constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig = {}) {
+    this.conversationRelay = conversationRelay;
+
+    this.config = {
+      host: config.host ?? '0.0.0.0',
+      port: config.port ?? 3000,
+      webhookPaths: {
+        twiml: config.webhookPaths?.twiml ?? '/twiml',
+        ws: config.webhookPaths?.ws ?? '/ws',
+        callback: config.webhookPaths?.callback ?? '/callback',
+        webhook: config.webhookPaths?.webhook ?? '/webhook',
+      },
+      conversationRelayConfig: config.conversationRelayConfig ?? {
+        welcomeGreeting: 'Hello! How can I help you?',
+      },
+      development: config.development ?? false,
+      validateWebhooks: config.validateWebhooks ?? true,
+      twilioAuthToken: config.twilioAuthToken,
+    };
+
+    this.fastify = Fastify({
+      logger: this.config.development
+        ? {
+            level: process.env.LOG_LEVEL || 'info',
+            transport: { target: 'pino-pretty', options: { colorize: true } },
+          }
+        : { level: process.env.LOG_LEVEL || 'info' },
+      ...config.fastify,
+    });
+  }
+
+  /**
+   * Start the server
+   */
+  public async start(): Promise<void> {
+    try {
+      // Register plugins
+      await this.fastify.register(formbody);
+      await this.fastify.register(websocket);
+
+      // Register webhook validation if enabled
+      if (this.config.validateWebhooks) {
+        this.registerWebhookValidation();
+      }
+
+      // Setup routes
+      await this.setupRoutes();
+
+      // Start server
+      await this.fastify.listen({
+        host: this.config.host,
+        port: this.config.port,
+      });
+
+      this.fastify.log.info(
+        {
+          host: this.config.host,
+          port: this.config.port,
+          twiml_webhook: this.config.webhookPaths.twiml,
+          ws_websocket: this.config.webhookPaths.ws,
+          callback_webhook: this.config.webhookPaths.callback,
+          maestro_sink: this.config.webhookPaths.webhook,
+          webhook_validation: this.config.validateWebhooks ? 'enabled' : 'disabled',
+        },
+        'CRelayServer started (voice-only mode)'
+      );
+    } catch (error) {
+      this.fastify.log.error({ err: error }, 'Failed to start CRelayServer');
+      throw error;
+    }
+  }
+
+  /**
+   * Register webhook signature validation
+   */
+  private registerWebhookValidation(): void {
+    if (!this.config.twilioAuthToken) {
+      this.fastify.log.warn('Webhook validation enabled but no twilioAuthToken provided');
+      return;
+    }
+
+    this.fastify.addHook('preHandler', (request, reply, done): void => {
+      if (request.method === 'GET') {
+        done();
+        return;
+      }
+
+      const signature = request.headers['x-twilio-signature'] as string;
+      const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+      const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
+      const url = `${proto}://${host}${request.url}`;
+
+      const params = (request.body as Record<string, string>) || {};
+      const isValid = twilio.validateRequest(this.config.twilioAuthToken!, signature, url, params);
+
+      if (!isValid) {
+        this.fastify.log.warn({ url }, 'Invalid Twilio webhook signature');
+        void reply.code(403).send({ error: 'Invalid webhook signature' });
+        done();
+        return;
+      }
+
+      done();
+    });
+  }
+
+  /**
+   * Setup routes
+   */
+  private async setupRoutes(): Promise<void> {
+    // TwiML endpoint (incoming call)
+    this.fastify.post(
+      this.config.webhookPaths.twiml!,
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const formData = request.body as Record<string, string>;
+          const callSid = formData['CallSid'] || '';
+          const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
+          const host = request.headers.host as string;
+          const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws!}`;
+          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.callback!}`;
+
+          const twiml = this.conversationRelay.generateTwiML(
+            { url: websocketUrl, ...this.config.conversationRelayConfig },
+            { conversation_id: callSid },
+            { actionUrl: callbackUrl }
+          );
+
+          await reply.type('application/xml').send(twiml);
+        } catch (error) {
+          this.fastify.log.error(
+            'TwiML error: ' + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({ error: 'Internal server error' });
+        }
+      }
+    );
+
+    // WebSocket endpoint
+    await this.fastify.register(fastify => {
+      fastify.get(this.config.webhookPaths.ws!, { websocket: true }, (socket: WebSocket) => {
+        this.conversationRelay.handleConnection(socket);
+      });
+    });
+
+    // Callback endpoint (call ended)
+    this.fastify.post(
+      this.config.webhookPaths.callback!,
+      async (_request: FastifyRequest, reply: FastifyReply) => {
+        await reply.code(200).send('OK');
+      }
+    );
+
+    // Silent sink for Maestro webhooks
+    // If the user has a Conversations Service webhook URL configured on the
+    // same domain (e.g., from testing conversation mode), Maestro will still
+    // send events here. Return 200 to acknowledge silently.
+    this.fastify.post(
+      this.config.webhookPaths.webhook!,
+      async (_request: FastifyRequest, reply: FastifyReply) => {
+        await reply.code(200).send('OK');
+      }
+    );
+  }
+
+  /**
+   * Stop the server
+   */
+  public async stop(): Promise<void> {
+    try {
+      await this.fastify.close();
+      this.fastify.log.info('CRelayServer stopped');
+    } catch (error) {
+      this.fastify.log.error({ err: error }, 'Error stopping CRelayServer');
+      throw error;
+    }
+  }
+}

@@ -16,7 +16,6 @@ describe('VoiceWebhookChannel', () => {
 
   const config = new TACConfig({
     environment: 'prod',
-    tacMode: 'passive',
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -145,7 +144,7 @@ describe('VoiceWebhookChannel', () => {
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
       expect(startedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          sessionId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
           channel: 'voice',
         }),
@@ -177,7 +176,7 @@ describe('VoiceWebhookChannel', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(capturedMessage).not.toBeNull();
-      expect(capturedMessage!.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedMessage!.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(capturedMessage!.messageType).toBe('user');
       expect(capturedMessage!.message).toBe('Hello from voice');
       expect(capturedMessage!.channel).toBe('voice');
@@ -504,10 +503,10 @@ describe('VoiceWebhookChannel', () => {
 
   describe('conversation ended callback', () => {
     it('should fire conversationEnded callback with full session on close', async () => {
-      const captured: { sessionId: string; channel: string }[] = [];
+      const captured: { conversationId: string; channel: string }[] = [];
 
       channel.on('conversationEnded', ({ session }) => {
-        captured.push({ sessionId: session.sessionId, channel: session.channel });
+        captured.push({ conversationId: session.conversationId, channel: session.channel });
       });
 
       // Start conversation
@@ -526,7 +525,7 @@ describe('VoiceWebhookChannel', () => {
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(captured[0].channel).toBe('voice');
     });
 
@@ -550,10 +549,10 @@ describe('VoiceWebhookChannel', () => {
     });
 
     it('should support async callback', async () => {
-      const captured: { sessionId: string }[] = [];
+      const captured: { conversationId: string }[] = [];
 
       channel.on('conversationEnded', async ({ session }) => {
-        captured.push({ sessionId: session.sessionId });
+        captured.push({ conversationId: session.conversationId });
       });
 
       await channel.processWebhook({
@@ -566,7 +565,7 @@ describe('VoiceWebhookChannel', () => {
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
     });
 
     it('should clean up silently when no callback is registered', async () => {
@@ -755,7 +754,7 @@ describe('VoiceWebhookChannel', () => {
 
       const session = channel.getConversationSession('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(session).toBeDefined();
-      expect(session!.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(session!.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(session!.channel).toBe('voice');
       expect(session!.profileId).toBe('mem_profile_01ktestghijklmnopqrstuvwxy');
     });

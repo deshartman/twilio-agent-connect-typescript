@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SpyInstance } from 'vitest';
 import { TAC, SMSChannel } from '@twilio/tac-core';
-import type { TACMode } from '@twilio/tac-core';
 
 describe('Integration Tests', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -79,7 +77,7 @@ describe('Integration Tests', () => {
       // Register message callback — receives ChannelMessage
       tac.onMessageReady(msg => {
         capturedContext = {
-          sessionId: msg.sessionId,
+          conversationId: msg.conversationId,
           profileId: msg.conversation?.profileId,
           message: msg.message,
           author: msg.conversation?.author,
@@ -118,7 +116,7 @@ describe('Integration Tests', () => {
 
       // Verify callback was invoked with correct context
       expect(capturedContext).not.toBeNull();
-      expect(capturedContext.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedContext.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(capturedContext.message).toBe('Hello TAC');
       expect(capturedContext.author).toBe('+15559876543');
       expect(capturedContext.session).toBeDefined();
@@ -165,9 +163,9 @@ describe('Integration Tests', () => {
 
       // Verify all conversations were processed
       expect(capturedMessages).toHaveLength(3);
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest1abcdefghijklmnopqr');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest2abcdefghijklmnopqr');
-      expect(capturedMessages.map(m => m.sessionId)).toContain('conv_conversation_01ktest3abcdefghijklmnopqr');
+      expect(capturedMessages.map(m => m.conversationId)).toContain('conv_conversation_01ktest1abcdefghijklmnopqr');
+      expect(capturedMessages.map(m => m.conversationId)).toContain('conv_conversation_01ktest2abcdefghijklmnopqr');
+      expect(capturedMessages.map(m => m.conversationId)).toContain('conv_conversation_01ktest3abcdefghijklmnopqr');
     });
 
     it('should filter out empty messages', async () => {

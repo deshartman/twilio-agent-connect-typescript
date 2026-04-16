@@ -1,13 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  TAC,
-  TACConfig,
-  CRelayChannel,
-  SMSChannel,
-  VoiceChannel,
-  VoiceWebhookChannel,
-} from '@twilio/tac-core';
-import type { TACMode } from '@twilio/tac-core';
+import { TAC, TACConfig, SMSChannel, VoiceChannel } from '@twilio/tac-core';
 import { TACServer } from '@twilio/tac-server';
 
 // Mock twilio module - use vi.hoisted since vi.mock is hoisted to top of file
@@ -37,7 +29,6 @@ const getNextPort = () => 0;
 describe('TACServer Webhook Validation', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -316,7 +307,6 @@ describe('TACServer Webhook Validation', () => {
 describe('TACServer idempotency token', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -431,7 +421,6 @@ describe('TACServer idempotency token', () => {
 describe('TACServer with conversationRelayConfig', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -747,255 +736,5 @@ describe('TACServer with conversationRelayConfig', () => {
         }),
       })
     );
-  });
-});
-
-describe.sequential('TACServer crelay mode', () => {
-  let tac: TAC;
-  let server: TACServer;
-  let currentPort: number;
-
-  // Helper to get actual port after server starts
-  const getActualPort = (srv: TACServer): number => {
-    const address = (srv as any).fastify.server.address();
-    return typeof address === 'string' ? 0 : address.port;
-  };
-
-  beforeEach(() => {
-    currentPort = getNextPort();
-
-    const config = new TACConfig({
-      environment: 'dev' as const,
-      tacMode: 'crelay' as TACMode,
-      twilioAccountSid: 'ACtest123456789',
-      twilioAuthToken: 'test_token_123',
-      twilioApiKey: 'test_api_key',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-    });
-    tac = new TAC({ config });
-
-    const crelayChannel = new CRelayChannel(tac.logger);
-    tac.registerChannel(crelayChannel);
-  });
-
-  afterEach(async () => {
-    if (server) {
-      try {
-        await server.stop();
-      } catch (error) {
-        console.error('Server cleanup error:', error);
-        // Allow test to complete - don't fail on cleanup
-      }
-    }
-    tac.shutdown();
-  });
-
-  it('should return 200 for POST /webhook (silent sink)', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventType: 'CONVERSATION_UPDATED', data: {} }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe('OK');
-  });
-});
-
-describe.sequential('TACServer conversation mode routes', () => {
-  let tac: TAC;
-  let server: TACServer;
-  let currentPort: number;
-
-  // Helper to get actual port after server starts
-  const getActualPort = (srv: TACServer): number => {
-    const address = (srv as any).fastify.server.address();
-    return typeof address === 'string' ? 0 : address.port;
-  };
-
-  beforeEach(() => {
-    currentPort = getNextPort();
-
-    const config = new TACConfig({
-      environment: 'dev' as const,
-      tacMode: 'conversation' as TACMode,
-      twilioAccountSid: 'ACtest123456789',
-      twilioAuthToken: 'test_token_123',
-      twilioApiKey: 'test_api_key',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'conv_configuration_01testconfig987xyz654wxyzq',
-    });
-    tac = new TAC({ config });
-
-    const voiceChannel = new VoiceChannel(tac.getChannelDeps());
-    const smsChannel = new SMSChannel(tac.getChannelDeps());
-    tac.registerChannel(voiceChannel);
-    tac.registerChannel(smsChannel);
-  });
-
-  afterEach(async () => {
-    if (server) {
-      try {
-        await server.stop();
-      } catch (error) {
-        console.error('Server cleanup error:', error);
-        // Allow test to complete - don't fail on cleanup
-      }
-    }
-    tac.shutdown();
-  });
-
-  it('should register voice/CR routes in conversation mode', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    // TwiML route should exist (not 404)
-    const twimlResponse = await fetch(`http://localhost:${actualPort}/twiml`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CAtest&From=%2B15551234567&To=%2B15559876543',
-    });
-    expect(twimlResponse.status).not.toBe(404);
-
-    // CR callback route should exist (not 404)
-    const crResponse = await fetch(`http://localhost:${actualPort}/conversation-relay-callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CAtest&CallStatus=completed',
-    });
-    expect(crResponse.status).not.toBe(404);
-  });
-
-  it('should register messaging webhook in conversation mode', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    // Messaging webhook should exist (not 404)
-    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
-      }),
-    });
-    expect(response.status).not.toBe(404);
-  });
-});
-
-describe.sequential('TACServer passive mode routes', () => {
-  let tac: TAC;
-  let server: TACServer;
-  let currentPort: number;
-
-  // Helper to get actual port after server starts
-  const getActualPort = (srv: TACServer): number => {
-    const address = (srv as any).fastify.server.address();
-    return typeof address === 'string' ? 0 : address.port;
-  };
-
-  beforeEach(() => {
-    currentPort = getNextPort();
-
-    const config = new TACConfig({
-      environment: 'dev' as const,
-      tacMode: 'passive' as TACMode,
-      twilioAccountSid: 'ACtest123456789',
-      twilioAuthToken: 'test_token_123',
-      twilioApiKey: 'test_api_key',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'conv_configuration_01testconfig987xyz654wxyzq',
-    });
-    tac = new TAC({ config });
-
-    const smsChannel = new SMSChannel(tac.getChannelDeps());
-    tac.registerChannel(smsChannel);
-  });
-
-  afterEach(async () => {
-    if (server) {
-      try {
-        await server.stop();
-      } catch (error) {
-        console.error('Server cleanup error:', error);
-        // Allow test to complete - don't fail on cleanup
-      }
-    }
-    tac.shutdown();
-  });
-
-  it('should NOT register TwiML route in passive mode', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    const response = await fetch(`http://localhost:${actualPort}/twiml`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CAtest&From=%2B15551234567&To=%2B15559876543',
-    });
-    expect(response.status).toBe(404);
-  });
-
-  it('should NOT register CR callback route in passive mode', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    const response = await fetch(`http://localhost:${actualPort}/conversation-relay-callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CAtest&CallStatus=completed',
-    });
-    expect(response.status).toBe(404);
-  });
-
-  it('should register messaging webhook in passive mode', async () => {
-    server = new TACServer(tac, {
-      development: true,
-      voice: { port: currentPort },
-    });
-
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    const response = await fetch(`http://localhost:${actualPort}/webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
-      }),
-    });
-    expect(response.status).not.toBe(404);
   });
 });

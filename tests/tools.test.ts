@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { defineTool, createSendMessageTool, createHandoffTool } from '@twilio/tac-tools';
-import { TAC, TACConfig, TACMode, CallSid, ConversationId } from '@twilio/tac-core';
+import { TAC, TACConfig, CallSid, ConversationId } from '@twilio/tac-core';
 
 describe('Tool System', () => {
   describe('defineTool', () => {
@@ -287,10 +287,9 @@ describe('Tool System', () => {
     });
   });
 
-  describe('built-in tools with SessionId', () => {
+  describe('built-in tools with ConversationId', () => {
     const getTestConfig = () => ({
       environment: 'dev' as const,
-      tacMode: 'conversation' as TACMode,
       twilioAccountSid: 'ACtest123456789',
       twilioAuthToken: 'test_token_123',
       twilioApiKey: 'test_api_key',
@@ -404,10 +403,7 @@ describe('Tool System', () => {
       });
 
       it('should accept CallSid (CRelay mode)', async () => {
-        const config = new TACConfig({
-          ...getTestConfig(),
-          tacMode: 'crelay',
-        });
+        const config = new TACConfig(getTestConfig());
         const tac = new TAC({ config });
         const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
 

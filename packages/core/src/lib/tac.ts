@@ -1,7 +1,7 @@
 import {
   TACConfigData,
   ConversationSession,
-  SessionId,
+  ConversationId,
   ProfileId,
   ProfileResponse,
   ChannelType,
@@ -35,8 +35,8 @@ export type ErrorCallback = (params: {
 }) => void;
 
 export type HandoffCallback = (params: {
-  /** Generic session identifier (CallSid or ConversationId) */
-  sessionId: SessionId;
+  /** Conversation identifier */
+  conversationId: ConversationId;
   profileId: ProfileId | undefined;
   reason: string;
   session: ConversationSession;
@@ -57,7 +57,7 @@ export class TAC {
   public readonly logger: Logger;
   private readonly memoryClient?: MemoryClient;
   private readonly knowledgeClient?: KnowledgeClient;
-  private readonly conversationClient?: ConversationClient;
+  private readonly conversationClient: ConversationClient;
   private readonly channels: Map<ChannelType, Channel>;
   private readonly cintelProcessor?: OperatorResultProcessor;
 
@@ -81,19 +81,6 @@ export class TAC {
 
     this.config = finalConfig;
     this.logger = finalLogger;
-
-    // Log warning for misconfigured conversationServiceId in crelay mode
-    if (this.config.tacMode === 'crelay' && this.config.conversationServiceId) {
-      this.logger.warn(
-        {
-          tac_mode: this.config.tacMode,
-          conversation_service_id: this.config.conversationServiceId,
-        },
-        'TAC_MODE=crelay but CONVERSATION_SERVICE_ID is configured. ' +
-          'Maestro features will be ignored in crelay mode.'
-      );
-    }
-
     this.channels = new Map();
 
     // Initialize Memory client only if memoryStoreId is provided
@@ -126,16 +113,12 @@ export class TAC {
       this.logger.info('Conversation Intelligence processor initialized');
     }
 
-    // Initialize ConversationClient for conversation and passive modes (both need Maestro)
-    if (this.config.tacMode === 'conversation' || this.config.tacMode === 'passive') {
-      this.conversationClient = new ConversationClient(
-        this.config,
-        this.logger.child({ component: 'conversation' })
-      );
-      this.logger.info({ mode: this.config.tacMode }, 'ConversationClient initialized');
-    } else {
-      this.logger.info('ConversationClient not initialized (crelay mode)');
-    }
+    // Initialize ConversationClient (always required - CONVERSATION_SERVICE_ID is mandatory)
+    this.conversationClient = new ConversationClient(
+      this.config,
+      this.logger.child({ component: 'conversation' })
+    );
+    this.logger.info('ConversationClient initialized');
   }
 
   /**
@@ -171,7 +154,10 @@ export class TAC {
     // Handle unified message events from all channels
     channel.on('message', (message: ChannelMessage) => {
       void this.handleMessage(message).catch((err: unknown) => {
-        this.logger.error({ err, session_id: message.sessionId }, 'Message handler error');
+        this.logger.error(
+          { err, conversation_id: message.conversationId },
+          'Message handler error'
+        );
       });
     });
 
@@ -185,7 +171,7 @@ export class TAC {
             await this.conversationEndedCallback({ session });
           } catch (error) {
             this.logger.error(
-              { err: error, session_id: session.sessionId },
+              { err: error, conversation_id: session.conversationId },
               'Conversation ended callback error'
             );
           }
@@ -214,7 +200,7 @@ export class TAC {
 
     this.logger.debug(
       {
-        session_id: message.sessionId,
+        conversation_id: message.conversationId,
         message_type: message.messageType,
         channel: message.channel,
         metadata_type: message.metadata?.type,
@@ -226,7 +212,7 @@ export class TAC {
       await this.messageReadyCallback(message);
     } catch (error) {
       this.logger.error(
-        { err: error, session_id: message.sessionId },
+        { err: error, conversation_id: message.conversationId },
         'Message ready callback error'
       );
     }
@@ -268,37 +254,37 @@ export class TAC {
   /**
    * Trigger handoff callback
    */
-  public async triggerHandoff(sessionId: SessionId, reason: string): Promise<void> {
+  public async triggerHandoff(conversationId: ConversationId, reason: string): Promise<void> {
     if (!this.handoffCallback) {
-      this.logger.warn({ session_id: sessionId }, 'No handoff callback registered');
+      this.logger.warn({ conversation_id: conversationId }, 'No handoff callback registered');
       return;
     }
 
-    const channel = this.getChannelBySessionId(sessionId);
-    const session = channel?.getConversationSession(sessionId);
+    const channel = this.getChannelByConversationId(conversationId);
+    const session = channel?.getConversationSession(conversationId);
 
     if (!session) {
-      throw new Error(`No session found for ${sessionId}`);
+      throw new Error(`No session found for ${conversationId}`);
     }
 
     try {
       await this.handoffCallback({
-        sessionId: session.sessionId,
+        conversationId: session.conversationId,
         profileId: session.profileId,
         reason,
         session,
       });
     } catch (error) {
-      this.logger.error({ err: error, session_id: sessionId }, 'Handoff callback error');
+      this.logger.error({ err: error, conversation_id: conversationId }, 'Handoff callback error');
     }
   }
 
   /**
-   * Get channel by session ID (CallSid or ConversationId)
+   * Get channel by conversation ID
    */
-  private getChannelBySessionId(sessionId: SessionId): Channel | undefined {
+  private getChannelByConversationId(conversationId: ConversationId): Channel | undefined {
     for (const channel of this.channels.values()) {
-      if (channel.isConversationActive(sessionId)) {
+      if (channel.isConversationActive(conversationId)) {
         return channel;
       }
     }
@@ -337,9 +323,8 @@ export class TAC {
 
   /**
    * Get conversation client for advanced conversation operations
-   * Returns undefined in crelay mode
    */
-  public getConversationClient(): ConversationClient | undefined {
+  public getConversationClient(): ConversationClient {
     return this.conversationClient;
   }
 
@@ -355,8 +340,8 @@ export class TAC {
   }
 
   /**
-   * Get channel dependencies for creating Maestro channels (VoiceChannel, MessagingChannel subclasses).
-   * Throws if ConversationClient is not available (crelay mode).
+   * Get channel dependencies for creating channels (VoiceChannel, MessagingChannel subclasses).
+   * Returns all dependencies needed to construct a channel.
    */
   public getChannelDeps(): {
     config: TACConfig;
@@ -364,17 +349,10 @@ export class TAC {
     conversationClient: ConversationClient;
     memoryRetriever: MemoryRetriever | undefined;
   } {
-    const conversationClient = this.getConversationClient();
-    if (!conversationClient) {
-      throw new Error(
-        'getChannelDeps() requires ConversationClient (TAC_MODE=conversation or passive). ' +
-          'Use CRelayChannel with logger for TAC_MODE=crelay.'
-      );
-    }
     return {
       config: this.config,
       logger: this.logger,
-      conversationClient,
+      conversationClient: this.conversationClient,
       memoryRetriever: this.createMemoryRetriever(),
     };
   }
@@ -527,7 +505,9 @@ export class TAC {
       this.logger.info('Twilio Memory not configured, falling back to Conversations API');
 
       try {
-        const communications = await this.conversationClient.listCommunications(session.sessionId);
+        const communications = await this.conversationClient.listCommunications(
+          session.conversationId
+        );
 
         // Return TACMemoryResponse wrapper with only communications populated
         return new TACMemoryResponse(communications);

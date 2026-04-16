@@ -14,7 +14,6 @@ import {
   SMSChannel,
   ConversationSession,
   TACMemoryResponse,
-  ConversationId,
   TACServer,
 } from 'twilio-agent-connect';
 // Load environment variables from parent directory
@@ -147,24 +146,25 @@ tac.onMessageReady(async msg => {
   // Only generate responses for 'user' messages
   if (msg.messageType !== 'user') return;
 
-  const convId = msg.sessionId;
+  const convId = msg.conversationId;
+  const convIdStr = convId as string;
   const memory = msg.conversation?.memory;
 
   try {
     // Initialize conversation history if needed
-    if (!conversationMessages[convId]) {
-      conversationMessages[convId] = [];
+    if (!conversationMessages[convIdStr]) {
+      conversationMessages[convIdStr] = [];
     }
 
     // Add user message to history
-    conversationMessages[convId].push({
+    conversationMessages[convIdStr].push({
       role: 'user',
       content: msg.message,
     });
 
     // Build memory context message (uses conversation session data)
     const memorySession: ConversationSession = {
-      sessionId: msg.sessionId as ConversationId,
+      conversationId: msg.conversationId,
       channel: msg.channel,
       startedAt: msg.conversation?.startedAt ?? new Date(),
       metadata: {},
@@ -177,7 +177,7 @@ tac.onMessageReady(async msg => {
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       SYSTEM_MESSAGE,
       ...(memoryMessage ? [memoryMessage] : []),
-      ...conversationMessages[convId],
+      ...conversationMessages[convIdStr],
     ];
 
     // Call OpenAI
@@ -189,16 +189,16 @@ tac.onMessageReady(async msg => {
     const llmResponse = response.choices[0]?.message?.content ?? '';
 
     // Add assistant response to history
-    conversationMessages[convId].push({
+    conversationMessages[convIdStr].push({
       role: 'assistant',
       content: llmResponse,
     });
 
     // Send response based on channel
     if (msg.channel === 'voice') {
-      await voiceChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+      await voiceChannel.sendResponse(convId, llmResponse);
     } else if (msg.channel === 'sms') {
-      await smsChannel.sendResponse(msg.sessionId as ConversationId, llmResponse);
+      await smsChannel.sendResponse(convId, llmResponse);
     }
   } catch (error) {
     console.error(`Error processing message for conversation ${convId}:`, error);

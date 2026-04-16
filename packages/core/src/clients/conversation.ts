@@ -12,7 +12,6 @@ import {
   ConversationConfiguration,
   ConversationConfigurationSchema,
   ConversationId,
-  SessionId,
 } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { Logger, createLogger } from '../lib/logger';
@@ -59,15 +58,14 @@ export class ConversationClient {
   /**
    * Send a communication using the Conversation Orchestrator Send API
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @param request - Send communication request
    * @returns Promise containing communication response
    */
   public async sendCommunication(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     request: SendCommunicationRequest
   ): Promise<SendCommunicationResponse> {
-    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Communications`;
 
     const requestBody = {
@@ -117,11 +115,10 @@ export class ConversationClient {
   /**
    * List communications for a conversation
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @returns Promise containing array of communications
    */
-  public async listCommunications(sessionId: SessionId): Promise<Communication[]> {
-    const conversationId = sessionId as ConversationId;
+  public async listCommunications(conversationId: ConversationId): Promise<Communication[]> {
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Communications`;
 
     const options: RequestOptions = {
@@ -197,17 +194,16 @@ export class ConversationClient {
   /**
    * Add a participant to a conversation
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @param addresses - Array of participant addresses
    * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
    * @returns Promise containing participant response
    */
   public async addParticipant(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     addresses: ConversationAddress[],
     participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'
   ): Promise<ConversationParticipant> {
-    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
 
     const requestBody = {
@@ -250,18 +246,16 @@ export class ConversationClient {
    *
    * This ensures idempotent behavior regardless of timing.
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @param addresses - Array of conversation addresses
    * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
    * @returns Promise containing the participant (existing or newly created)
    */
   public async addOrFetchParticipant(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     addresses: ConversationAddress[],
     participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'
   ): Promise<ConversationParticipant> {
-    const conversationId = sessionId as ConversationId;
-
     // First, check if participant already exists (e.g., added by Maestro capture rules)
     const existingParticipants = await this.listParticipants(conversationId);
     const existingParticipant = existingParticipants.find(p => p.type === participantType);
@@ -308,11 +302,12 @@ export class ConversationClient {
   /**
    * List participants in a conversation
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @returns Promise containing array of participants
    */
-  public async listParticipants(sessionId: SessionId): Promise<ConversationParticipant[]> {
-    const conversationId = sessionId as ConversationId;
+  public async listParticipants(
+    conversationId: ConversationId
+  ): Promise<ConversationParticipant[]> {
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}/Participants`;
 
     const options: RequestOptions = {
@@ -399,15 +394,14 @@ export class ConversationClient {
   /**
    * Update conversation status
    *
-   * @param sessionId - The session ID (internally cast to ConversationId)
+   * @param conversationId - The conversation ID
    * @param status - New status (ACTIVE, INACTIVE, CLOSED)
    * @returns Promise containing updated conversation
    */
   public async updateConversation(
-    sessionId: SessionId,
+    conversationId: ConversationId,
     status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'
   ): Promise<ConversationResponse> {
-    const conversationId = sessionId as ConversationId;
     const url = `${this.baseUrl}/v2/Conversations/${conversationId}`;
 
     const requestBody = { status };

@@ -7,21 +7,6 @@ export const EnvironmentSchema = z.enum(['dev', 'stage', 'prod']).default('prod'
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
 /**
- * TAC Mode - determines which features are enabled
- * - 'crelay': ConversationRelay-only mode (voice only, no Maestro)
- * - 'conversation': Full Conversation mode (multi-channel, requires Maestro)
- * - 'passive': Passive Maestro orchestrator (webhooks only, no ConversationRelay)
- */
-export const TACModeSchema = z
-  .enum(['crelay', 'conversation', 'passive'], {
-    errorMap: () => ({
-      message: 'TAC_MODE must be "crelay", "conversation", or "passive"',
-    }),
-  })
-  .default('conversation');
-export type TACMode = z.infer<typeof TACModeSchema>;
-
-/**
  * Channel types supported by the framework
  */
 export const ChannelTypeSchema = z.enum(['sms', 'voice', 'chat']);
@@ -32,7 +17,6 @@ export type ChannelType = z.infer<typeof ChannelTypeSchema>;
  */
 export const TACConfigSchema = z.object({
   environment: EnvironmentSchema,
-  tacMode: TACModeSchema,
   twilioAccountSid: z.string().min(1, 'Twilio Account SID is required'),
   twilioAuthToken: z.string().min(1, 'Twilio Auth Token is required'),
   twilioApiKey: z.string().min(1, 'Twilio API Key is required'),
@@ -46,7 +30,10 @@ export const TACConfigSchema = z.object({
   conversationServiceId: z
     .string()
     .regex(/^conv_configuration_[0-9a-z]{26}$/, 'Invalid Conversation Configuration ID format')
-    .optional(),
+    .min(
+      1,
+      'CONVERSATION_SERVICE_ID is required. Set it to your Maestro Conversations Service ID.'
+    ),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
@@ -60,7 +47,6 @@ export type TACConfigData = z.infer<typeof TACConfigSchema>;
  */
 export const EnvironmentVariables = {
   ENVIRONMENT: 'ENVIRONMENT',
-  TAC_MODE: 'TAC_MODE',
   TWILIO_ACCOUNT_SID: 'TWILIO_ACCOUNT_SID',
   TWILIO_AUTH_TOKEN: 'TWILIO_AUTH_TOKEN',
   TWILIO_API_KEY: 'TWILIO_API_KEY',

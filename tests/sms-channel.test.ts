@@ -16,7 +16,6 @@ describe('SMS Channel', () => {
 
   const config = new TACConfig({
     environment: 'prod',
-    tacMode: 'conversation',
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -112,7 +111,7 @@ describe('SMS Channel', () => {
 
       // Should have triggered message callback
       expect(capturedMessage).not.toBeNull();
-      expect(capturedMessage!.sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(capturedMessage!.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(capturedMessage!.message).toBe('Hello world');
       expect(capturedMessage!.conversation?.author).toBe('+15559876543');
     });
@@ -251,10 +250,10 @@ describe('SMS Channel', () => {
 
   describe('conversation ended callback', () => {
     it('should fire conversationEnded callback with full session on close', async () => {
-      const captured: { sessionId: string; channel: string }[] = [];
+      const captured: { conversationId: string; channel: string }[] = [];
 
       channel.on('conversationEnded', ({ session }) => {
-        captured.push({ sessionId: session.sessionId, channel: session.channel });
+        captured.push({ conversationId: session.conversationId, channel: session.channel });
       });
 
       // Start conversation
@@ -273,7 +272,7 @@ describe('SMS Channel', () => {
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(captured[0].channel).toBe('sms');
     });
 
@@ -297,10 +296,10 @@ describe('SMS Channel', () => {
     });
 
     it('should support async callback', async () => {
-      const captured: { sessionId: string }[] = [];
+      const captured: { conversationId: string }[] = [];
 
       channel.on('conversationEnded', async ({ session }) => {
-        captured.push({ sessionId: session.sessionId });
+        captured.push({ conversationId: session.conversationId });
       });
 
       await channel.processWebhook({
@@ -313,7 +312,7 @@ describe('SMS Channel', () => {
       });
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
     });
 
     it('should clean up silently when no callback is registered', async () => {

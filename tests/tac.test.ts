@@ -1,10 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
-import { TAC, TACConfig, TACMode, createLogger } from '@twilio/tac-core';
+import { describe, it, expect } from 'vitest';
+import { TAC, TACConfig } from '@twilio/tac-core';
 
 describe('TAC Core', () => {
   const getTestConfig = () => ({
     environment: 'dev' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -98,61 +97,6 @@ describe('TAC Core', () => {
       const voiceChannel = tac.getChannel('voice');
       expect(smsChannel).toBeUndefined();
       expect(voiceChannel).toBeUndefined();
-    });
-
-    it('should log warning when crelay mode has conversationServiceId configured', () => {
-      const logger = createLogger({ name: 'test', level: 'silent' });
-      const loggerSpy = vi.spyOn(logger, 'warn');
-
-      const config = new TACConfig({
-        ...getTestConfig(),
-        tacMode: 'crelay',
-        // conversationServiceId is still set from getTestConfig()
-      });
-
-      const tac = new TAC({ config, logger });
-
-      expect(loggerSpy).toHaveBeenCalledWith(
-        {
-          tac_mode: 'crelay',
-          conversation_service_id: getTestConfig().conversationServiceId,
-        },
-        expect.stringContaining('Maestro features will be ignored in crelay mode')
-      );
-      expect(tac).toBeInstanceOf(TAC);
-    });
-
-    it('should not log warning when crelay mode has no conversationServiceId', () => {
-      const logger = createLogger({ name: 'test', level: 'silent' });
-      const loggerSpy = vi.spyOn(logger, 'warn');
-
-      const config = new TACConfig({
-        environment: 'dev' as const,
-        tacMode: 'crelay' as TACMode,
-        twilioAccountSid: 'ACtest123456789',
-        twilioAuthToken: 'test_token_123',
-        twilioApiKey: 'test_api_key',
-        twilioApiToken: 'test_api_token',
-        twilioPhoneNumber: '+15551234567',
-        // No conversationServiceId
-      });
-
-      const tac = new TAC({ config, logger });
-
-      expect(loggerSpy).not.toHaveBeenCalled();
-      expect(tac).toBeInstanceOf(TAC);
-    });
-
-    it('should not log warning when conversation mode has conversationServiceId', () => {
-      const logger = createLogger({ name: 'test', level: 'silent' });
-      const loggerSpy = vi.spyOn(logger, 'warn');
-
-      const config = new TACConfig(getTestConfig()); // conversation mode with conversationServiceId
-
-      const tac = new TAC({ config, logger });
-
-      expect(loggerSpy).not.toHaveBeenCalled();
-      expect(tac).toBeInstanceOf(TAC);
     });
   });
 

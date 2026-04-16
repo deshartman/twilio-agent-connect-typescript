@@ -4,11 +4,15 @@
  * ConversationRelay voice handler package.
  * NO dependency on @twilio/tac-core — completely standalone.
  *
- * Provides CRelayVoice for WebSocket handling, session management,
+ * Provides ConversationRelay for WebSocket handling, session management,
  * TwiML generation, and event routing for Twilio ConversationRelay.
  */
 
-export { CRelayVoice } from './crelay.js';
+export { ConversationRelay } from './crelay.js';
+export { CRelayServer } from './lib/server.js';
+
+// Server types
+export type { CRelayServerConfig } from './lib/server.js';
 
 // Message types (incoming WebSocket)
 export type {

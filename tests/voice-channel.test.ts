@@ -4,17 +4,14 @@ import {
   TAC,
   TACConfig,
   ConversationSession,
-  TACMode,
   createLogger,
   ConversationClient,
   ConversationId,
-  SessionId,
 } from '@twilio/tac-core';
 
 describe('VoiceChannel', () => {
   const getTestConfig = () => ({
     environment: 'prod' as const,
-    tacMode: 'conversation' as TACMode,
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -54,7 +51,7 @@ describe('VoiceChannel', () => {
   describe('isConversationActive()', () => {
     it('should return false for unknown conversation', () => {
       const { channel } = createVoiceChannel();
-      const isActive = channel.isConversationActive('CA_unknown' as SessionId);
+      const isActive = channel.isConversationActive('CA_unknown' as ConversationId);
       expect(isActive).toBe(false);
     });
   });
@@ -164,10 +161,10 @@ describe('VoiceChannel', () => {
     const createMockWebSocket = (): any => {
       const handlers: Record<string, ((...args: any[]) => void)[]> = {};
       return {
-        on: vi.fn((event: string, handler: (...args: any[]) => void) => {
+        on(event: string, handler: (...args: any[]) => void) {
           if (!handlers[event]) handlers[event] = [];
           handlers[event].push(handler);
-        }),
+        },
         send: vi.fn(),
         close: vi.fn(),
         readyState: 1,
@@ -199,7 +196,6 @@ describe('VoiceChannel', () => {
     it('should fire onConversationEnded on WebSocket disconnect', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const { channel } = createVoiceChannel();
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -208,6 +204,8 @@ describe('VoiceChannel', () => {
           resolve();
         });
       });
+
+      const channel = new VoiceChannel(tac.getChannelDeps());
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -220,14 +218,13 @@ describe('VoiceChannel', () => {
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(captured[0].channel).toBe('voice');
     });
 
     it('should still clean up session if callback throws', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const { channel } = createVoiceChannel();
 
       const ended = new Promise<void>(resolve => {
         tac.onConversationEnded(() => {
@@ -235,6 +232,8 @@ describe('VoiceChannel', () => {
           throw new Error('boom');
         });
       });
+
+      const channel = new VoiceChannel(tac.getChannelDeps());
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -252,7 +251,6 @@ describe('VoiceChannel', () => {
     it('should support async callback', async () => {
       const config = new TACConfig(getTestConfig());
       const tac = new TAC({ config });
-      const { channel } = createVoiceChannel();
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -261,6 +259,8 @@ describe('VoiceChannel', () => {
           resolve();
         });
       });
+
+      const channel = new VoiceChannel(tac.getChannelDeps());
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -271,11 +271,14 @@ describe('VoiceChannel', () => {
       await ended;
 
       expect(captured).toHaveLength(1);
-      expect(captured[0].sessionId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
+      expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
     });
 
     it('should clean up silently when no callback is registered', async () => {
-      const { channel } = createVoiceChannel();
+      const config = new TACConfig(getTestConfig());
+      const tac = new TAC({ config });
+      const channel = new VoiceChannel(tac.getChannelDeps());
+      tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
       channel.handleWebSocketConnection(mockWs);
@@ -394,10 +397,10 @@ describe('VoiceChannel', () => {
     it('should throw error when ConversationId not found', async () => {
       const { channel } = createVoiceChannel();
 
-      // Channel interface: accepts SessionId (ConversationId | CallSid)
+      // Channel interface: accepts ConversationId
       await expect(
         channel.sendResponse(
-          'conv_conversation_01ktestabcdefghijklmnopqrs' as SessionId,
+          'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId,
           'Test message'
         )
       ).rejects.toThrow('No CallSid found for conversation');

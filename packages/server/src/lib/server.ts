@@ -15,7 +15,6 @@ import {
   VoiceServerConfigSchema,
   TAC,
   VoiceChannel,
-  CRelayChannel,
   MessagingChannel,
 } from '@twilio/tac-core';
 import {
@@ -56,11 +55,8 @@ export interface TACServerConfig {
   /** Enable Twilio webhook signature validation (default: true) */
   validateWebhooks?: boolean;
 
-  /** Voice channel instance for conversation mode (alternative to registering on TAC) */
+  /** Voice channel instance (alternative to registering on TAC) */
   voiceChannel?: VoiceChannel;
-
-  /** CRelay channel instance for crelay mode (alternative to registering on TAC) */
-  crelayChannel?: CRelayChannel;
 
   /** Messaging channel instances — webhooks are fanned out to all (alternative to registering on TAC) */
   messagingChannels?: MessagingChannel[];
@@ -109,10 +105,8 @@ export class TACServer {
   };
   /** All enabled messaging channels — webhooks are fanned out to each one */
   private readonly messagingChannels: MessagingChannel[];
-  /** Voice channel instance (conversation mode) */
+  /** Voice channel instance */
   private readonly voiceChannel: VoiceChannel | undefined;
-  /** CRelay channel instance (crelay mode) */
-  private readonly crelayChannel: CRelayChannel | undefined;
 
   constructor(tac: TAC, config: TACServerConfig = {}) {
     this.tac = tac;
@@ -131,37 +125,16 @@ export class TACServer {
       },
     };
 
-    // Resolve channels by mode
-    const mode = tac.getConfig().tacMode;
-    if (mode === 'crelay') {
-      this.crelayChannel = config.crelayChannel ?? tac.getChannel<CRelayChannel>('voice');
-      this.voiceChannel = undefined;
-      this.messagingChannels = [];
-    } else if (mode === 'conversation') {
-      this.voiceChannel = config.voiceChannel ?? tac.getChannel<VoiceChannel>('voice');
-      this.crelayChannel = undefined;
-      this.messagingChannels =
-        config.messagingChannels ??
-        (
-          [tac.getChannel<MessagingChannel>('sms'), tac.getChannel<MessagingChannel>('chat')] as (
-            | MessagingChannel
-            | undefined
-          )[]
-        ).filter((ch): ch is MessagingChannel => ch != null);
-    } else {
-      // passive mode — voice-webhook + sms + chat, all as messaging channels
-      this.voiceChannel = undefined;
-      this.crelayChannel = undefined;
-      this.messagingChannels =
-        config.messagingChannels ??
-        (
-          [
-            tac.getChannel<MessagingChannel>('voice'),
-            tac.getChannel<MessagingChannel>('sms'),
-            tac.getChannel<MessagingChannel>('chat'),
-          ] as (MessagingChannel | undefined)[]
-        ).filter((ch): ch is MessagingChannel => ch != null);
-    }
+    // Resolve channels (conversation mode - always VoiceChannel + SMS + Chat)
+    this.voiceChannel = config.voiceChannel ?? tac.getChannel<VoiceChannel>('voice');
+    this.messagingChannels =
+      config.messagingChannels ??
+      (
+        [tac.getChannel<MessagingChannel>('sms'), tac.getChannel<MessagingChannel>('chat')] as (
+          | MessagingChannel
+          | undefined
+        )[]
+      ).filter((ch): ch is MessagingChannel => ch != null);
     // Initialize Fastify with Pino logger
     this.fastify = Fastify({
       logger: this.config.development
@@ -238,147 +211,108 @@ export class TACServer {
   }
 
   /**
-   * Setup routes — only registers routes needed for the active TAC_MODE.
-   *
-   * crelay:       WS + TwiML + CR callback
-   * conversation: WS + TwiML + CR callback + messaging webhook + cintel
-   * passive:      messaging webhook + cintel
+   * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
    */
   private async setupRoutes(): Promise<void> {
-    const mode = this.tac.getConfig().tacMode;
+    // ── Voice / CR routes ──────────────────────────────────────────
+    // Voice webhook (POST - Twilio calls this when an incoming call arrives)
+    this.fastify.post(
+      this.config.webhookPaths.twiml || '/twiml',
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          const formData = request.body as Record<string, string>;
+          const callSid = formData['CallSid'] || '';
+          const fromNumber = formData['From'] || '';
+          const toNumber = formData['To'] || '';
+          const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
+          const host = request.headers.host as string;
+          const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws || '/ws'}`;
+          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback'}`;
 
-    // ── Voice / CR routes (crelay + conversation modes) ──────────────
-    if (mode === 'crelay' || mode === 'conversation') {
-      // Voice webhook (POST - Twilio calls this when an incoming call arrives)
-      this.fastify.post(
-        this.config.webhookPaths.twiml || '/twiml',
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          try {
-            const formData = request.body as Record<string, string>;
-            const callSid = formData['CallSid'] || '';
-            const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
-            const host = request.headers.host as string;
-            const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws || '/ws'}`;
-            const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback'}`;
+          if (!this.voiceChannel) {
+            await reply.code(500).send({ error: 'Voice channel not available' });
+            return;
+          }
 
-            let twiml: string;
+          const twiml = await this.voiceChannel.handleIncomingCall({
+            toNumber,
+            fromNumber,
+            callSid,
+            actionUrl: callbackUrl,
+            conversationRelayConfig: {
+              url: websocketUrl,
+              ...this.config.conversationRelayConfig,
+            },
+          });
 
-            if (mode === 'crelay') {
-              if (!this.crelayChannel) {
-                await reply.code(500).send({ error: 'CRelay channel not available' });
-                return;
-              }
-              twiml = this.crelayChannel.handleIncomingCall({
-                callSid,
-                conversationRelayConfig: {
-                  url: websocketUrl,
-                  ...this.config.conversationRelayConfig,
-                },
-                actionUrl: callbackUrl,
-              });
-            } else {
-              if (!this.voiceChannel) {
-                await reply.code(500).send({ error: 'Voice channel not available' });
-                return;
-              }
-              const fromNumber = formData['From'] || '';
-              const toNumber = formData['To'] || '';
-              twiml = await this.voiceChannel.handleIncomingCall({
-                toNumber,
-                fromNumber,
-                callSid,
-                actionUrl: callbackUrl,
-                conversationRelayConfig: {
-                  url: websocketUrl,
-                  ...this.config.conversationRelayConfig,
-                },
-              });
-            }
+          await reply.type('application/xml').send(twiml);
+        } catch (error) {
+          this.fastify.log.error(
+            'TwiML generation error: ' + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({
+            error: 'Internal server error',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    );
 
-            await reply.type('application/xml').send(twiml);
-          } catch (error) {
+    // ConversationRelay callback endpoint
+    this.fastify.post(
+      this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback',
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+          if (!this.voiceChannel) {
+            await reply.code(500).send({ error: 'Voice channel not available' });
+            return;
+          }
+
+          const formData = request.body as Record<string, string>;
+          const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
+
+          if (!parseResult.success) {
             this.fastify.log.error(
-              'TwiML generation error: ' + (error instanceof Error ? error.message : String(error))
+              { errors: parseResult.error.errors },
+              'Invalid ConversationRelay callback payload'
             );
-            await reply.code(500).send({
-              error: 'Internal server error',
-              message: error instanceof Error ? error.message : String(error),
-            });
+            await reply.code(400).send({ error: 'Invalid payload' });
+            return;
+          }
+
+          const result = await this.voiceChannel.handleConversationRelayCallback(
+            parseResult.data,
+            this.config.handoffHandler
+          );
+
+          await reply.code(result.status).type(result.contentType).send(result.content);
+        } catch (error) {
+          this.fastify.log.error(
+            'ConversationRelay callback error: ' +
+              (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({ error: 'Internal server error' });
+        }
+      }
+    );
+
+    // Voice WebSocket endpoint
+    await this.fastify.register(fastify => {
+      fastify.get(
+        this.config.webhookPaths.ws || '/ws',
+        { websocket: true },
+        (socket: WebSocket) => {
+          if (this.voiceChannel) {
+            this.voiceChannel.handleWebSocketConnection(socket);
+          } else {
+            socket.terminate();
           }
         }
       );
+    });
 
-      // ConversationRelay callback endpoint
-      this.fastify.post(
-        this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback',
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          try {
-            if (mode === 'conversation' && this.voiceChannel) {
-              const formData = request.body as Record<string, string>;
-              const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
-
-              if (!parseResult.success) {
-                this.fastify.log.error(
-                  { errors: parseResult.error.errors },
-                  'Invalid ConversationRelay callback payload'
-                );
-                await reply.code(400).send({ error: 'Invalid payload' });
-                return;
-              }
-
-              const result = await this.voiceChannel.handleConversationRelayCallback(
-                parseResult.data,
-                this.config.handoffHandler
-              );
-
-              await reply.code(result.status).type(result.contentType).send(result.content);
-            } else {
-              // crelay mode — simple acknowledgment (no Maestro conversation to close)
-              await reply.code(200).send('OK');
-            }
-          } catch (error) {
-            this.fastify.log.error(
-              'ConversationRelay callback error: ' +
-                (error instanceof Error ? error.message : String(error))
-            );
-            await reply.code(500).send({ error: 'Internal server error' });
-          }
-        }
-      );
-
-      // Voice WebSocket endpoint
-      await this.fastify.register(fastify => {
-        fastify.get(
-          this.config.webhookPaths.ws || '/ws',
-          { websocket: true },
-          (socket: WebSocket) => {
-            if (mode === 'crelay' && this.crelayChannel) {
-              this.crelayChannel.handleWebSocketConnection(socket);
-            } else if (this.voiceChannel) {
-              this.voiceChannel.handleWebSocketConnection(socket);
-            } else {
-              socket.terminate();
-            }
-          }
-        );
-      });
-    }
-
-    // ── Silent sink for Maestro webhooks in crelay mode ────────────
-    // If the user has a Conversations Service webhook URL configured on the
-    // same domain (e.g., from testing conversation/passive mode), Maestro will
-    // still send events here. Return 200 to acknowledge silently.
-    if (mode === 'crelay') {
-      this.fastify.post(
-        this.config.webhookPaths.messaging || '/webhook',
-        async (_request: FastifyRequest, reply: FastifyReply) => {
-          await reply.code(200).send('OK');
-        }
-      );
-    }
-
-    // ── Messaging webhook (conversation + passive modes) ─────────────
-    if ((mode === 'conversation' || mode === 'passive') && this.messagingChannels.length > 0) {
+    // ── Messaging webhook ─────────────────────────────────────────
+    if (this.messagingChannels.length > 0) {
       this.fastify.post(
         this.config.webhookPaths.messaging || '/webhook',
         async (request: FastifyRequest, reply: FastifyReply) => {
@@ -397,8 +331,8 @@ export class TACServer {
       );
     }
 
-    // ── Conversation Intelligence webhook (conversation + passive modes, optional) ──
-    if ((mode === 'conversation' || mode === 'passive') && this.config.webhookPaths.cintel) {
+    // ── Conversation Intelligence webhook (optional) ──────────────
+    if (this.config.webhookPaths.cintel) {
       this.fastify.post(
         this.config.webhookPaths.cintel,
         async (request: FastifyRequest, reply: FastifyReply) => {
@@ -448,15 +382,11 @@ export class TACServer {
    */
   public async start(): Promise<void> {
     try {
-      const mode = this.tac.getConfig().tacMode;
-
       // Register form body parser for POST requests
       await this.fastify.register(formbody);
 
-      // Register WebSocket support (not needed in passive mode — no CR WebSocket)
-      if (mode !== 'passive') {
-        await this.fastify.register(websocket);
-      }
+      // Register WebSocket support for voice connections
+      await this.fastify.register(websocket);
 
       // Register graceful shutdown - waits for WebSockets to close
       await this.fastify.register(gracefulShutdown);
@@ -487,21 +417,15 @@ export class TACServer {
 
       this.fastify.log.info(
         {
-          mode,
           host: voiceConfig.host,
           port: voiceConfig.port,
-          ...(mode !== 'passive' && {
-            twiml_webhook: this.config.webhookPaths.twiml,
-            ws_websocket: this.config.webhookPaths.ws,
-            conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,
+          twiml_webhook: this.config.webhookPaths.twiml,
+          ws_websocket: this.config.webhookPaths.ws,
+          conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,
+          messaging_webhook: this.config.webhookPaths.messaging,
+          ...(this.config.webhookPaths.cintel && {
+            cintel_webhook: this.config.webhookPaths.cintel,
           }),
-          ...(mode !== 'crelay' && {
-            messaging_webhook: this.config.webhookPaths.messaging,
-          }),
-          ...(mode !== 'crelay' &&
-            this.config.webhookPaths.cintel && {
-              cintel_webhook: this.config.webhookPaths.cintel,
-            }),
           webhook_validation: this.config.validateWebhooks ? 'enabled' : 'disabled',
         },
         'TAC Server started'
