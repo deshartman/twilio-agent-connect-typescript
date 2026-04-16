@@ -28,7 +28,7 @@ const getNextPort = () => 0;
 
 describe('TACServer Webhook Validation', () => {
   const getTestConfig = () => ({
-    environment: 'dev' as const,
+
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -306,7 +306,7 @@ describe('TACServer Webhook Validation', () => {
 
 describe('TACServer idempotency token', () => {
   const getTestConfig = () => ({
-    environment: 'dev' as const,
+
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
@@ -420,7 +420,7 @@ describe('TACServer idempotency token', () => {
 
 describe('TACServer with conversationRelayConfig', () => {
   const getTestConfig = () => ({
-    environment: 'dev' as const,
+
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

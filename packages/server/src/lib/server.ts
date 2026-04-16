@@ -224,6 +224,7 @@ export class TACServer {
           const callSid = formData['CallSid'] || '';
           const fromNumber = formData['From'] || '';
           const toNumber = formData['To'] || '';
+
           const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
           const host = request.headers.host as string;
           const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws || '/ws'}`;

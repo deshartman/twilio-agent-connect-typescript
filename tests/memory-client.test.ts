@@ -24,7 +24,7 @@ function createMockResponse(
 
 describe('MemoryClient', () => {
   const getTestConfig = () => ({
-    environment: 'dev' as const,
+
     twilioAccountSid: 'ACtest123',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',

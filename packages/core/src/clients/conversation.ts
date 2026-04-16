@@ -32,20 +32,12 @@ interface RequestOptions {
  * and manage conversation lifecycle.
  */
 export class ConversationClient {
-  private readonly baseUrl: string;
+  private readonly baseUrl = 'https://conversations.twilio.com';
   private readonly credentials: { username: string; password: string };
   private readonly conversationServiceId: string;
   private readonly logger: Logger;
 
   constructor(config: TACConfig, logger?: Logger) {
-    if (!config.conversationServiceId) {
-      throw new Error(
-        'ConversationClient requires CONVERSATION_SERVICE_ID to be configured. ' +
-          'Ensure TAC_MODE is set to conversation or passive, and CONVERSATION_SERVICE_ID is set.'
-      );
-    }
-
-    this.baseUrl = config.conversationsApiUrl;
     this.credentials = {
       username: config.twilioApiKey,
       password: config.twilioApiToken,
