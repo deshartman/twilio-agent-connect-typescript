@@ -2,6 +2,8 @@
 
 Demonstrates using the `@twilio/tac-conversationrelay` package standalone for voice-only applications. No Maestro, no Memory, no multi-channel - just pure ConversationRelay with OpenAI integration.
 
+**Note:** This example uses a file path to reference the local package for development. In production, install from npm: `npm install @twilio/tac-conversationrelay`. Other examples use the full `twilio-agent-connect` package; this one intentionally uses only the minimal ConversationRelay package.
+
 ## Features
 
 - ✅ Voice-only (no SMS, no Chat)

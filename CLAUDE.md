@@ -119,13 +119,13 @@ The `TACServer` class (`packages/server/src/lib/server.ts`) provides a productio
 {
   voice: { host: '0.0.0.0', port: 3000 },
   webhookPaths: {
-    sms: '/webhook',
+    messaging: '/webhook',
     twiml: '/twiml',
     ws: '/ws',
     conversationRelayCallback: '/conversation-relay-callback',
   },
   conversationRelayConfig: {
-    welcomeGreeting: 'Hello! How can I assist you today?',
+    welcomeGreeting: 'Hello! Set up your welcome greeting in the server config.',
   },
   development: false,
   validateWebhooks: true,

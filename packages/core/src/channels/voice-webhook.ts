@@ -26,7 +26,7 @@ export interface VoiceWebhookChannelConfig {
 }
 
 /**
- * Voice Webhook Channel — passive mode (Maestro webhooks only, no CR)
+ * Voice Webhook Channel — webhook-only (Maestro webhooks, no CR WebSocket)
  *
  * Extends MessagingChannel with channelType='voice' and filters for
  * author.channel='VOICE' in webhook events. Responses use Maestro Send API.
@@ -61,7 +61,7 @@ export class VoiceWebhookChannel extends MessagingChannel {
   /**
    * Send voice response using Maestro Send API.
    *
-   * In passive mode, the Send API records the communication in Maestro.
+   * The Send API records the communication in Maestro.
    * The customer's own CR server is responsible for actual TTS playback.
    * channelId (CallSid) is required for VOICE participants.
    */

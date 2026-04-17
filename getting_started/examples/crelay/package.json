@@ -9,7 +9,7 @@
     "start": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "twilio-agent-connect": "file:../../..",
+    "@twilio/tac-conversationrelay": "file:../../../packages/conversationrelay",
     "dotenv": "^16.4.5",
     "openai": "^4.73.0"
   },

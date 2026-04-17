@@ -227,8 +227,8 @@ export class ConversationClient {
   /**
    * Add a participant if not already present, or fetch existing participant
    *
-   * Handles race condition between SDK active ingestion and Maestro passive ingestion
-   * (capture rules). When both TAC and Maestro capture rules try to add participants,
+   * Handles race condition between TAC's explicit addParticipant() calls and Maestro
+   * capture rules. When both TAC and Maestro capture rules try to add participants,
    * they race. This method handles the race defensively:
    *
    * 1. Check if participant already exists (Maestro may have added it)
