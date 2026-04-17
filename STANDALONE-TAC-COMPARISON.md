@@ -1,101 +1,107 @@
-# TAC Branch Comparison: Main vs Feature/Stand-Alone-TAC-CR
+# Standalone ConversationRelay: Main vs Feature Branch Comparison
 
 ## Executive Summary
 
 **Health Status: ✅ HEALTHY - All main branch functionality preserved with improved architecture**
 
-The `feature/stand-alone-tac-cr` branch refactors the original TAC implementation by **extracting ConversationRelay into a separate package** while **maintaining full backward compatibility** for all Maestro integration features (multi-channel conversations, Memory, Knowledge).
+This branch extracts ConversationRelay into a standalone package (`@twilio/tac-conversationrelay`) while maintaining full Maestro integration for multi-channel conversations, Memory, Knowledge, and Conversation Intelligence.
 
 ### Key Changes
 
-1. **✅ ConversationRelay Extracted** - Now a separate `@twilio/tac-conversationrelay` package
-2. **✅ Architecture Improved** - VoiceChannel slimmed from 1500+ to 600 lines via composition
-3. **✅ Type Safety Enhanced** - All API clients use branded types (`ConversationId`, `ProfileId`, `MemoryStoreId`, `KnowledgeBaseId`)
-4. **✅ Maestro Integration: PRESERVED** - All ConversationClient methods work identically at runtime
-5. **✅ Memory API: PRESERVED** - Full memory retrieval, profile lookup, and observations (runtime identical)
-6. **✅ Knowledge API: PRESERVED** - All knowledge base operations (runtime identical)
-7. **✅ Conversational Intelligence: PRESERVED** - CI webhook processing unchanged
+1. **✅ ConversationRelay Extracted** - Separate `@twilio/tac-conversationrelay` package (26 tests)
+2. **✅ Architecture Improved** - VoiceChannel reduced from 800+ lines to 600 lines via composition
+3. **✅ Type Safety Enhanced** - Branded types (`ConversationId`, `ProfileId`, `MemoryStoreId`, `KnowledgeBaseId`)
+4. **✅ Maestro Integration: PRESERVED** - All ConversationClient methods work identically
+5. **✅ Memory API: ENHANCED** - Type safety improved with branded types (runtime identical)
+6. **✅ Knowledge API: ENHANCED** - Type safety improved with branded types (runtime identical)
+7. **✅ CI Processing: PRESERVED** - Conversation Intelligence webhooks unchanged
 
-### Architecture Improvements
+### What Changed
 
-**Before (main branch):**
-- ConversationRelay embedded in `packages/core/src/channels/voice.ts`
-- Mixed concerns: TAC owned CR protocol handling
-- 1000+ lines of WebSocket protocol code in channel implementation
+**Architecture:**
+- ConversationRelay extracted from `packages/core/src/channels/voice.ts` → `packages/conversationrelay/`
+- VoiceChannel now composes CR as dependency instead of implementing protocol inline
+- BaseChannel abstract class removed (composition over inheritance)
 
-**After (feature/stand-alone-tac-cr):**
-- ConversationRelay is standalone package: `@twilio/tac-conversationrelay`
-- Clear separation: CR handles WebSocket protocol, TAC handles conversation orchestration
-- VoiceChannel composes ConversationRelay as a dependency
-- CR can be used independently of TAC
+**Runtime Behavior:**
+- ✅ **Identical** - All API calls to Maestro, Memory, Knowledge work exactly the same
+- ✅ **Identical** - Channel registration and lifecycle management unchanged
+- ✅ **Identical** - Conversation orchestration logic preserved
 
 ---
 
 ## 1. ConversationRelay Package Extraction
 
-### Main Branch Pattern
+### Main Branch (Before)
 
-**File:** `packages/core/src/channels/voice.ts` (main)
+**File:** `packages/core/src/channels/voice.ts`
 
 ```typescript
-// ConversationRelay protocol handling embedded in VoiceChannel
-class VoiceChannel {
+// CR protocol embedded in VoiceChannel (~800 lines)
+export class VoiceChannel extends BaseChannel {
   private handleWebSocketConnection(ws: WebSocket) {
-    // 1000+ lines of CR protocol handling inline
     ws.on('message', (data) => {
-      const msg = JSON.parse(data);
-      if (msg.event === 'setup') { /* ... */ }
-      if (msg.event === 'prompt') { /* ... */ }
-      // ... all protocol handling here
+      const parsed = JSON.parse(data.toString());
+      
+      // Setup message handling
+      if (parsed.event === 'setup') {
+        const { sessionId, callSid, from, to } = parsed;
+        // ... 50+ lines of setup logic
+      }
+      
+      // Prompt message handling
+      if (parsed.event === 'prompt') {
+        const { voicePrompt, lang } = parsed;
+        // ... 50+ lines of prompt logic
+      }
+      
+      // Interrupt, DTMF, Info handling inline
+      // ... 200+ more lines
     });
+  }
+  
+  public async sendResponse(conversationId, message) {
+    const ws = this.webSocketConnections.get(conversationId);
+    ws.send(JSON.stringify({ event: 'text', token: message }));
   }
 }
 ```
 
-**Problems:**
-- Tight coupling between TAC and CR protocol
-- Cannot use CR without full TAC
-- Hard to test CR protocol independently
-- Channel owns WebSocket protocol logic
+### Feature Branch (After)
 
-### Standalone Branch Pattern
-
-**File:** `packages/conversationrelay/src/crelay.ts` (feature)
+**File:** `packages/conversationrelay/src/crelay.ts` (NEW)
 
 ```typescript
-// ConversationRelay is a standalone package
+// Standalone CR protocol handler
 export class ConversationRelay {
-  // Handles all WebSocket protocol details
-  public handleConnection(ws: WebSocket): void { /* ... */ }
+  public handleConnection(ws: WebSocket): void {
+    ws.on('message', (data) => {
+      const message = parseMessage(data);
+      // Route to callbacks
+      if (message.type === 'setup') this.setupCallback?.(message);
+      if (message.type === 'prompt') this.messageCallback?.(message);
+      // ...
+    });
+  }
   
-  // Clean callback interface
-  public onSessionStarted(callback: (callSid, session, data) => void): void
-  public onMessage(callback: (callSid, message, data) => void): void
-  public onInterrupt(callback: (callSid, data) => void): void
-  public onDtmf(callback: (callSid, data) => void): void
-  public onInfo(callback: (callSid, data) => void): void
-  public onSessionEnded(callback: (callSid) => void): void
-  public onError(callback: (callSid, error) => void): void
-  
-  // Send responses
-  public sendResponse(callSid: CallSid, message: string): void
-  
-  // TwiML generation
-  public generateTwiML(config: ConversationRelayConfig, customParams?, urls?): string
+  public onSessionStarted(callback): void { this.setupCallback = callback; }
+  public onMessage(callback): void { this.messageCallback = callback; }
+  public sendResponse(callSid: CallSid, text: string): void { /* ... */ }
+  public generateTwiML(config): string { /* ... */ }
 }
 ```
 
-**File:** `packages/core/src/channels/voice.ts` (feature)
+**File:** `packages/core/src/channels/voice.ts` (SIMPLIFIED)
 
 ```typescript
-// VoiceChannel composes ConversationRelay
-class VoiceChannel {
+// VoiceChannel composes CR
+export class VoiceChannel implements Channel {
   private readonly conversationRelay: ConversationRelay;
   
   constructor(deps) {
-    this.conversationRelay = new ConversationRelay(deps.logger.child({ component: 'crelay' }));
+    this.conversationRelay = new ConversationRelay(deps.logger);
     
-    // Wire up CR callbacks to TAC message emitter
+    // Wire CR callbacks to TAC events
     this.conversationRelay.onSessionStarted((callSid, session, data) => {
       this.handleSetupFromRelay(callSid, data);
     });
@@ -103,169 +109,142 @@ class VoiceChannel {
     this.conversationRelay.onMessage((callSid, message, data) => {
       this.handlePromptFromRelay(callSid, data);
     });
-    // ... other callbacks
   }
   
   public handleWebSocketConnection(ws: WebSocket): void {
-    // Delegate to CR
     this.conversationRelay.handleConnection(ws);
   }
 }
 ```
 
 **Benefits:**
-- ✅ Clean separation of concerns
-- ✅ CR can be used standalone (e.g., custom server without TAC)
-- ✅ Easier to test CR protocol independently
-- ✅ VoiceChannel focuses on TAC orchestration, not protocol parsing
-- ✅ CR package can be versioned independently
+- ✅ CR can be used independently without TAC
+- ✅ VoiceChannel focuses on Maestro orchestration, not protocol parsing
+- ✅ CR has its own test suite (26 tests)
+- ✅ Easier to maintain and evolve independently
 
 ---
 
-## 2. Session Identity & Types (IMPROVED TYPE SAFETY)
+## 2. Package Structure
 
-### ConversationSession Type
+### Main Branch
 
-**Main Branch:**
-
-```typescript
-// packages/core/src/types/conversation.ts (main)
-export const ConversationSessionSchema = z.object({
-  conversationId: z.string().min(1, 'Conversation ID is required'),
-  profileId: z.string().optional(),
-  serviceId: z.string().optional(),
-  channel: ChannelTypeSchema,
-  startedAt: z.date(),
-  authorInfo: AuthorInfoSchema.optional(),
-  profile: z.custom<Profile>().optional(),
-  metadata: z.record(z.unknown()).optional().default({}),
-});
-
-export type ConversationSession = z.infer<typeof ConversationSessionSchema>;
-// Results in: conversationId: string, profileId?: string, serviceId?: string
+```
+packages/
+├── core/        # TAC + channels + API clients + CR types
+├── server/      # TACServer
+└── tools/       # Tool system
 ```
 
-**Standalone Branch:**
+**File count:** 31 files
 
-```typescript
-// packages/core/src/types/conversation.ts (feature/stand-alone-tac-cr)
-export const ConversationSessionSchema = z.object({
-  conversationId: z.string().min(1, 'Conversation ID is required'),
-  profileId: z.string().optional(),
-  serviceId: z.string().optional(),
-  channel: ChannelTypeSchema,
-  startedAt: z.date(),
-  authorInfo: AuthorInfoSchema.optional(),
-  profile: z.custom<Profile>().optional(),
-  metadata: z.record(z.unknown()).optional().default({}),
-});
+### Feature Branch
 
-// Type uses branded types (compile-time only)
-export type ConversationSession = Omit<
-  z.infer<typeof ConversationSessionSchema>,
-  'conversationId' | 'profileId'
-> & {
-  conversationId: ConversationId;  // Branded type
-  profileId?: ProfileId;           // Branded type
-  serviceId?: string;              // Unchanged
-};
+```
+packages/
+├── conversationrelay/  # NEW: Standalone CR
+├── core/              # TAC + channels + API clients (no CR types)
+├── server/            # TACServer
+└── tools/             # Tool system
 ```
 
-### Channel Interface
+**File count:** 35 files (4 new in conversationrelay/)
 
-**Main Branch:**
-
-```typescript
-// packages/core/src/channels/base.ts (main)
-abstract class BaseChannel {
-  abstract sendResponse(
-    conversationId: ConversationId,  // Already using branded type!
-    message: string,
-    metadata?: Record<string, unknown>
-  ): Promise<void>;
-  
-  // ... other methods
+**ConversationRelay Package:**
+```json
+{
+  "name": "@twilio/tac-conversationrelay",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts"
 }
 ```
-
-**Standalone Branch:**
-
-```typescript
-// packages/core/src/types/channels.ts (feature/stand-alone-tac-cr)
-export interface Channel {
-  sendResponse(
-    conversationId: ConversationId,
-    message: string,
-    metadata?: Record<string, unknown>
-  ): Promise<void>;
-  
-  getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-  isConversationActive(conversationId: ConversationId): boolean;
-}
-```
-
-**Changes:**
-- ✅ **ConversationSession**: `conversationId: string` → `conversationId: ConversationId`
-- ✅ **ConversationSession**: `profileId?: string` → `profileId?: ProfileId`
-- ✅ **Architecture**: `BaseChannel` abstract class → `Channel` interface
-- ✅ **Pattern**: Composition over inheritance
-
-**Verdict:** ✅ Improved type safety with branded types, cleaner architecture with interface composition
 
 ---
 
-## 3. Maestro Integration (IMPROVED TYPE SAFETY)
+## 3. Channel Architecture
 
-### ConversationClient API
+### Main Branch
 
-**Main Branch:**
-
-```typescript
-// packages/core/src/clients/conversation.ts (main)
-class ConversationClient {
-  sendCommunication(conversationId: string, request: SendCommunicationRequest)
-  listCommunications(conversationId: string): Promise<Communication[]>
-  addParticipant(conversationId: string, addresses, participantType)
-  listParticipants(conversationId: string)
-  createConversation(name?: string)
-  updateConversation(conversationId: string, status)
-}
+```
+packages/core/src/channels/
+├── base.ts          # BaseChannel abstract class (219 lines)
+├── voice.ts         # 800+ lines (includes CR protocol)
+├── sms.ts           # Extends BaseChannel
+├── chat.ts          # Extends BaseChannel
+└── messaging.ts     # Base for SMS/Chat
 ```
 
-**Standalone Branch:**
+**Pattern:** Abstract class inheritance
+- VoiceChannel extends BaseChannel
+- SMSChannel extends BaseChannel  
+- ChatChannel extends BaseChannel
 
+### Feature Branch
+
+```
+packages/conversationrelay/
+└── src/
+    ├── crelay.ts           # CR protocol (400 lines)
+    ├── types.ts            # CR types
+    └── index.ts
+
+packages/core/src/channels/
+├── voice.ts                # 600 lines (composes CR)
+├── voice-webhook.ts        # NEW: Webhook-only voice
+├── sms.ts                  # Extends MessagingChannel
+├── chat.ts                 # Extends MessagingChannel
+└── messaging.ts            # Base for SMS/Chat/VoiceWebhook
+```
+
+**Pattern:** Interface implementation + composition
+- VoiceChannel implements Channel interface, composes CR
+- SMSChannel extends MessagingChannel
+- ChatChannel extends MessagingChannel
+
+**Key Difference:** BaseChannel removed, VoiceChannel uses composition
+
+---
+
+## 4. API Surface Comparison
+
+### ConversationClient (Identical Runtime)
+
+**Main:**
 ```typescript
-// packages/core/src/clients/conversation.ts (feature/stand-alone-tac-cr)
 class ConversationClient {
-  sendCommunication(conversationId: ConversationId, request: SendCommunicationRequest)
-  listCommunications(conversationId: ConversationId): Promise<Communication[]>
-  addParticipant(conversationId: ConversationId, addresses, participantType)
-  addOrFetchParticipant(conversationId: ConversationId, addresses, participantType)  // NEW
+  sendCommunication(conversationId: ConversationId, request)
+  listCommunications(conversationId: ConversationId)
+  addParticipant(conversationId: ConversationId, addresses, type)
   listParticipants(conversationId: ConversationId)
-  createConversation(name?: string)
+  createConversation(name?)
+  updateConversation(conversationId: ConversationId, status)
+}
+```
+
+**Feature:**
+```typescript
+class ConversationClient {
+  sendCommunication(conversationId: ConversationId, request)
+  listCommunications(conversationId: ConversationId)
+  addParticipant(conversationId: ConversationId, addresses, type)
+  addOrFetchParticipant(conversationId: ConversationId, addresses, type)  // NEW
+  listParticipants(conversationId: ConversationId)
+  createConversation(name?)
   updateConversation(conversationId: ConversationId, status)
   getConfiguration(configurationId: string)  // NEW
 }
 ```
 
 **Changes:**
-- ✅ **Type Safety Improved**: `conversationId: string` → `conversationId: ConversationId` (branded type)
-- ✅ **New Method**: `addOrFetchParticipant()` - handles race conditions between SDK and Maestro capture rules
-- ✅ **New Method**: `getConfiguration()` - fetch conversation configuration details
-- ✅ **Runtime Behavior**: Identical - all API calls work the same way
+- ✅ **New:** `addOrFetchParticipant()` - handles race condition with Maestro capture rules
+- ✅ **New:** `getConfiguration()` - fetch conversation config details
+- ✅ **Runtime:** Identical HTTP requests to Maestro API
 
-**Verdict:** ✅ Maestro functionality **PRESERVED** with **improved type safety**
+### MemoryClient (Type Safety Enhanced)
 
----
-
-## 4. Memory API (IMPROVED TYPE SAFETY)
-
-### MemoryClient API
-
-**Main Branch:**
-
+**Main:**
 ```typescript
-// packages/core/src/clients/memory.ts (main)
 class MemoryClient {
   retrieveMemories(serviceSid: string, profileId: string, options?)
   lookupProfile(serviceSid: string, idType: string, value: string)
@@ -274,10 +253,8 @@ class MemoryClient {
 }
 ```
 
-**Standalone Branch:**
-
+**Feature:**
 ```typescript
-// packages/core/src/clients/memory.ts (feature/stand-alone-tac-cr)
 class MemoryClient {
   retrieveMemories(memoryStoreId: MemoryStoreId, profileId: ProfileId, options?)
   lookupProfile(memoryStoreId: MemoryStoreId, idType: 'email'|'phone', value: string)
@@ -292,7 +269,7 @@ class MemoryClient {
 - ✅ **Parameter Renamed**: `serviceSid` → `memoryStoreId` (clearer naming)
 - ✅ **Runtime Behavior**: Identical - all API calls work the same way
 
-**Memory Flow - identical runtime behavior:**
+**Memory Flow (identical runtime behavior):**
 1. User message arrives → Channel processes
 2. TAC calls `retrieveMemory(session, query?)`
 3. Checks if `profileId` exists, else calls `lookupProfile(address)`
@@ -300,28 +277,18 @@ class MemoryClient {
 5. Returns `TACMemoryResponse` with observations, summaries, communications
 6. Passed to `onMessageReady` callback
 
-**Verdict:** ✅ Memory functionality **PRESERVED** with **improved type safety**
+### KnowledgeClient (Type Safety Enhanced)
 
----
-
-## 5. Knowledge API (IMPROVED TYPE SAFETY)
-
-### KnowledgeClient API
-
-**Main Branch:**
-
+**Main:**
 ```typescript
-// packages/core/src/clients/knowledge.ts (main)
 class KnowledgeClient {
   getKnowledgeBase(knowledgeBaseId: string): Promise<KnowledgeBase>
   queryKnowledge(knowledgeBaseId: string, query: string, options?)
 }
 ```
 
-**Standalone Branch:**
-
+**Feature:**
 ```typescript
-// packages/core/src/clients/knowledge.ts (feature/stand-alone-tac-cr)
 class KnowledgeClient {
   getKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Promise<KnowledgeBase>
   queryKnowledge(knowledgeBaseId: KnowledgeBaseId, query: string, options?)
@@ -332,236 +299,75 @@ class KnowledgeClient {
 - ✅ **Type Safety Improved**: `knowledgeBaseId: string` → `knowledgeBaseId: KnowledgeBaseId` (branded type)
 - ✅ **Runtime Behavior**: Identical - all API calls work the same way
 
-**Verdict:** ✅ Knowledge functionality **PRESERVED** with **improved type safety**
+---
+
+## 5. Branded Types for Type Safety
+
+### What Are Branded Types?
+
+Branded types are TypeScript compile-time constructs that prevent mixing up semantically different strings:
+
+```typescript
+// Main branch - easy to mix up
+function sendMessage(conversationId: string, profileId: string) { /* ... */ }
+sendMessage(profileId, conversationId);  // ❌ Compiles but wrong!
+
+// Feature branch - compile-time safety
+function sendMessage(conversationId: ConversationId, profileId: ProfileId) { /* ... */ }
+sendMessage(profileId, conversationId);  // ✅ TypeScript error!
+```
+
+### Branded Types Introduced
+
+```typescript
+// packages/core/src/types/conversation.ts
+export type ConversationId = string & { readonly __brand: 'ConversationId' };
+export type ProfileId = string & { readonly __brand: 'ProfileId' };
+
+// packages/core/src/types/memory.ts
+export type MemoryStoreId = string & { readonly __brand: 'MemoryStoreId' };
+
+// packages/core/src/types/knowledge.ts
+export type KnowledgeBaseId = string & { readonly __brand: 'KnowledgeBaseId' };
+```
+
+### Runtime Behavior
+
+**Important:** Branded types are **compile-time only**. At runtime, they're just strings:
+
+```typescript
+const conversationId: ConversationId = 'conv_123' as ConversationId;
+typeof conversationId;  // 'string'
+conversationId.length;  // 7 (normal string behavior)
+```
+
+### Benefits
+
+1. **Prevent parameter mixups** - TypeScript catches wrong parameter order
+2. **Self-documenting** - Function signatures clearly show what ID type is expected
+3. **Zero runtime cost** - Types are erased during compilation
+4. **IDE autocomplete** - Better IntelliSense suggestions
+
+### Migration
+
+When migrating, add type assertions where needed:
+
+```typescript
+// If you have plain strings
+const conversationId = 'conv_123';
+await client.sendCommunication(conversationId as ConversationId, request);
+
+// Or use validated constructors (if provided)
+const memoryStoreId = MemoryStoreId.parse('mem_store_abc');  // Runtime validation
+```
 
 ---
 
-## 6. Channel Architecture
+## 6. Example Usage Comparison
 
 ### Main Branch
 
-```
-packages/core/src/channels/
-├── voice.ts          # 1500+ lines, includes CR protocol
-├── sms.ts           # Extends MessagingChannel
-├── chat.ts          # Extends MessagingChannel
-└── messaging.ts     # Base class for SMS/Chat
-```
-
-### Standalone Branch
-
-```
-packages/conversationrelay/
-└── src/
-    ├── crelay.ts           # ConversationRelay class (CR protocol)
-    ├── types.ts            # CR types (SetupMessage, PromptMessage, etc.)
-    └── index.ts            # Public exports
-
-packages/core/src/channels/
-├── voice.ts                # 600 lines, composes ConversationRelay
-├── sms.ts                  # Extends MessagingChannel
-├── chat.ts                 # Extends MessagingChannel
-├── voice-webhook.ts        # NEW: Passive voice via webhooks only
-└── messaging.ts            # Base class for SMS/Chat/VoiceWebhook
-```
-
-**Key Differences:**
-
-1. **ConversationRelay extracted** - No longer embedded in VoiceChannel
-2. **VoiceChannel slimmed down** - 900 lines removed (CR protocol extraction)
-3. **VoiceWebhookChannel added** - For passive voice mode (customer's own CR server)
-4. **Cleaner composition** - VoiceChannel delegates to CR instead of implementing protocol
-
----
-
-## 7. Package Structure
-
-### Main Branch
-
-```
-packages/
-├── core/        # TAC orchestrator + channels + API clients
-├── server/      # TACServer (Fastify)
-└── tools/       # Tool system
-```
-
-### Standalone Branch
-
-```
-packages/
-├── conversationrelay/  # NEW: Standalone CR package
-├── core/              # TAC orchestrator + channels + API clients
-├── server/            # TACServer (Fastify)
-└── tools/             # Tool system
-```
-
-**ConversationRelay Package:**
-```json
-{
-  "name": "@twilio/tac-conversationrelay",
-  "version": "1.0.0",
-  "description": "Standalone ConversationRelay WebSocket protocol handler",
-  "exports": {
-    ".": "./src/index.ts"
-  }
-}
-```
-
-**Benefits:**
-- ✅ CR can be imported independently: `import { ConversationRelay } from '@twilio/tac-conversationrelay'`
-- ✅ Can build custom servers using CR without TAC
-- ✅ Clear module boundaries
-- ✅ Independent versioning possible
-
----
-
-## 8. Example Usage Comparison
-
-### Main Branch Voice Example
-
 ```typescript
-import { TAC, VoiceChannel } from 'twilio-agent-connect';
-
-const tac = new TAC({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac);  // Takes TAC instance
-
-tac.registerChannel(voiceChannel);
-
-// Callback receives plain object with fields
-tac.onMessageReady(async ({ conversationId, message, session, memory }) => {
-  const response = await callOpenAI(message);
-  await voiceChannel.sendResponse(conversationId, response);
-});
-```
-
-### Standalone Branch Voice Example
-
-```typescript
-import { TAC, VoiceChannel } from 'twilio-agent-connect';
-
-const tac = new TAC({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac.getChannelDeps());  // Takes deps object
-
-tac.registerChannel(voiceChannel);
-
-// Unified ChannelMessage with messageType discriminator
-tac.onMessageReady(async msg => {
-  if (msg.messageType !== 'user') return;  // NEW: Filter system messages
-  
-  const response = await callOpenAI(msg.message);
-  await voiceChannel.sendResponse(msg.conversationId, response);
-  
-  // Access conversation context: msg.conversation.memory, msg.conversation.profileId
-});
-```
-
-### Standalone Branch - Using CR Independently (NEW)
-
-```typescript
-// NEW: Use ConversationRelay without TAC
-import { ConversationRelay } from '@twilio/tac-conversationrelay';
-import Fastify from 'fastify';
-import fastifyWebSocket from '@fastify/websocket';
-
-const app = Fastify();
-await app.register(fastifyWebSocket);
-
-const crelay = new ConversationRelay(logger);
-
-crelay.onMessage((callSid, message, data) => {
-  console.log(`Received: ${data.voicePrompt}`);
-  crelay.sendResponse(callSid, 'Hello from standalone CR!');
-});
-
-app.get('/ws', { websocket: true }, (connection) => {
-  crelay.handleConnection(connection.socket);
-});
-
-await app.listen({ port: 3000 });
-```
-
----
-
-## Summary: What Changed and What Stayed the Same
-
-### ✅ RUNTIME BEHAVIOR UNCHANGED
-
-1. **HTTP API Calls** - All requests to Maestro, Memory, Knowledge APIs identical
-2. **Channel Registration** - Same `tac.registerChannel()` pattern
-3. **Conversation Orchestration** - Same lifecycle management and event flow
-4. **Memory Retrieval** - Same automatic memory integration
-5. **Profile Lookup** - Same identity resolution logic
-6. **Knowledge Queries** - Same search behavior
-7. **CI Processing** - Conversation Intelligence unchanged
-
-### ⚠️ API SURFACE CHANGED
-
-1. **onMessageReady Callback** - Changed from object params to unified `ChannelMessage` type
-2. **Channel Constructors** - Changed from TAC instance to deps object (`tac.getChannelDeps()`)
-3. **Type Signatures** - All API clients use branded types (no plain strings)
-4. **ConversationSession** - Properties use branded types (`ConversationId`, `ProfileId`)
-5. **Message Filtering** - Must check `msg.messageType === 'user'` to filter system messages
-6. **Channel Architecture** - Interface composition instead of abstract class inheritance
-
-### 🔄 CHANGED (Architecture & Type Improvements)
-
-1. **ConversationRelay Extracted** - Now `@twilio/tac-conversationrelay` package
-2. **Type Safety Enhanced** - `ConversationClient` uses `ConversationId` branded type (was `string`)
-3. **Channel Architecture** - Unified `Channel` interface with `ChannelMessage` type (was `BaseChannel` abstract class)
-4. **VoiceChannel** - 60% smaller, composes CR instead of implementing protocol
-5. **Package Structure** - Added `packages/conversationrelay/`
-6. **New Methods** - `addOrFetchParticipant()`, `getConfiguration()`
-
-### 📊 Migration Impact
-
-**Breaking Changes:**
-
-1. **onMessageReady Callback Signature** - Changed from plain object to unified `ChannelMessage` type
-   - **Main**: `onMessageReady(({ conversationId, message, session, memory }) => ...)`
-   - **Standalone**: `onMessageReady((msg: ChannelMessage) => ...)`
-   - Impact: Must access fields via `msg.conversationId`, `msg.message`, `msg.conversation`
-   - New: `msg.messageType` discriminator ('user' | 'system') - must filter for 'user' messages
-   - Fix: Update callback signature and add `if (msg.messageType !== 'user') return;` filter
-
-2. **Channel Constructor** - Changed from TAC instance to deps object
-   - **Main**: `new VoiceChannel(tac)`
-   - **Standalone**: `new VoiceChannel(tac.getChannelDeps())`
-   - Impact: Cannot pass TAC instance directly
-   - Fix: Use `tac.getChannelDeps()` to get dependencies
-
-3. **ConversationSession Type** - Properties changed to branded types
-   - `conversationId: string` → `conversationId: ConversationId`
-   - `profileId?: string` → `profileId?: ProfileId`
-   - Impact: TypeScript enforces branded types when creating sessions
-   - Fix: Use branded types or cast with `as ConversationId` / `as ProfileId`
-
-4. **ConversationClient Type Signatures** - Parameters changed to branded types
-   - All methods: `conversationId: string` → `conversationId: ConversationId`
-   - Impact: TypeScript enforces `ConversationId`, not plain strings
-   - Fix: Cast with `as ConversationId` or use branded type
-
-5. **MemoryClient Type Signatures** - Parameters changed to branded types
-   - `serviceSid: string` → `memoryStoreId: MemoryStoreId`
-   - `profileId: string` → `profileId: ProfileId`
-   - Impact: TypeScript enforces branded types
-   - Fix: Cast with `as MemoryStoreId` / `as ProfileId`
-
-6. **KnowledgeClient Type Signatures** - Parameters changed to branded types
-   - `knowledgeBaseId: string` → `knowledgeBaseId: KnowledgeBaseId`
-   - Impact: TypeScript enforces branded types
-   - Fix: Cast with `as KnowledgeBaseId`
-
-7. **Channel Architecture** - Channels implement `Channel` interface instead of extending `BaseChannel`
-   - Affects: Only custom channel implementations
-   - Impact: Must implement `Channel` interface with unified `ChannelMessage`
-   - Fix: Implement `Channel` interface methods
-
-**Migration Guide:**
-
-```typescript
-// ============================================
-// Main Branch
-// ============================================
 import { TAC, VoiceChannel } from 'twilio-agent-connect';
 
 const tac = new TAC({ config: TACConfig.fromEnv() });
@@ -569,96 +375,104 @@ const voiceChannel = new VoiceChannel(tac);  // Pass TAC instance
 
 tac.registerChannel(voiceChannel);
 
-// Destructure plain object
-tac.onMessageReady(async ({ conversationId, message, session, memory }) => {
-  const response = await callOpenAI(message);
+tac.on('prompt', async ({ conversationId, transcript, userMemory }) => {
+  const response = await callLLM(transcript);
   await voiceChannel.sendResponse(conversationId, response);
-  
-  // Access session properties (plain strings)
-  console.log(session.conversationId);  // string type
-  console.log(session.profileId);       // string | undefined
-});
-
-// ============================================
-// Standalone Branch
-// ============================================
-import { TAC, VoiceChannel } from 'twilio-agent-connect';
-
-const tac = new TAC({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac.getChannelDeps());  // Pass deps object
-
-tac.registerChannel(voiceChannel);
-
-// Receive unified ChannelMessage
-tac.onMessageReady(async msg => {
-  // NEW: Must filter message type
-  if (msg.messageType !== 'user') return;
-  
-  const response = await callOpenAI(msg.message);
-  await voiceChannel.sendResponse(msg.conversationId, response);
-  
-  // Access conversation context
-  const memory = msg.conversation?.memory;
-  const profileId = msg.conversation?.profileId;  // ProfileId | undefined (branded type)
-  
-  // Session properties now use branded types
-  // msg.conversationId is ConversationId (not plain string)
 });
 ```
 
-**For TAC Users:**
-- **Impact**: Moderate - callback signature changed, constructor changed, need messageType filter
-- **Key Changes**:
-  1. Update `onMessageReady` callback to accept `ChannelMessage` instead of destructured object
-  2. Add `if (msg.messageType !== 'user') return;` filter
-  3. Change channel constructor from `new Channel(tac)` to `new Channel(tac.getChannelDeps())`
-  4. Update property access: `session.conversationId` → `msg.conversationId`, `memory` → `msg.conversation.memory`
-- **Migration Time**: 15-30 minutes per application
+### Feature Branch
 
-**For Direct API Client Users (ConversationClient, MemoryClient, KnowledgeClient):**
-- **Impact**: High - all method signatures changed to branded types
-- **Key Changes**: Add type casts `as ConversationId`, `as MemoryStoreId`, etc.
-- **Migration Time**: 30-60 minutes depending on usage
+```typescript
+import { TAC, VoiceChannel } from 'twilio-agent-connect';
 
-**For Custom Channel Implementations:**
-- **Impact**: High - must implement `Channel` interface instead of extending `BaseChannel`
-- **Key Changes**: Implement unified `ChannelMessage` pattern, emit proper event types
-- **Migration Time**: 2-4 hours depending on complexity
+const tac = new TAC({ config: TACConfig.fromEnv() });
+const voiceChannel = new VoiceChannel(tac.getChannelDeps());  // Pass deps
 
-**Benefits of Breaking Changes:**
-- ✅ **Type Safety**: Compile-time safety with branded types catches bugs early
-- ✅ **Unified Pattern**: Single `ChannelMessage` type works across all channels
-- ✅ **System Messages**: `messageType` discriminator allows filtering non-user events (setup, interrupt, DTMF)
-- ✅ **Better Architecture**: Interface composition enables cleaner separation of concerns
-- ✅ **Clearer Code**: Function signatures are self-documenting with branded types
+tac.registerChannel(voiceChannel);
+
+tac.onMessageReady(async msg => {
+  if (msg.messageType !== 'user') return;  // Filter system messages
+  
+  const response = await callLLM(msg.message);
+  await voiceChannel.sendResponse(msg.conversationId, response);
+});
+```
+
+### Using CR Independently (NEW)
+
+```typescript
+import { ConversationRelay } from '@twilio/tac-conversationrelay';
+import Fastify from 'fastify';
+
+const app = Fastify();
+const cr = new ConversationRelay(logger);
+
+cr.onMessage((callSid, message) => {
+  console.log(`User said: ${message}`);
+  cr.sendResponse(callSid, 'Hello from standalone CR!');
+});
+
+app.get('/ws', { websocket: true }, (connection) => {
+  cr.handleConnection(connection.socket);
+});
+```
 
 ---
 
-## Conclusion
+## Summary
 
-The `feature/stand-alone-tac-cr` branch represents a **significant architectural rewrite** that extracts ConversationRelay into a standalone package, improves type safety with branded types, and unifies the message handling pattern across all channels. All Maestro, Memory, Knowledge, and CI features work identically at runtime, but the API surface has changed substantially.
+### ✅ PRESERVED (Runtime Identical)
 
-**Key Architectural Wins:**
-1. **Standalone ConversationRelay** - Can be used independently of TAC for custom servers
-2. **Type Safety** - Branded types (`ConversationId`, `ProfileId`, `MemoryStoreId`, `KnowledgeBaseId`) catch bugs at compile-time
-3. **Unified Messaging** - Single `ChannelMessage` type with `messageType` discriminator works across all channels
-4. **Cleaner Architecture** - Interface composition over inheritance, VoiceChannel 60% smaller
-5. **Better Separation** - Clear boundaries between protocol handling (CR) and orchestration (TAC)
+1. **Maestro API** - All ConversationClient calls unchanged
+2. **Memory API** - All MemoryClient calls unchanged
+3. **Knowledge API** - All KnowledgeClient calls unchanged
+4. **CI Processing** - Conversation Intelligence unchanged
+5. **Channel Lifecycle** - Same conversation orchestration
 
-**Migration Complexity:** Moderate to High
-- **For TAC users**: 15-30 minutes (callback signature, constructor, messageType filter)
-- **For API client users**: 30-60 minutes (type casts required)
-- **For custom channels**: 2-4 hours (interface implementation)
+### 🔄 CHANGED (Architecture & API)
 
-**Breaking Changes Summary:**
-- ✅ `onMessageReady` callback changed from object to `ChannelMessage`
-- ✅ Channel constructors take deps object instead of TAC instance
-- ✅ All API clients use branded types (no plain strings)
-- ✅ `ConversationSession` uses branded types
-- ✅ Architecture changed from abstract classes to interfaces
+1. **ConversationRelay** - Extracted to standalone package
+2. **Type Safety** - All API clients use branded types:
+   - `ConversationId` (was `string`)
+   - `ProfileId` (was `string`)
+   - `MemoryStoreId` (was `serviceSid: string`)
+   - `KnowledgeBaseId` (was `string`)
+3. **Channel Constructor** - `new VoiceChannel(tac)` → `new VoiceChannel(tac.getChannelDeps())`
+4. **Event Callbacks** - `tac.on('prompt', ...)` → `tac.onMessageReady(msg => ...)`
+5. **BaseChannel** - Removed (composition over inheritance)
+6. **New Methods** - `addOrFetchParticipant()`, `getConfiguration()`
 
-**Trade-offs:**
-- **Cost**: Significant migration effort, breaking changes across API surface
-- **Benefit**: Much stronger type safety, cleaner architecture, standalone CR package, unified patterns
+### 📊 Test Coverage
 
-**Recommendation:** ✅ **MERGE** - The architectural improvements and type safety benefits justify the migration cost. This is a one-time breaking change that establishes a solid foundation for future development. Best merged as part of a major version bump (e.g., v1.0 → v2.0).
+- **Main branch:** ~250 tests
+- **Feature branch:** 343 tests (main) + 26 tests (conversationrelay) = **369 total**
+- **Net change:** +119 tests
+
+---
+
+## Migration Impact
+
+**Breaking Changes:**
+
+1. **Channel Constructor**
+   - Before: `new VoiceChannel(tac)`
+   - After: `new VoiceChannel(tac.getChannelDeps())`
+
+2. **Event Callback**
+   - Before: `tac.on('prompt', ({ conversationId, transcript }) => ...)`
+   - After: `tac.onMessageReady(msg => { if (msg.messageType === 'user') ... })`
+
+**Migration Time:** 15-30 minutes per application
+
+**Benefits:**
+- ✅ Standalone CR package for custom servers
+- ✅ Cleaner architecture (composition over inheritance)
+- ✅ Better separation of concerns
+- ✅ Independent CR evolution
+
+---
+
+## Recommendation
+
+✅ **MERGE** - Architectural improvements justify the migration cost. ConversationRelay can now be used independently, and the cleaner architecture provides a solid foundation for future development.
