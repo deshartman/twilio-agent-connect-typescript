@@ -11,6 +11,7 @@ import {
 
 describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   let voiceChannel: VoiceChannel;
+  let tac: TAC;
 
   const getTestConfig = () => ({
     twilioAccountSid: 'ACtest123456789',
@@ -233,6 +234,16 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     });
   });
 
+  describe('Memory Retrieval via Config (Memory API)', () => {
+    it('should not enable memory when memoryStoreId not configured', () => {
+      const config = new TACConfig(getTestConfigWithoutMemory());
+      tac = new TAC({ config });
+
+      // Memory should not be enabled when memoryStoreId is not configured
+      expect(tac.isMemoryEnabled()).toBe(false);
+    });
+  });
+
   describe('ChannelMessage Shape', () => {
     it('should emit a well-formed ChannelMessage with all expected fields', async () => {
       const mockMemory = createMockMemory();
@@ -403,6 +414,15 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         })
       );
       expect(captured[0].conversation?.memory).toBeUndefined();
+    });
+
+    it('should work without memory when memoryStoreId not configured', () => {
+      const config = new TACConfig(getTestConfigWithoutMemory());
+      const tac = new TAC({ config });
+
+      // Should be able to instantiate TAC without memory configured
+      expect(tac).toBeInstanceOf(TAC);
+      expect(tac.isMemoryEnabled()).toBe(false);
     });
   });
 
