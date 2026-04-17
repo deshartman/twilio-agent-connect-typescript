@@ -46,6 +46,17 @@ describe('TACConfig', () => {
       }).toThrow();
     });
 
+    it('should reject legacy comms_service format', () => {
+      const legacyConfig = {
+        ...getTestConfigData(),
+        conversationServiceId: 'comms_service_01kbjqhn79f0fvwfsxqzd5nqhd',
+      };
+
+      expect(() => {
+        new TACConfig(legacyConfig);
+      }).toThrow('Invalid Conversation Configuration ID format');
+    });
+
     it('should validate memory store ID format when provided', () => {
       const invalidConfig = {
         ...getTestConfigData(),

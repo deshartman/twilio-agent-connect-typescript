@@ -19,7 +19,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15555555555',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
-    memoryStoreId: 'mem_store_01234567890123456789abcdef',
+    memoryStoreId: 'mem_store_01234567890123456789abcdef', // Enable memory
   });
 
   const createMockConversationClient = () =>
@@ -32,6 +32,16 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       sendCommunication: vi.fn(),
       listCommunications: vi.fn(),
     }) as unknown as ConversationClient;
+
+  const getTestConfigWithoutMemory = () => ({
+    twilioAccountSid: 'ACtest123456789',
+    twilioAuthToken: 'test_token_123',
+    twilioApiKey: 'SKtest_api_key',
+    twilioApiToken: 'test_api_token',
+    twilioPhoneNumber: '+15555555555',
+    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    // No memoryStoreId - memory disabled
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createMockWebSocket = (): any => {
