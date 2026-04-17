@@ -74,7 +74,7 @@ describe('Knowledge Tools', () => {
       ];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search')
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search')
         .reply(200, { chunks: mockChunks });
 
       const tool = createKnowledgeSearchTool(
@@ -95,7 +95,7 @@ describe('Knowledge Tools', () => {
       const mockChunks: KnowledgeChunkResult[] = [];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search')
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search')
         .reply(config => {
           const body = JSON.parse(config.data);
           expect(body.top).toBe(10);
@@ -164,7 +164,7 @@ describe('Knowledge Tools', () => {
       };
 
       mockAdapter
-        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0')
+        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012')
         .reply(200, mockKB);
 
       const tool = await createKnowledgeSearchToolAsync(
@@ -202,7 +202,7 @@ describe('Knowledge Tools', () => {
       };
 
       mockAdapter
-        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0')
+        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012')
         .reply(200, mockKB);
 
       const tool = await createKnowledgeSearchToolAsync(
@@ -239,7 +239,7 @@ describe('Knowledge Tools', () => {
       };
 
       mockAdapter
-        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0')
+        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012')
         .reply(200, mockKB);
 
       const factory = createKnowledgeTools(knowledgeClient);
