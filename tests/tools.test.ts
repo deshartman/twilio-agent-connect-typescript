@@ -365,7 +365,7 @@ describe('Tool System', () => {
     });
 
     describe('createHandoffTool', () => {
-      it('should accept ConversationId (Maestro mode)', async () => {
+      it('should accept ConversationId (Maestro-backed)', async () => {
         const config = new TACConfig(getTestConfig());
         const tac = new TAC({ config });
         const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();

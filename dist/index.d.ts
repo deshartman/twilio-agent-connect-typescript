@@ -787,8 +787,8 @@ type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSumm
 /**
  * Base session context - works with any session identifier
  *
- * This minimal interface supports both CR-only mode (CallSid) and
- * Maestro mode (ConversationId) without forcing conversation concepts.
+ * This minimal interface supports both standalone CR (CallSid) and
+ * Maestro-backed channels (ConversationId) without forcing conversation concepts.
  */
 interface SessionContext {
     /**
@@ -3207,7 +3207,7 @@ declare class TACConfig {
     readonly twilioApiKey: string;
     readonly twilioApiToken: string;
     readonly twilioPhoneNumber: string;
-    readonly memoryStoreId?: string;
+    readonly memoryStoreId?: MemoryStoreId;
     readonly traitGroups?: string[];
     readonly conversationServiceId: string;
     readonly voicePublicDomain?: string;
@@ -3904,7 +3904,7 @@ declare class ChatChannel extends MessagingChannel {
  */
 
 /**
- * Voice Channel — Conversation mode (CR + Maestro)
+ * Voice Channel — Maestro-backed voice (CR WebSocket + Maestro Conversations)
  *
  * Uses ConversationRelay for WebSocket protocol handling. Always has ConversationClient.
  * Creates Maestro conversations and participants in handleIncomingCall().
@@ -4106,11 +4106,11 @@ interface MemoryRetrievalParams {
 /**
  * Create memory retrieval tool
  */
-declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: string, profileId?: string): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId, profileId?: string): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 /**
  * Create factory function for memory tools
  */
-declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: string): {
+declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId): {
     forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
     forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 };
@@ -4210,7 +4210,7 @@ interface KnowledgeToolConfig {
  * @param config - Configuration with required name and description
  * @returns TACTool configured for knowledge search
  */
-declare function createKnowledgeSearchTool(knowledgeClient: KnowledgeClient, knowledgeBaseId: string, config: {
+declare function createKnowledgeSearchTool(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config: {
     name: string;
     description: string;
     topK?: number;
@@ -4226,7 +4226,7 @@ declare function createKnowledgeSearchTool(knowledgeClient: KnowledgeClient, kno
  * @param config - Optional configuration (name/description auto-generated if not provided)
  * @returns Promise containing TACTool configured for knowledge search
  */
-declare function createKnowledgeSearchToolAsync(knowledgeClient: KnowledgeClient, knowledgeBaseId: string, config?: KnowledgeToolConfig): Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
+declare function createKnowledgeSearchToolAsync(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig): Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
 /**
  * Create factory for knowledge tools
  *
@@ -4234,12 +4234,12 @@ declare function createKnowledgeSearchToolAsync(knowledgeClient: KnowledgeClient
  * @returns Factory object with methods to create knowledge tools
  */
 declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
-    forKnowledgeBase: (knowledgeBaseId: string, config: {
+    forKnowledgeBase: (knowledgeBaseId: KnowledgeBaseId, config: {
         name: string;
         description: string;
         topK?: number;
     }) => TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
-    forKnowledgeBaseAsync: (knowledgeBaseId: string, config?: KnowledgeToolConfig) => Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
+    forKnowledgeBaseAsync: (knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig) => Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
 };
 
 /**

@@ -13,7 +13,7 @@ import { ConversationRelay } from '../crelay.js';
 import type { ConversationRelayConfig } from '../types.js';
 
 /**
- * Server configuration for CRelay-only mode
+ * Server configuration for standalone ConversationRelay (without Maestro)
  */
 export interface CRelayServerConfig {
   /** Fastify server options */
@@ -126,7 +126,7 @@ export class CRelayServer {
           maestro_sink: this.config.webhookPaths.webhook,
           webhook_validation: this.config.validateWebhooks ? 'enabled' : 'disabled',
         },
-        'CRelayServer started (voice-only mode)'
+        'CRelayServer started (standalone ConversationRelay)'
       );
     } catch (error) {
       this.fastify.log.error({ err: error }, 'Failed to start CRelayServer');
@@ -217,7 +217,7 @@ export class CRelayServer {
 
     // Silent sink for Maestro webhooks
     // If the user has a Conversations Service webhook URL configured on the
-    // same domain (e.g., from testing conversation mode), Maestro will still
+    // same domain (e.g., from testing with Maestro), the system will still
     // send events here. Return 200 to acknowledge silently.
     this.fastify.post(
       this.config.webhookPaths.webhook!,

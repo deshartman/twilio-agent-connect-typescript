@@ -126,11 +126,18 @@ export class KnowledgeClient {
    * Log HTTP request details
    */
   private logRequest(method: string, url: string, body?: string): void {
+    let bodyJson: unknown;
+    try {
+      bodyJson = body ? JSON.parse(body) : undefined;
+    } catch {
+      bodyJson = body;
+    }
+
     this.logger.debug(
       {
         http_method: method,
         http_url: url,
-        http_body: body ? JSON.parse(body) : undefined,
+        http_body: bodyJson,
       },
       'Knowledge HTTP request'
     );

@@ -9,8 +9,8 @@ import type { ChannelType } from './config';
 /**
  * Base session context - works with any session identifier
  *
- * This minimal interface supports both CR-only mode (CallSid) and
- * Maestro mode (ConversationId) without forcing conversation concepts.
+ * This minimal interface supports both standalone CR (CallSid) and
+ * Maestro-backed channels (ConversationId) without forcing conversation concepts.
  */
 export interface SessionContext {
   /**

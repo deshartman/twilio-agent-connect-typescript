@@ -219,12 +219,10 @@ const server = new TACServer(tac, {
   development: true,
 });
 
-server
-  .start()
-  .then(() => {
-    console.log('Server started successfully');
-  })
-  .catch(error => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+try {
+  await server.start();
+  console.log('Server started successfully');
+} catch (error) {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+}

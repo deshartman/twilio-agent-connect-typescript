@@ -1032,11 +1032,17 @@ var MemoryClient = class {
    * Log HTTP request details
    */
   logRequest(method, url, body) {
+    let bodyJson;
+    try {
+      bodyJson = body ? JSON.parse(body) : void 0;
+    } catch {
+      bodyJson = body;
+    }
     this.logger.debug(
       {
         http_method: method,
         http_url: url,
-        http_body: body ? JSON.parse(body) : void 0
+        http_body: bodyJson
       },
       "Memory HTTP request"
     );
@@ -1401,11 +1407,17 @@ var ConversationClient = class {
    * Log HTTP request details
    */
   logRequest(method, url, body) {
+    let bodyJson;
+    try {
+      bodyJson = body ? JSON.parse(body) : void 0;
+    } catch {
+      bodyJson = body;
+    }
     this.logger.debug(
       {
         http_method: method,
         http_url: url,
-        http_body: body ? JSON.parse(body) : void 0
+        http_body: bodyJson
       },
       "Conversations Service HTTP request"
     );
@@ -1517,11 +1529,17 @@ var KnowledgeClient = class {
    * Log HTTP request details
    */
   logRequest(method, url, body) {
+    let bodyJson;
+    try {
+      bodyJson = body ? JSON.parse(body) : void 0;
+    } catch {
+      bodyJson = body;
+    }
     this.logger.debug(
       {
         http_method: method,
         http_url: url,
-        http_body: body ? JSON.parse(body) : void 0
+        http_body: bodyJson
       },
       "Knowledge HTTP request"
     );
@@ -4179,11 +4197,7 @@ function createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId) {
         summary_limit: params.summary_limit ?? 5,
         session_limit: params.session_limit ?? 3
       };
-      return memoryClient.retrieveMemories(
-        memoryStoreId,
-        profileId,
-        request
-      );
+      return memoryClient.retrieveMemories(memoryStoreId, profileId, request);
     }
   );
 }
@@ -4349,11 +4363,7 @@ function createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config) {
       description: config.description
     },
     async (params) => {
-      return knowledgeClient.searchKnowledgeBase(
-        knowledgeBaseId,
-        params.query,
-        topK
-      );
+      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
     }
   );
 }

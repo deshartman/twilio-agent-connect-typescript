@@ -213,13 +213,11 @@ app.post('/conversation', async (request, reply) => {
 });
 
 // Start the server
-app
-  .listen({ host: '0.0.0.0', port: 8000 })
-  .then(() => {
-    console.log('TAC Chat Server started on http://0.0.0.0:8000');
-    console.log('Open http://localhost:8000 in your browser to test chat');
-  })
-  .catch(error => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+try {
+  await app.listen({ host: '0.0.0.0', port: 8000 });
+  console.log('TAC Chat Server started on http://0.0.0.0:8000');
+  console.log('Open http://localhost:8000 in your browser to test chat');
+} catch (error) {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+}

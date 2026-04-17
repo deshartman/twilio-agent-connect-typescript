@@ -25,7 +25,7 @@ interface MemoryRetrievalParams {
  */
 export function createMemoryRetrievalTool(
   memoryClient: MemoryClient,
-  memoryStoreId: string,
+  memoryStoreId: MemoryStoreId,
   profileId?: string
 ): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse> {
   return defineTool(
@@ -76,11 +76,7 @@ export function createMemoryRetrievalTool(
         session_limit: params.session_limit ?? 3,
       };
 
-      return memoryClient.retrieveMemories(
-        memoryStoreId as MemoryStoreId,
-        profileId as ProfileId,
-        request
-      );
+      return memoryClient.retrieveMemories(memoryStoreId, profileId as ProfileId, request);
     }
   );
 }
@@ -90,7 +86,7 @@ export function createMemoryRetrievalTool(
  */
 export function createMemoryTools(
   memoryClient: MemoryClient,
-  memoryStoreId: string
+  memoryStoreId: MemoryStoreId
 ): {
   forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
   forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;

@@ -27,7 +27,7 @@ interface KnowledgeToolConfig {
  */
 export function createKnowledgeSearchTool(
   knowledgeClient: KnowledgeClient,
-  knowledgeBaseId: string,
+  knowledgeBaseId: KnowledgeBaseId,
   config: { name: string; description: string; topK?: number }
 ): TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]> {
   const topK = config.topK ?? 5;
@@ -47,11 +47,7 @@ export function createKnowledgeSearchTool(
       description: config.description,
     },
     async (params: KnowledgeSearchParams) => {
-      return knowledgeClient.searchKnowledgeBase(
-        knowledgeBaseId as KnowledgeBaseId,
-        params.query,
-        topK
-      );
+      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
     }
   );
 }
@@ -69,7 +65,7 @@ export function createKnowledgeSearchTool(
  */
 export async function createKnowledgeSearchToolAsync(
   knowledgeClient: KnowledgeClient,
-  knowledgeBaseId: string,
+  knowledgeBaseId: KnowledgeBaseId,
   config?: KnowledgeToolConfig
 ): Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>> {
   let name = config?.name;
@@ -77,7 +73,7 @@ export async function createKnowledgeSearchToolAsync(
 
   // Fetch knowledge base metadata if name or description not provided
   if (!name || !description) {
-    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId as KnowledgeBaseId);
+    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId);
     if (!name) {
       // Generate tool name from display name (normalized snake_case)
       const normalized = kb.displayName
@@ -112,11 +108,11 @@ export async function createKnowledgeSearchToolAsync(
  */
 export function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
   forKnowledgeBase: (
-    knowledgeBaseId: string,
+    knowledgeBaseId: KnowledgeBaseId,
     config: { name: string; description: string; topK?: number }
   ) => TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
   forKnowledgeBaseAsync: (
-    knowledgeBaseId: string,
+    knowledgeBaseId: KnowledgeBaseId,
     config?: KnowledgeToolConfig
   ) => Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
 } {
@@ -125,14 +121,14 @@ export function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
      * Create knowledge search tool with explicit config
      */
     forKnowledgeBase: (
-      knowledgeBaseId: string,
+      knowledgeBaseId: KnowledgeBaseId,
       config: { name: string; description: string; topK?: number }
     ) => createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config),
 
     /**
      * Create knowledge search tool with auto-fetched metadata
      */
-    forKnowledgeBaseAsync: (knowledgeBaseId: string, config?: KnowledgeToolConfig) =>
+    forKnowledgeBaseAsync: (knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig) =>
       createKnowledgeSearchToolAsync(knowledgeClient, knowledgeBaseId, config),
   };
 }

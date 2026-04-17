@@ -62,12 +62,13 @@ conversationRelay.onMessage((callSid: CallSid, message: string, _data: PromptMes
   history.push({ role: 'user', content: message });
 
   // Call OpenAI (don't await - fire and forget to satisfy void return type)
-  openai.chat.completions
-    .create({
-      model: 'gpt-4',
-      messages: [SYSTEM_MESSAGE, ...history],
-    })
-    .then(completion => {
+  void (async () => {
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [SYSTEM_MESSAGE, ...history],
+      });
+
       const response =
         completion.choices[0]?.message?.content || 'Sorry, I did not understand that.';
       history.push({ role: 'assistant', content: response });
@@ -75,15 +76,15 @@ conversationRelay.onMessage((callSid: CallSid, message: string, _data: PromptMes
       // Send response back to caller
       conversationRelay.sendResponse(callSid, response);
       logger.info({ callSid, response }, 'Assistant responded');
-    })
-    .catch(error => {
+    } catch (error) {
       logger.error({ err: error, callSid }, 'OpenAI error');
       conversationRelay.sendResponse(
         callSid,
         'Sorry, I encountered an error. Please try again.',
         true // last message - end call
       );
-    });
+    }
+  })();
 });
 
 conversationRelay.onSessionEnded((callSid: CallSid) => {

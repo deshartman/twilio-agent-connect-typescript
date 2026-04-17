@@ -36,7 +36,7 @@ import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
 
 /**
- * Voice Channel — Conversation mode (CR + Maestro)
+ * Voice Channel — Maestro-backed voice (CR WebSocket + Maestro Conversations)
  *
  * Uses ConversationRelay for WebSocket protocol handling. Always has ConversationClient.
  * Creates Maestro conversations and participants in handleIncomingCall().

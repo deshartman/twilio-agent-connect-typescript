@@ -1,4 +1,5 @@
 import { TACConfigData, TACConfigSchema, EnvironmentVariables } from '../types/index';
+import { MemoryStoreId } from '../types/conversation';
 
 /**
  * TAC Configuration class with Python-like static factory methods
@@ -21,7 +22,7 @@ export class TACConfig {
   public readonly twilioApiKey: string;
   public readonly twilioApiToken: string;
   public readonly twilioPhoneNumber: string;
-  public readonly memoryStoreId?: string;
+  public readonly memoryStoreId?: MemoryStoreId;
   public readonly traitGroups?: string[];
   public readonly conversationServiceId: string;
   public readonly voicePublicDomain?: string;
@@ -40,7 +41,7 @@ export class TACConfig {
     this.twilioPhoneNumber = validatedConfig.twilioPhoneNumber;
     this.conversationServiceId = validatedConfig.conversationServiceId;
     if (validatedConfig.memoryStoreId) {
-      this.memoryStoreId = validatedConfig.memoryStoreId;
+      this.memoryStoreId = validatedConfig.memoryStoreId as MemoryStoreId;
     }
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;

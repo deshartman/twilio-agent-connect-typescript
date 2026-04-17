@@ -125,7 +125,7 @@ export class TACServer {
       },
     };
 
-    // Resolve channels (conversation mode - always VoiceChannel + SMS + Chat)
+    // Resolve channels (always VoiceChannel + SMS + Chat with Maestro)
     this.voiceChannel = config.voiceChannel ?? tac.getChannel<VoiceChannel>('voice');
     this.messagingChannels =
       config.messagingChannels ??
