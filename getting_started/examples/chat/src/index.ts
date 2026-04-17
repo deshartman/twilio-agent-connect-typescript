@@ -59,14 +59,15 @@ tac.onMessageReady(async msg => {
   if (msg.messageType !== 'user') return;
 
   const conversationId = msg.conversationId;
+  const convId = conversationId as string;
   const memory = msg.conversation?.memory;
 
-  console.log(`Processing chat message for conversation ${conversationId}`);
+  console.log(`Processing chat message for conversation ${convId}`);
 
   try {
     // Initialize conversation history if needed
-    if (!conversationMessages[conversationId as string]) {
-      conversationMessages[conversationId as string] = [SYSTEM_MESSAGE];
+    if (!conversationMessages[convId]) {
+      conversationMessages[convId] = [SYSTEM_MESSAGE];
     }
 
     // Build user message with memory context
@@ -99,7 +100,7 @@ tac.onMessageReady(async msg => {
     }
 
     // Add user message to history
-    conversationMessages[conversationId as string].push({
+    conversationMessages[convId].push({
       role: 'user',
       content: userMessage,
     });
@@ -107,14 +108,14 @@ tac.onMessageReady(async msg => {
     // Call OpenAI
     const response = await openai.chat.completions.create({
       model: 'gpt-5.4-mini',
-      messages: conversationMessages[conversationId as string],
+      messages: conversationMessages[convId],
     });
 
     const llmResponse = response.choices[0]?.message?.content ?? '';
 
     if (llmResponse) {
       // Add assistant response to history
-      conversationMessages[conversationId as string].push({
+      conversationMessages[convId].push({
         role: 'assistant',
         content: llmResponse,
       });
@@ -123,14 +124,15 @@ tac.onMessageReady(async msg => {
       await chatChannel.sendResponse(conversationId, llmResponse);
     }
   } catch (error) {
-    console.error(`Error processing message for conversation ${conversationId}:`, error);
+    console.error(`Error processing message for conversation ${convId}:`, error);
   }
 });
 
 // Register conversation ended handler
 tac.onConversationEnded(({ session }) => {
-  console.log(`Chat conversation ${session.conversationId} ended`);
-  delete conversationMessages[session.conversationId as string];
+  const convId = session.conversationId as string;
+  console.log(`Chat conversation ${convId} ended`);
+  delete conversationMessages[convId];
 });
 
 // Get __dirname equivalent for ESM
