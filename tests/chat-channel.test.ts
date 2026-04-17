@@ -1,38 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChatChannel, TACConfig, createLogger, ConversationClient } from '@twilio/tac-core';
-import type { ChannelMessage } from '@twilio/tac-core';
+import { ChatChannel, TAC, ConversationSession } from '@twilio/tac-core';
+import MockAdapter from 'axios-mock-adapter';
 
 describe('Chat Channel', () => {
-  let originalFetch: typeof global.fetch;
-
-  beforeEach(() => {
-    originalFetch = global.fetch;
-  });
+  let mockAdapter: MockAdapter;
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    mockAdapter?.restore();
     vi.restoreAllMocks();
   });
 
-  const config = new TACConfig({
+  const getTestConfig = () => ({
+
     twilioAccountSid: 'ACtest123456789',
     twilioAuthToken: 'test_token_123',
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
-  const logger = createLogger({ name: 'test', level: 'silent' });
-  const conversationClient = {
-    listParticipants: vi.fn(),
-    sendCommunication: vi.fn(),
-    addParticipant: vi.fn(),
-  } as unknown as ConversationClient;
 
   let channel: ChatChannel;
+  let tac: TAC;
 
   beforeEach(() => {
-    channel = new ChatChannel({ config, logger, conversationClient });
+    tac = new TAC({ config: getTestConfig() });
+    channel = new ChatChannel(tac);
   });
 
   describe('initialization', () => {
@@ -42,16 +35,13 @@ describe('Chat Channel', () => {
     });
 
     it('should create chat channel with custom agent address', () => {
-      const customChannel = new ChatChannel(
-        { config, logger, conversationClient },
-        { agentAddress: 'custom-bot' }
-      );
+      const customChannel = new ChatChannel(tac, { agentAddress: 'custom-bot' });
       expect(customChannel).toBeInstanceOf(ChatChannel);
       expect(customChannel.channelType).toBe('chat');
     });
 
     it('should start with no active conversations', () => {
-      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
+      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
     });
   });
 
@@ -60,8 +50,8 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'CONVERSATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
+          conversationId: 'CHtest123456789',
+          profileId: 'test_profile_123',
         },
       };
 
@@ -70,11 +60,11 @@ describe('Chat Channel', () => {
 
       await channel.processWebhook(webhookPayload);
 
-      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
+      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
       expect(startedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
+          conversationId: 'CHtest123456789',
+          profileId: 'test_profile_123',
           channel: 'chat',
         }),
       });
@@ -84,7 +74,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -98,30 +88,25 @@ describe('Chat Channel', () => {
       };
 
       const messageCallback = vi.fn();
-      channel.on('message', messageCallback);
+      channel.on('messageReceived', messageCallback);
 
       await channel.processWebhook(webhookPayload);
 
-      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
-      expect(messageCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          messageType: 'user',
-          message: 'Hello from chat',
-          channel: 'chat',
-          conversation: expect.objectContaining({
-            author: 'customer@example.com',
-            memory: undefined,
-          }),
-        })
-      );
+      expect(channel.isConversationActive('CHtest123456789')).toBe(true);
+      expect(messageCallback).toHaveBeenCalledWith({
+        conversationId: 'CHtest123456789',
+        profileId: undefined,
+        message: 'Hello from chat',
+        author: 'customer@example.com',
+        userMemory: undefined,
+      });
     });
 
     it('should ignore messages from bot itself (default agent address)', async () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'ai-assistant',
             channel: 'CHAT',
@@ -134,7 +119,7 @@ describe('Chat Channel', () => {
       };
 
       const messageCallback = vi.fn();
-      channel.on('message', messageCallback);
+      channel.on('messageReceived', messageCallback);
 
       await channel.processWebhook(webhookPayload);
 
@@ -142,15 +127,12 @@ describe('Chat Channel', () => {
     });
 
     it('should ignore messages from bot with custom agent address', async () => {
-      const customChannel = new ChatChannel(
-        { config, logger, conversationClient },
-        { agentAddress: 'custom-bot' }
-      );
+      const customChannel = new ChatChannel(tac, { agentAddress: 'custom-bot' });
 
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'custom-bot',
             channel: 'CHAT',
@@ -163,7 +145,7 @@ describe('Chat Channel', () => {
       };
 
       const messageCallback = vi.fn();
-      customChannel.on('message', messageCallback);
+      customChannel.on('messageReceived', messageCallback);
 
       await customChannel.processWebhook(webhookPayload);
 
@@ -174,7 +156,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -189,7 +171,7 @@ describe('Chat Channel', () => {
 
       await channel.processWebhook(webhookPayload);
 
-      const session = channel.getConversationSession('conv_conversation_01ktestabcdefghijklmnopqrs');
+      const session = channel.getConversationSession('CHtest123456789');
       expect(session?.metadata?.channelId).toBe('CH00000000000000000000000000000000');
     });
 
@@ -197,7 +179,7 @@ describe('Chat Channel', () => {
       // First create a conversation
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
+        data: { conversationId: 'CHtest123456789' },
       });
 
       const endedCallback = vi.fn();
@@ -207,15 +189,15 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'CONVERSATION_UPDATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           status: 'CLOSED',
         },
       });
 
-      expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
+      expect(channel.isConversationActive('CHtest123456789')).toBe(false);
       expect(endedCallback).toHaveBeenCalledWith({
         session: expect.objectContaining({
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           channel: 'chat',
         }),
       });
@@ -225,7 +207,7 @@ describe('Chat Channel', () => {
       const webhookPayload = {
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
             channel: 'CHAT',
@@ -238,7 +220,7 @@ describe('Chat Channel', () => {
       };
 
       const messageCallback = vi.fn();
-      channel.on('message', messageCallback);
+      channel.on('messageReceived', messageCallback);
 
       await channel.processWebhook(webhookPayload);
 
@@ -248,10 +230,9 @@ describe('Chat Channel', () => {
 
   describe('send response', () => {
     beforeEach(() => {
-      // Clear conversationClient mock call counts between tests
-      vi.mocked(conversationClient.listParticipants).mockClear();
-      vi.mocked(conversationClient.sendCommunication).mockClear();
-      vi.mocked(conversationClient.addParticipant).mockClear();
+      // Access the conversation client's axios instance through TAC
+      const conversationClient = (tac as any).conversationClient;
+      mockAdapter = new MockAdapter(conversationClient.axiosInstance);
     });
 
     it('should send response via Send API with existing AI_AGENT', async () => {
@@ -259,10 +240,10 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
-            participantId: 'conv_participant_01customer12345678',
+            participantId: 'PA_customer_123',
             channel: 'CHAT',
           },
           content: { type: 'TEXT', text: 'Hello' },
@@ -270,52 +251,61 @@ describe('Chat Channel', () => {
         },
       });
 
-      // Mock conversationClient methods (channel calls these directly)
-      vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
-        {
-          id: 'conv_participant_01agent123456789012',
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          accountId: 'ACtest123456789',
-          type: 'AI_AGENT',
-          addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
-        },
-        {
-          id: 'conv_participant_01customer12345678',
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          accountId: 'ACtest123456789',
-          type: 'CUSTOMER',
-          addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
-        },
-      ] as any);
-      vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
+      // Mock listParticipants (AI_AGENT exists)
+      mockAdapter.onGet('/v2/Conversations/CHtest123456789/Participants').reply(200, {
+        participants: [
+          {
+            id: 'PA_agent_123',
+            conversationId: 'CHtest123456789',
+            accountId: 'ACtest123456789',
+            type: 'AI_AGENT',
+            addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
+          },
+          {
+            id: 'PA_customer_123',
+            conversationId: 'CHtest123456789',
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+          },
+        ],
+      });
 
-      await channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs', 'Hello from bot');
+      // Mock sendCommunication
+      mockAdapter.onPost('/v2/Communications').reply(202, {
+        message: 'Communication queued',
+        conversationId: 'CHtest123456789',
+        channelId: 'CH00000000000000000000000000000000',
+      });
 
-      expect(conversationClient.listParticipants).toHaveBeenCalledWith(
-        'conv_conversation_01ktestabcdefghijklmnopqrs'
-      );
-      expect(conversationClient.sendCommunication).toHaveBeenCalledWith(
-        'conv_conversation_01ktestabcdefghijklmnopqrs',
-        expect.objectContaining({
-          author: {
-            address: 'ai-assistant',
+      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+
+      // Verify requests
+      const history = mockAdapter.history;
+      expect(history.get.length).toBe(1);
+      expect(history.post.length).toBe(1);
+      expect(history.post[0].url).toBe('/v2/Communications');
+      const sendBody = JSON.parse(history.post[0].data);
+      expect(sendBody).toMatchObject({
+        conversationId: 'CHtest123456789',
+        author: {
+          address: 'ai-assistant',
+          channel: 'CHAT',
+          participantId: 'PA_agent_123',
+        },
+        recipients: [
+          {
+            address: 'customer@example.com',
             channel: 'CHAT',
-            participantId: 'conv_participant_01agent123456789012',
+            participantId: 'PA_customer_123',
           },
-          recipients: [
-            {
-              address: 'customer@example.com',
-              channel: 'CHAT',
-              participantId: 'conv_participant_01customer12345678',
-            },
-          ],
-          content: {
-            type: 'TEXT',
-            text: 'Hello from bot',
-          },
-          channelId: 'CH00000000000000000000000000000000',
-        })
-      );
+        ],
+        content: {
+          type: 'TEXT',
+          text: 'Hello from bot',
+        },
+        channelId: 'CH00000000000000000000000000000000',
+      });
     });
 
     it('should create AI_AGENT participant if not exists', async () => {
@@ -323,10 +313,10 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
-            participantId: 'conv_participant_01customer12345678',
+            participantId: 'PA_customer_123',
             channel: 'CHAT',
           },
           content: { type: 'TEXT', text: 'Hello' },
@@ -334,39 +324,56 @@ describe('Chat Channel', () => {
         },
       });
 
-      // Mock conversationClient methods — no AI_AGENT in participants
-      vi.mocked(conversationClient.listParticipants).mockResolvedValueOnce([
-        {
-          id: 'conv_participant_01customer12345678',
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          accountId: 'ACtest123456789',
-          type: 'CUSTOMER',
-          addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
-        },
-      ] as any);
-      vi.mocked(conversationClient.addParticipant).mockResolvedValueOnce({
-        id: 'conv_participant_01agent123456789012',
-        conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+      // Mock listParticipants (no AI_AGENT)
+      mockAdapter.onGet('/v2/Conversations/CHtest123456789/Participants').reply(200, {
+        participants: [
+          {
+            id: 'PA_customer_123',
+            conversationId: 'CHtest123456789',
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+          },
+        ],
+      });
+
+      // Mock addParticipant
+      mockAdapter.onPost('/v2/Conversations/CHtest123456789/Participants').reply(201, {
+        id: 'PA_agent_123',
+        conversationId: 'CHtest123456789',
         accountId: 'ACtest123456789',
         type: 'AI_AGENT',
         addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
-      } as any);
-      vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
+      });
 
-      await channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs', 'Hello from bot');
+      // Mock sendCommunication
+      mockAdapter.onPost('/v2/Communications').reply(202, {
+        message: 'Communication queued',
+        conversationId: 'CHtest123456789',
+        channelId: null,
+      });
 
-      // Verify addParticipant was called with correct args including channelId
-      expect(conversationClient.addParticipant).toHaveBeenCalledWith(
-        'conv_conversation_01ktestabcdefghijklmnopqrs',
-        [
+      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+
+      // Verify requests
+      const history = mockAdapter.history;
+      expect(history.get.length).toBe(1);
+      expect(history.post.length).toBe(2); // addParticipant + sendCommunication
+
+      // Verify addParticipant call
+      const addCall = history.post[0];
+      expect(addCall.url).toBe('/v2/Conversations/CHtest123456789/Participants');
+      const addBody = JSON.parse(addCall.data);
+      expect(addBody).toMatchObject({
+        type: 'AI_AGENT',
+        addresses: [
           {
             channel: 'CHAT',
             address: 'ai-assistant',
             channelId: 'CH00000000000000000000000000000000',
           },
         ],
-        'AI_AGENT'
-      );
+      });
     });
 
     it('should handle race condition when creating AI_AGENT', async () => {
@@ -374,10 +381,10 @@ describe('Chat Channel', () => {
       await channel.processWebhook({
         eventType: 'COMMUNICATION_CREATED',
         data: {
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+          conversationId: 'CHtest123456789',
           author: {
             address: 'customer@example.com',
-            participantId: 'conv_participant_01customer12345678',
+            participantId: 'PA_customer_123',
             channel: 'CHAT',
           },
           content: { type: 'TEXT', text: 'Hello' },
@@ -385,65 +392,76 @@ describe('Chat Channel', () => {
         },
       });
 
-      // Mock conversationClient: first listParticipants returns no AI_AGENT
-      vi.mocked(conversationClient.listParticipants)
-        .mockResolvedValueOnce([
-          {
-            id: 'conv_participant_01customer12345678',
-            conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-            accountId: 'ACtest123456789',
-            type: 'CUSTOMER',
-            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
-          },
-        ] as any)
-        // Retry listParticipants after addParticipant conflict — AI_AGENT now exists
-        .mockResolvedValueOnce([
-          {
-            id: 'conv_participant_01agent123456789012',
-            conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-            accountId: 'ACtest123456789',
-            type: 'AI_AGENT',
-            addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
-          },
-          {
-            id: 'conv_participant_01customer12345678',
-            conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-            accountId: 'ACtest123456789',
-            type: 'CUSTOMER',
-            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
-          },
-        ] as any);
+      // Mock listParticipants - first call returns no AI_AGENT, second call returns AI_AGENT
+      mockAdapter
+        .onGet('/v2/Conversations/CHtest123456789/Participants')
+        .replyOnce(200, {
+          participants: [
+            {
+              id: 'PA_customer_123',
+              conversationId: 'CHtest123456789',
+              accountId: 'ACtest123456789',
+              type: 'CUSTOMER',
+              addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+            },
+          ],
+        })
+        .onGet('/v2/Conversations/CHtest123456789/Participants')
+        .replyOnce(200, {
+          participants: [
+            {
+              id: 'PA_agent_123',
+              conversationId: 'CHtest123456789',
+              accountId: 'ACtest123456789',
+              type: 'AI_AGENT',
+              addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
+            },
+            {
+              id: 'PA_customer_123',
+              conversationId: 'CHtest123456789',
+              accountId: 'ACtest123456789',
+              type: 'CUSTOMER',
+              addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+            },
+          ],
+        });
 
-      // addParticipant fails (conflict — another process created it)
-      vi.mocked(conversationClient.addParticipant).mockRejectedValueOnce(
-        new Error('Participant already exists')
-      );
-      vi.mocked(conversationClient.sendCommunication).mockResolvedValueOnce(undefined as any);
+      // Mock addParticipant failure (already exists)
+      mockAdapter.onPost('/v2/Conversations/CHtest123456789/Participants').reply(409, {
+        error: 'Participant already exists',
+      });
 
-      await channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs', 'Hello from bot');
+      // Mock sendCommunication
+      mockAdapter.onPost('/v2/Communications').reply(202, {
+        message: 'Communication queued',
+        conversationId: 'CHtest123456789',
+        channelId: null,
+      });
 
-      // Verify: listParticipants called twice (initial + retry), addParticipant once, sendCommunication once
-      expect(conversationClient.listParticipants).toHaveBeenCalledTimes(2);
-      expect(conversationClient.addParticipant).toHaveBeenCalledTimes(1);
-      expect(conversationClient.sendCommunication).toHaveBeenCalledTimes(1);
+      await channel.sendResponse('CHtest123456789', 'Hello from bot');
+
+      // Verify requests: 2 GET (list participants), 1 POST (add participant), 1 POST (send)
+      const history = mockAdapter.history;
+      expect(history.get.length).toBe(2);
+      expect(history.post.length).toBe(2);
     });
 
     it('should throw error if no active session', async () => {
-      await expect(
-        channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs', 'Hello')
-      ).rejects.toThrow('No active session found');
+      await expect(channel.sendResponse('CHtest123456789', 'Hello')).rejects.toThrow(
+        'No active session found'
+      );
     });
 
     it('should throw error if no author info', async () => {
       // Create conversation without author info
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
-        data: { conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs' },
+        data: { conversationId: 'CHtest123456789' },
       });
 
-      await expect(
-        channel.sendResponse('conv_conversation_01ktestabcdefghijklmnopqrs', 'Hello')
-      ).rejects.toThrow('No author info found');
+      await expect(channel.sendResponse('CHtest123456789', 'Hello')).rejects.toThrow(
+        'No author info found'
+      );
     });
   });
 });

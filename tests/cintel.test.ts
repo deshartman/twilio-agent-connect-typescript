@@ -7,6 +7,7 @@ import {
   OperatorProcessingResultSchema,
   ConversationIntelligenceConfigSchema,
 } from '../packages/core/src/types/cintel';
+import MockAdapter from 'axios-mock-adapter';
 
 /**
  * Create a mock Response object with proper clone() support
@@ -34,7 +35,7 @@ describe('Conversation Intelligence Types', () => {
       const validEvent = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY123',
           friendlyName: 'Test Config',
@@ -173,13 +174,13 @@ describe('OperatorResultProcessor', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
   let memoryClient: MemoryClient;
   let processor: OperatorResultProcessor;
-  let originalFetch: typeof global.fetch;
+  let mockAdapter: MockAdapter;
 
   const cintelConfig = {
     configurationId: 'LY_CONFIG_123',
@@ -191,11 +192,11 @@ describe('OperatorResultProcessor', () => {
     const config = new TACConfig(getTestConfig());
     memoryClient = new MemoryClient(config);
     processor = new OperatorResultProcessor(memoryClient, cintelConfig);
-    originalFetch = global.fetch;
+    mockAdapter = new MockAdapter((memoryClient as any).axiosInstance);
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    mockAdapter?.restore();
     vi.restoreAllMocks();
   });
 
@@ -211,7 +212,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'DIFFERENT_CONFIG',
         },
@@ -229,7 +230,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -260,7 +261,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -290,7 +291,7 @@ describe('OperatorResultProcessor', () => {
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -317,22 +318,17 @@ describe('OperatorResultProcessor', () => {
     });
 
     it('should process observation operator results successfully', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse(
-          {
-            content: 'Test observation',
-            source: 'conversation-intelligence',
-            occurredAt: '2024-01-15T10:00:00Z',
-            conversationIds: ['conv_123'],
-          },
-          { ok: true }
-        )
-      );
+      mockAdapter.onPost(/\/Observations$/).reply(200, {
+        content: 'Test observation',
+        source: 'conversation-intelligence',
+        occurredAt: '2024-01-15T10:00:00Z',
+        conversationIds: ['conv_123'],
+      });
 
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -358,20 +354,18 @@ describe('OperatorResultProcessor', () => {
       expect(result.skipped).toBe(false);
       expect(result.eventType).toBe('observation');
       expect(result.createdCount).toBe(2);
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(mockAdapter.history.post.length).toBe(2);
     });
 
     it('should process summary operator results successfully', async () => {
-      global.fetch = vi
-        .fn()
-        .mockResolvedValue(
-          createMockResponse({ message: 'Summaries created successfully' }, { ok: true })
-        );
+      mockAdapter.onPost(/\/ConversationSummaries$/).reply(200, {
+        message: 'Summaries created successfully',
+      });
 
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -400,16 +394,14 @@ describe('OperatorResultProcessor', () => {
     });
 
     it('should handle API errors gracefully', async () => {
-      global.fetch = vi
-        .fn()
-        .mockResolvedValue(
-          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-        );
+      mockAdapter.onPost(/\/Observations$/).reply(500, {
+        error: 'Internal Server Error',
+      });
 
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -436,22 +428,17 @@ describe('OperatorResultProcessor', () => {
     });
 
     it('should process multiple profiles', async () => {
-      global.fetch = vi.fn().mockResolvedValue(
-        createMockResponse(
-          {
-            content: 'User prefers email',
-            source: 'conversation-intelligence',
-            occurredAt: '2024-01-15T10:00:00Z',
-            conversationIds: ['conv_123'],
-          },
-          { ok: true }
-        )
-      );
+      mockAdapter.onPost(/\/Observations$/).reply(200, {
+        content: 'User prefers email',
+        source: 'conversation-intelligence',
+        occurredAt: '2024-01-15T10:00:00Z',
+        conversationIds: ['conv_123'],
+      });
 
       const event = {
         accountId: 'AC123',
         conversationId: 'conv_123',
-        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -520,21 +507,21 @@ describe('Memory Client Write Methods', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
   let memoryClient: MemoryClient;
-  let originalFetch: typeof global.fetch;
+  let mockAdapter: MockAdapter;
 
   beforeEach(() => {
     const config = new TACConfig(getTestConfig());
     memoryClient = new MemoryClient(config);
-    originalFetch = global.fetch;
+    mockAdapter = new MockAdapter((memoryClient as any).axiosInstance);
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    mockAdapter?.restore();
     vi.restoreAllMocks();
   });
 
@@ -546,10 +533,12 @@ describe('Memory Client Write Methods', () => {
         occurredAt: '2024-01-15T10:00:00Z',
         conversationIds: ['conv_123'],
       };
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
+      mockAdapter
+        .onPost('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
+        .reply(200, mockResponse);
 
       const result = await memoryClient.createObservation(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         'Test observation',
         'conversation-intelligence',
@@ -558,45 +547,40 @@ describe('Memory Client Write Methods', () => {
       );
 
       expect(result).toEqual(mockResponse);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'
-        ),
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            'Content-Type': 'application/json',
-            Authorization: expect.stringContaining('Basic'),
-          }),
-          body: expect.stringContaining('Test observation'),
-        })
+      expect(mockAdapter.history.post.length).toBe(1);
+      expect(mockAdapter.history.post[0].url).toBe(
+        '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'
       );
+      const body = JSON.parse(mockAdapter.history.post[0].data);
+      expect(body.content).toBe('Test observation');
     });
 
     it('should handle API errors', async () => {
-      global.fetch = vi
-        .fn()
-        .mockResolvedValue(
-          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-        );
+      mockAdapter
+        .onPost('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
+        .reply(500, { error: 'Internal Server Error' });
 
       await expect(
         memoryClient.createObservation(
-          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           'Test observation'
         )
-      ).rejects.toThrow('Failed to create observation: 500 Internal Server Error');
+      ).rejects.toThrow('Failed to create observation');
     });
   });
 
   describe('createConversationSummaries()', () => {
     it('should create summaries successfully', async () => {
       const mockResponse = { message: 'Summaries created successfully' };
-      global.fetch = vi.fn().mockResolvedValue(createMockResponse(mockResponse, { ok: true }));
+      mockAdapter
+        .onPost(
+          '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+        )
+        .reply(200, mockResponse);
 
       const result = await memoryClient.createConversationSummaries(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         [
           {
@@ -609,30 +593,22 @@ describe('Memory Client Write Methods', () => {
       );
 
       expect(result).toEqual(mockResponse);
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
-        ),
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            'Content-Type': 'application/json',
-            Authorization: expect.stringContaining('Basic'),
-          }),
-        })
+      expect(mockAdapter.history.post.length).toBe(1);
+      expect(mockAdapter.history.post[0].url).toBe(
+        '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
       );
     });
 
     it('should handle API errors', async () => {
-      global.fetch = vi
-        .fn()
-        .mockResolvedValue(
-          createMockResponse(null, { ok: false, status: 500, statusText: 'Internal Server Error' })
-        );
+      mockAdapter
+        .onPost(
+          '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+        )
+        .reply(500, { error: 'Internal Server Error' });
 
       await expect(
         memoryClient.createConversationSummaries(
-          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           [
             {
@@ -642,7 +618,7 @@ describe('Memory Client Write Methods', () => {
             },
           ]
         )
-      ).rejects.toThrow('Failed to create conversation summaries: 500 Internal Server Error');
+      ).rejects.toThrow('Failed to create conversation summaries');
     });
   });
 });

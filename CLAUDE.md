@@ -54,7 +54,20 @@ getting_started/  # Example apps (OpenAI integration)
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
 - **Config via Zod** (`packages/core/src/lib/config.ts`): `TACConfig.fromEnv()` validates env vars
-- **API credentials consolidated** at `TACConfig` level (twilioApiKey/twilioApiToken shared across Memory, Conversation, Knowledge clients)
+- **API client architecture** (`packages/core/src/clients/`):
+  - `BaseClient` abstract class provides common HTTP functionality using **axios**
+  - All API clients (Memory, Conversation, Knowledge) inherit from BaseClient
+  - **HTTP client**: axios with axios-retry for resilience
+  - **Automatic retry**: 3 retries with exponential backoff; retries idempotent methods on 5xx responses and non-idempotent methods only on network/no-response failures
+  - **Timeout**: Fixed 30-second timeout for all requests
+  - **Authentication**: Automatic Basic Auth using Twilio API credentials
+  - **User-Agent**: Automatic header injection (`twilio-agent-connect-typescript/{version}`)
+  - **JSON handling**: Automatic serialization/deserialization
+  - **Type safety**: Generic type parameters on `makeRequest<T>()` for better IDE support
+  - **Validation**: Zod schemas validate all responses at runtime
+  - **Error logging**: Logs 4xx client errors as warnings, 5xx/network failures as errors via interceptors
+  - **Branded types**: Compile-time type safety for domain identifiers (`ConversationId`, `MemoryStoreId`, `ProfileId`, `KnowledgeBaseId`, `KnowledgeId`, `ParticipantId`)
+  - Credentials consolidated at `TACConfig` level (twilioApiKey/twilioApiToken shared across clients)
 - **TACServer** (`packages/server/src/lib/server.ts`): Fastify-based server with mode-conditional route registration — no dead routes in any mode
 
 ## Channel Architecture

@@ -102,6 +102,15 @@ export const CommunicationSchema = z.object({
 export type Communication = z.infer<typeof CommunicationSchema>;
 
 /**
+ * List communications response
+ */
+export const ListCommunicationsResponseSchema = z.object({
+  communications: z.array(CommunicationSchema),
+});
+
+export type ListCommunicationsResponse = z.infer<typeof ListCommunicationsResponseSchema>;
+
+/**
  * Send API author/recipient address (ParticipantAddress)
  */
 export const SendCommunicationParticipantAddressSchema = z.object({
@@ -244,6 +253,15 @@ export const ConversationResponseSchema = z.object({
 export type ConversationResponse = z.infer<typeof ConversationResponseSchema>;
 
 /**
+ * List conversations response
+ */
+export const ListConversationsResponseSchema = z.object({
+  conversations: z.array(ConversationResponseSchema),
+});
+
+export type ListConversationsResponse = z.infer<typeof ListConversationsResponseSchema>;
+
+/**
  * Participant address from Conversations Service API (camelCase format)
  */
 export const ConversationAddressSchema = z.object({
@@ -270,6 +288,15 @@ export const ConversationParticipantSchema = z.object({
 });
 
 export type ConversationParticipant = z.infer<typeof ConversationParticipantSchema>;
+
+/**
+ * List participants response
+ */
+export const ListParticipantsResponseSchema = z.object({
+  participants: z.array(ConversationParticipantSchema),
+});
+
+export type ListParticipantsResponse = z.infer<typeof ListParticipantsResponseSchema>;
 
 /**
  * Timeout settings for channel status transitions
