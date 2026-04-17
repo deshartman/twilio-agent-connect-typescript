@@ -3,14 +3,7 @@ import { VoiceWebhookChannel, TACConfig, createLogger, ConversationClient } from
 import type { ChannelMessage } from '@twilio/tac-core';
 
 describe('VoiceWebhookChannel', () => {
-  let originalFetch: typeof global.fetch;
-
-  beforeEach(() => {
-    originalFetch = global.fetch;
-  });
-
   afterEach(() => {
-    global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 

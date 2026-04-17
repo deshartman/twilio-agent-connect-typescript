@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TACConfig } from '@twilio/tac-core';
+import { TACConfig, KnowledgeBase, KnowledgeChunkResult, KnowledgeBaseId } from '@twilio/tac-core';
 import { KnowledgeClient } from '../packages/core/src/clients/knowledge';
-import { KnowledgeBase, KnowledgeChunkResult } from '@twilio/tac-core';
 import MockAdapter from 'axios-mock-adapter';
 
 describe('KnowledgeClient', () => {
@@ -32,7 +31,7 @@ describe('KnowledgeClient', () => {
   describe('getKnowledgeBase()', () => {
     it('should fetch knowledge base metadata successfully', async () => {
       const mockResponse: KnowledgeBase = {
-        id: 'know_knowledgebase_01abc123def456ghi789jkl0',
+        id: 'know_knowledgebase_01abc123def456ghi789jkl012',
         displayName: 'Product FAQ',
         description: 'Frequently asked questions about our products',
         status: 'ACTIVE',
@@ -42,11 +41,11 @@ describe('KnowledgeClient', () => {
       };
 
       mockAdapter
-        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0')
+        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012')
         .reply(200, mockResponse);
 
       const result = await knowledgeClient.getKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0'
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId
       );
 
       expect(result).toEqual(mockResponse);
@@ -56,17 +55,17 @@ describe('KnowledgeClient', () => {
       mockAdapter.onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_nonexistent').reply(404);
 
       await expect(
-        knowledgeClient.getKnowledgeBase('know_knowledgebase_nonexistent')
+        knowledgeClient.getKnowledgeBase('know_knowledgebase_nonexistent' as any)
       ).rejects.toThrow(/Failed to get knowledge base/);
     });
 
     it('should handle 500 errors', async () => {
       mockAdapter
-        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0')
+        .onGet('/v2/ControlPlane/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012')
         .reply(500);
 
       await expect(
-        knowledgeClient.getKnowledgeBase('know_knowledgebase_01abc123def456ghi789jkl0')
+        knowledgeClient.getKnowledgeBase('know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId)
       ).rejects.toThrow(/Failed to get knowledge base/);
     });
   });
@@ -76,24 +75,24 @@ describe('KnowledgeClient', () => {
       const mockChunks: KnowledgeChunkResult[] = [
         {
           content: 'Our product supports multiple languages including English and Spanish.',
-          knowledgeId: 'know_01abc123',
+          knowledgeId: 'know_knowledge_01abc123def456ghi789jkl012',
           createdAt: '2024-01-10T00:00:00Z',
           score: 0.95,
         },
         {
           content: 'You can change the language in the settings menu.',
-          knowledgeId: 'know_01def456',
+          knowledgeId: 'know_knowledge_01def456ghi789jkl012abc345',
           createdAt: '2024-01-11T00:00:00Z',
           score: 0.85,
         },
       ];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search')
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search')
         .reply(200, { chunks: mockChunks });
 
       const result = await knowledgeClient.searchKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
         'What languages are supported?'
       );
 
@@ -104,14 +103,14 @@ describe('KnowledgeClient', () => {
       const mockChunks: KnowledgeChunkResult[] = [];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search', {
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search', {
           query: 'test query',
           top: 10,
         })
         .reply(200, { chunks: mockChunks });
 
       await knowledgeClient.searchKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
         'test query',
         10
       );
@@ -121,14 +120,14 @@ describe('KnowledgeClient', () => {
       const mockChunks: KnowledgeChunkResult[] = [];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search', {
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search', {
           query: 'test query',
           top: 20,
         })
         .reply(200, { chunks: mockChunks });
 
       await knowledgeClient.searchKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
         'test query',
         50
       );
@@ -138,7 +137,7 @@ describe('KnowledgeClient', () => {
       const mockChunks: KnowledgeChunkResult[] = [];
 
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search', {
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search', {
           query: 'test query',
           top: 5,
           knowledgeIds: ['know_01abc', 'know_02def'],
@@ -146,20 +145,20 @@ describe('KnowledgeClient', () => {
         .reply(200, { chunks: mockChunks });
 
       await knowledgeClient.searchKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
         'test query',
         5,
-        ['know_01abc', 'know_02def']
+        ['know_01abc', 'know_02def'] as any
       );
     });
 
     it('should handle empty results', async () => {
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search')
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search')
         .reply(200, { chunks: [] });
 
       const result = await knowledgeClient.searchKnowledgeBase(
-        'know_knowledgebase_01abc123def456ghi789jkl0',
+        'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
         'obscure query with no matches'
       );
 
@@ -168,12 +167,12 @@ describe('KnowledgeClient', () => {
 
     it('should handle API errors', async () => {
       mockAdapter
-        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl0/Search')
+        .onPost('/v2/KnowledgeBases/know_knowledgebase_01abc123def456ghi789jkl012/Search')
         .reply(500);
 
       await expect(
         knowledgeClient.searchKnowledgeBase(
-          'know_knowledgebase_01abc123def456ghi789jkl0',
+          'know_knowledgebase_01abc123def456ghi789jkl012' as KnowledgeBaseId,
           'test query'
         )
       ).rejects.toThrow(/Failed to search knowledge base/);
