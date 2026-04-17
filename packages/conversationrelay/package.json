@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "test": "vitest --run"
   },
   "dependencies": {
     "@fastify/formbody": "^8.0.1",
