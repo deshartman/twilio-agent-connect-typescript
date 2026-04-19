@@ -8,6 +8,9 @@ node_modules/
 getting_started/examples/*/dist/
 packages/*/dist/
 
+# Renamed to conversation - ignore if brought back from merges
+getting_started/examples/openai/
+
 # IDE
 .idea/
 .vscode/
