@@ -34,8 +34,8 @@ describe('Conversation Intelligence Types', () => {
     it('should validate a valid operator result event', () => {
       const validEvent = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY123',
           friendlyName: 'Test Config',
@@ -55,7 +55,7 @@ describe('Conversation Intelligence Types', () => {
               participants: [
                 {
                   type: 'CUSTOMER',
-                  profileId: 'profile_123',
+                  profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc',
                 },
               ],
             },
@@ -80,7 +80,7 @@ describe('Conversation Intelligence Types', () => {
     it('should handle optional fields', () => {
       const minimalEvent = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
         intelligenceConfiguration: {
           id: 'LY123',
         },
@@ -174,7 +174,7 @@ describe('OperatorResultProcessor', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
@@ -211,8 +211,8 @@ describe('OperatorResultProcessor', () => {
     it('should skip events from different CI configuration', async () => {
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'DIFFERENT_CONFIG',
         },
@@ -229,8 +229,8 @@ describe('OperatorResultProcessor', () => {
     it('should skip unconfigured operators', async () => {
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -244,7 +244,7 @@ describe('OperatorResultProcessor', () => {
             result: { observations: ['test'] },
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -260,8 +260,8 @@ describe('OperatorResultProcessor', () => {
     it('should skip operator results with empty content', async () => {
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -275,7 +275,7 @@ describe('OperatorResultProcessor', () => {
             result: null,
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -290,8 +290,8 @@ describe('OperatorResultProcessor', () => {
     it('should skip operator results with no profile IDs', async () => {
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -322,13 +322,13 @@ describe('OperatorResultProcessor', () => {
         content: 'Test observation',
         source: 'conversation-intelligence',
         occurredAt: '2024-01-15T10:00:00Z',
-        conversationIds: ['conv_123'],
+        conversationIds: ['conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb'],
       });
 
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -342,7 +342,7 @@ describe('OperatorResultProcessor', () => {
             result: { observations: ['User prefers email', 'User is a premium customer'] },
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -364,8 +364,8 @@ describe('OperatorResultProcessor', () => {
 
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -379,7 +379,7 @@ describe('OperatorResultProcessor', () => {
             result: { summaries: ['Customer requested a refund for order #12345'] },
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -400,8 +400,8 @@ describe('OperatorResultProcessor', () => {
 
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -415,7 +415,7 @@ describe('OperatorResultProcessor', () => {
             result: { observations: ['test observation'] },
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -432,13 +432,13 @@ describe('OperatorResultProcessor', () => {
         content: 'User prefers email',
         source: 'conversation-intelligence',
         occurredAt: '2024-01-15T10:00:00Z',
-        conversationIds: ['conv_123'],
+        conversationIds: ['conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb'],
       });
 
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
-        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
         },
@@ -453,8 +453,8 @@ describe('OperatorResultProcessor', () => {
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
               participants: [
-                { type: 'CUSTOMER', profileId: 'profile_123' },
-                { type: 'AGENT', profileId: 'profile_456' },
+                { type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' },
+                { type: 'AGENT', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7ste' },
               ],
             },
           },
@@ -470,7 +470,7 @@ describe('OperatorResultProcessor', () => {
     it('should handle missing memory store ID', async () => {
       const event = {
         accountId: 'AC123',
-        conversationId: 'conv_123',
+        conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
         // No memoryStoreId
         intelligenceConfiguration: {
           id: 'LY_CONFIG_123',
@@ -485,7 +485,7 @@ describe('OperatorResultProcessor', () => {
             result: { observations: ['test observation'] },
             dateCreated: '2024-01-15T10:00:00Z',
             executionDetails: {
-              participants: [{ type: 'CUSTOMER', profileId: 'profile_123' }],
+              participants: [{ type: 'CUSTOMER', profileId: 'mem_profile_01jg3r5h4zx8yvw6kqp2mn7stc' }],
             },
           },
         ],
@@ -507,7 +507,7 @@ describe('Memory Client Write Methods', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
     conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
   });
 
@@ -531,7 +531,7 @@ describe('Memory Client Write Methods', () => {
         content: 'Test observation',
         source: 'conversation-intelligence',
         occurredAt: '2024-01-15T10:00:00Z',
-        conversationIds: ['conv_123'],
+        conversationIds: ['conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb'],
       };
       mockAdapter
         .onPost('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
@@ -585,7 +585,7 @@ describe('Memory Client Write Methods', () => {
         [
           {
             content: 'Customer requested a refund',
-            conversationId: 'conv_123',
+            conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
             occurredAt: '2024-01-15T10:00:00Z',
             source: 'conversation-intelligence',
           },
@@ -613,7 +613,7 @@ describe('Memory Client Write Methods', () => {
           [
             {
               content: 'Test summary',
-              conversationId: 'conv_123',
+              conversationId: 'conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb',
               occurredAt: '2024-01-15T10:00:00Z',
             },
           ]

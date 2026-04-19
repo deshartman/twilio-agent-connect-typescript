@@ -8,6 +8,7 @@ import {
   OperatorProcessingResult,
   ChannelMessage,
   MemoryRetriever,
+  isProfileId,
 } from '../types/index';
 import { TACMemoryResponse } from './tac-memory-response';
 import { TACConfig } from './config';
@@ -469,8 +470,18 @@ export class TAC {
             );
           }
 
-          // Use the first profile ID
-          session.profileId = lookupResponse.profiles[0] as ProfileId;
+          // Validate profile ID format
+          const profileIdCandidate = lookupResponse.profiles[0];
+          if (!profileIdCandidate || !isProfileId(profileIdCandidate)) {
+            throw new Error(
+              `Invalid profile ID format from identity resolution API: ${profileIdCandidate}. ` +
+                'Expected format: mem_profile_[0-9a-z]{26}. ' +
+                'This indicates a configuration issue with the identity resolution service.'
+            );
+          }
+
+          // Now safe to assign
+          session.profileId = profileIdCandidate;
         } catch (error) {
           this.logger.error(
             { err: error },

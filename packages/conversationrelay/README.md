@@ -107,6 +107,7 @@ Main class for ConversationRelay protocol handling.
 - `onMessage(callback)` - Called when user speaks
 - `onInterrupt(callback)` - Called when user interrupts agent
 - `onDtmf(callback)` - Called on DTMF input
+- `onInfo(callback)` - Called for INFO messages (diagnostic/metadata)
 - `onSessionEnded(callback)` - Called when call ends
 - `onError(callback)` - Called on errors
 - `sendResponse(callSid, message, last?)` - Send text to be spoken

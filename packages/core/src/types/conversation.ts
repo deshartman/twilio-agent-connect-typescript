@@ -99,6 +99,14 @@ export const CommunicationSchema = z.object({
   occurredAt: z.string().nullable().optional(),
 });
 
+/**
+ * Communication type inferred from schema.
+ *
+ * Note: Uses plain string for conversationId (not branded ConversationId).
+ * This matches the API response structure where IDs are returned as strings.
+ * The branded ConversationId type is used for function parameters and session state,
+ * but not within API response objects themselves.
+ */
 export type Communication = z.infer<typeof CommunicationSchema>;
 
 /**
@@ -153,6 +161,12 @@ export const SendCommunicationResponseSchema = z.object({
   channelId: z.string().nullable(),
 });
 
+/**
+ * Send communication response type.
+ *
+ * Note: Uses plain string for conversationId (not branded ConversationId).
+ * This matches the API response structure. No Omit pattern is needed here.
+ */
 export type SendCommunicationResponse = z.infer<typeof SendCommunicationResponseSchema>;
 
 /**
@@ -169,7 +183,7 @@ export type AuthorInfo = z.infer<typeof AuthorInfoSchema>;
  * Profile information for a conversation participant
  */
 export interface Profile {
-  profileId: string;
+  profileId: ProfileId;
   traits?: Record<string, unknown>;
 }
 

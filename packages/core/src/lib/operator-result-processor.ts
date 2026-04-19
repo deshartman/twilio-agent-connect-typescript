@@ -7,6 +7,9 @@ import {
   ProfileId,
   ConversationId,
   MemoryStoreId,
+  isProfileId,
+  isConversationId,
+  isMemoryStoreId,
 } from '../types/index';
 import { MemoryClient } from '../clients/memory';
 import { Logger, createLogger } from './logger';
@@ -15,15 +18,23 @@ import { Logger, createLogger } from './logger';
  * Extract profile IDs from operator result execution details
  *
  * @param operatorResult - The operator result to extract profile IDs from
- * @returns Array of profile IDs found in participants
+ * @returns Array of validated profile IDs found in participants
  */
-function extractProfileIds(operatorResult: OperatorResult): string[] {
-  const profileIds: string[] = [];
+function extractProfileIds(operatorResult: OperatorResult): ProfileId[] {
+  const profileIds: ProfileId[] = [];
 
   if (operatorResult.executionDetails?.participants) {
     for (const participant of operatorResult.executionDetails.participants) {
       if (participant.profileId) {
-        profileIds.push(participant.profileId);
+        // Validate format before adding
+        if (isProfileId(participant.profileId)) {
+          profileIds.push(participant.profileId);
+        } else {
+          // Log warning but continue processing other participants
+          console.warn(
+            `Invalid profile ID format from Cintel operator: ${participant.profileId}. Expected mem_profile_[0-9a-z]{26}. Skipping.`
+          );
+        }
       }
     }
   }
@@ -146,6 +157,26 @@ export class OperatorResultProcessor {
     }
 
     const event = parseResult.data;
+
+    // Validate event.conversationId format
+    if (!isConversationId(event.conversationId)) {
+      return {
+        success: false,
+        skipped: false,
+        error: `Invalid conversationId format in Cintel webhook: ${event.conversationId}. Expected format: conv_conversation_[0-9a-z]{26}`,
+        createdCount: 0,
+      };
+    }
+
+    // Validate event.memoryStoreId if present (it's optional in schema)
+    if (event.memoryStoreId && !isMemoryStoreId(event.memoryStoreId)) {
+      return {
+        success: false,
+        skipped: false,
+        error: `Invalid memoryStoreId format in Cintel webhook: ${event.memoryStoreId}. Expected format: mem_store_[0-9a-z]{26}`,
+        createdCount: 0,
+      };
+    }
 
     // Check if this event is from the configured CI configuration
     if (event.intelligenceConfiguration.id !== this.config.configurationId) {
@@ -317,7 +348,7 @@ export class OperatorResultProcessor {
     event: OperatorResultEvent,
     operatorResult: OperatorResult,
     content: string,
-    profileIds: string[]
+    profileIds: ProfileId[]
   ): Promise<OperatorProcessingResult> {
     // Parse observations from JSON content
     const observations = parseObservationsContent(content);
@@ -336,15 +367,25 @@ export class OperatorResultProcessor {
       };
     }
 
+    if (!event.memoryStoreId) {
+      return {
+        success: false,
+        skipped: false,
+        error: 'memoryStoreId is required for observation events',
+        createdCount: 0,
+      };
+    }
+
     let createdCount = 0;
 
     // Create observations for each profile
     for (const profileId of profileIds) {
       for (const observation of observations) {
         try {
+          // Safe cast: validated in processEvent() method
           await this.memoryClient.createObservation(
-            event.memoryStoreId! as MemoryStoreId,
-            profileId as ProfileId,
+            event.memoryStoreId as MemoryStoreId,
+            profileId,
             observation,
             'conversation-intelligence',
             [event.conversationId as ConversationId],
@@ -395,7 +436,7 @@ export class OperatorResultProcessor {
     event: OperatorResultEvent,
     operatorResult: OperatorResult,
     content: string,
-    profileIds: string[]
+    profileIds: ProfileId[]
   ): Promise<OperatorProcessingResult> {
     // Parse summaries from JSON content
     const summaries = parseSummariesContent(content);
@@ -414,11 +455,21 @@ export class OperatorResultProcessor {
       };
     }
 
+    if (!event.memoryStoreId) {
+      return {
+        success: false,
+        skipped: false,
+        error: 'memoryStoreId is required for summary events',
+        createdCount: 0,
+      };
+    }
+
     let createdCount = 0;
 
     // Create summaries for each profile
     for (const profileId of profileIds) {
       try {
+        // Safe cast: validated in processEvent() method
         const summaryItems = summaries.map(summaryContent => ({
           content: summaryContent,
           conversationId: event.conversationId as ConversationId,
@@ -427,8 +478,8 @@ export class OperatorResultProcessor {
         }));
 
         await this.memoryClient.createConversationSummaries(
-          event.memoryStoreId! as MemoryStoreId,
-          profileId as ProfileId,
+          event.memoryStoreId as MemoryStoreId,
+          profileId,
           summaryItems
         );
         createdCount += summaries.length;

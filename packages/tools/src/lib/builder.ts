@@ -16,7 +16,7 @@ export class TACTool<TParams = unknown, TResult = unknown> {
   /**
    * Convert to OpenAI function calling format
    */
-  toOpenAIFormat(): Record<string, any> {
+  toOpenAIFormat(): Record<string, unknown> {
     return {
       type: 'function',
       function: {
@@ -30,7 +30,7 @@ export class TACTool<TParams = unknown, TResult = unknown> {
   /**
    * Convert to Anthropic tool calling format
    */
-  toAnthropicFormat(): Record<string, any> {
+  toAnthropicFormat(): Record<string, unknown> {
     return {
       name: this.name,
       description: this.description,

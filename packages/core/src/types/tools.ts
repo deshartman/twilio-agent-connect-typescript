@@ -17,14 +17,14 @@ export type JSONSchema = z.infer<typeof JSONSchemaSchema>;
 /**
  * Tool function signature
  */
-export type ToolFunction<TParams = any, TResult = any> = (
+export type ToolFunction<TParams = unknown, TResult = unknown> = (
   params: TParams
 ) => Promise<TResult> | TResult;
 
 /**
  * Core tool definition
  */
-export interface TACTool<TParams = any, TResult = any> {
+export interface TACTool<TParams = unknown, TResult = unknown> {
   name: string;
   description: string;
   parameters: JSONSchema;
@@ -45,12 +45,15 @@ export const OpenAIToolSchema = z.object({
 
 export type OpenAITool = z.infer<typeof OpenAIToolSchema>;
 
+import type { ConversationId, ProfileId, MemoryStoreId } from './conversation';
+
 /**
  * Tool execution context
  */
 export interface ToolContext {
-  conversationId?: string;
-  profileId?: string;
+  conversationId?: ConversationId;
+  profileId?: ProfileId;
+  memoryStoreId?: MemoryStoreId;
   channel?: string;
   metadata?: Record<string, unknown>;
 }

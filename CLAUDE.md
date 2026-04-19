@@ -23,6 +23,8 @@ npm run typecheck      # tsc --noEmit
 packages/
   core/        # Central framework: TAC orchestrator, channels (SMS/Voice),
                #   API clients (Memory, Conversation, Knowledge), config, types
+  conversationrelay/  # Standalone ConversationRelay: WebSocket protocol,
+               #   TwiML generation, can be used independently of TAC
   tools/       # Tool system: TACTool class, defineTool(), built-in tools
                #   (memory, messaging, handoff, knowledge)
   server/      # TACServer: Fastify wrapper with webhook + WebSocket handlers
@@ -58,7 +60,7 @@ getting_started/  # Example apps (OpenAI integration)
   - `BaseClient` abstract class provides common HTTP functionality using **axios**
   - All API clients (Memory, Conversation, Knowledge) inherit from BaseClient
   - **HTTP client**: axios with axios-retry for resilience
-  - **Automatic retry**: 3 retries with exponential backoff; retries idempotent methods on 5xx responses and non-idempotent methods only on network/no-response failures
+  - **Automatic retry**: 3 retries with exponential backoff; retries idempotent methods on 5xx and 429 responses, non-idempotent methods only on network/no-response failures
   - **Timeout**: Fixed 30-second timeout for all requests
   - **Authentication**: Automatic Basic Auth using Twilio API credentials
   - **User-Agent**: Automatic header injection (`twilio-agent-connect-typescript/{version}`)

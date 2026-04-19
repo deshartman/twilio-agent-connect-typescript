@@ -49,7 +49,7 @@ export class VoiceChannel implements Channel {
   protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
   private readonly conversationRelay: ConversationRelay;
-  private readonly callSidToConversationId: Map<string, ConversationId>;
+  private readonly callSidToConversationId: Map<CallSid, ConversationId>;
   private readonly memoryRetriever?: MemoryRetriever | undefined;
 
   constructor(deps: {
@@ -83,7 +83,7 @@ export class VoiceChannel implements Channel {
     });
 
     this.conversationRelay.onDtmf((callSid, data) => {
-      const conversationId = this.callSidToConversationId.get(callSid as string);
+      const conversationId = this.callSidToConversationId.get(callSid);
       if (conversationId) {
         this.emitMessage(conversationId, {
           messageType: 'system',
@@ -94,7 +94,7 @@ export class VoiceChannel implements Channel {
     });
 
     this.conversationRelay.onInfo((callSid, data) => {
-      const conversationId = this.callSidToConversationId.get(callSid as string);
+      const conversationId = this.callSidToConversationId.get(callSid);
       if (conversationId) {
         this.emitMessage(conversationId, {
           messageType: 'system',
@@ -181,7 +181,7 @@ export class VoiceChannel implements Channel {
   }
 
   private handlePromptFromRelay(callSid: CallSid, data: PromptMessage): void {
-    const conversationId = this.callSidToConversationId.get(callSid as string);
+    const conversationId = this.callSidToConversationId.get(callSid);
     if (!conversationId) {
       this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in prompt');
       return;
@@ -196,7 +196,7 @@ export class VoiceChannel implements Channel {
   }
 
   private handleInterruptFromRelay(callSid: CallSid, data: InterruptMessage): void {
-    const conversationId = this.callSidToConversationId.get(callSid as string);
+    const conversationId = this.callSidToConversationId.get(callSid);
     if (!conversationId) {
       this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in interrupt');
       return;
@@ -222,7 +222,7 @@ export class VoiceChannel implements Channel {
   }
 
   private handleCloseFromRelay(callSid: CallSid): void {
-    const conversationId = this.callSidToConversationId.get(callSid as string);
+    const conversationId = this.callSidToConversationId.get(callSid);
     if (!conversationId) {
       this.logger.warn({ call_sid: callSid }, 'No conversation found for CallSid in close');
       return;
@@ -264,7 +264,7 @@ export class VoiceChannel implements Channel {
       profileId = customParameters.profile_id;
     }
 
-    this.callSidToConversationId.set(callSid, conversationId);
+    this.callSidToConversationId.set(callSid as CallSid, conversationId);
     const session = this.startConversation(conversationId, profileId);
     session.authorInfo = { address: from };
 
@@ -318,7 +318,7 @@ export class VoiceChannel implements Channel {
   public getWebsocket(conversationId: ConversationId): WebSocket | null {
     for (const [callSid, convId] of this.callSidToConversationId.entries()) {
       if (convId === conversationId) {
-        return this.conversationRelay.getWebSocket(callSid as CallSid);
+        return this.conversationRelay.getWebSocket(callSid);
       }
     }
     return null;
@@ -475,7 +475,17 @@ export class VoiceChannel implements Channel {
     const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
 
     const conversation = await this.conversationClient.createConversation(conversationName);
-    const conversationId = conversation.id as ConversationId;
+
+    // Validate the conversation ID format
+    if (!isConversationId(conversation.id)) {
+      throw new Error(
+        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. ` +
+          'Expected format: conv_conversation_[0-9a-z]{26}. ' +
+          'This indicates an issue with the Conversations API.'
+      );
+    }
+
+    const conversationId = conversation.id;
 
     this.logger.debug(
       { conversation_id: conversationId, call_sid: callSid },
@@ -552,11 +562,17 @@ export class VoiceChannel implements Channel {
       );
 
       for (const conversation of conversations) {
-        try {
-          await this.conversationClient.updateConversation(
-            conversation.id as ConversationId,
-            'CLOSED'
+        // Validate conversation ID format
+        if (!isConversationId(conversation.id)) {
+          this.logger.warn(
+            { conversation_id: conversation.id, call_sid: callSid },
+            'Invalid conversation ID format from Conversation Service. Skipping conversation close.'
           );
+          continue; // Skip this conversation, continue with others
+        }
+
+        try {
+          await this.conversationClient.updateConversation(conversation.id, 'CLOSED');
           this.logger.debug({ conversation_id: conversation.id }, 'Closed conversation');
         } catch (error) {
           this.logger.error(

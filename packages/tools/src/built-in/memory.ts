@@ -26,7 +26,7 @@ interface MemoryRetrievalParams {
 export function createMemoryRetrievalTool(
   memoryClient: MemoryClient,
   memoryStoreId: MemoryStoreId,
-  profileId?: string
+  profileId?: ProfileId
 ): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse> {
   return defineTool(
     BuiltInTools.RETRIEVE_MEMORY,
@@ -76,7 +76,7 @@ export function createMemoryRetrievalTool(
         session_limit: params.session_limit ?? 3,
       };
 
-      return memoryClient.retrieveMemories(memoryStoreId, profileId as ProfileId, request);
+      return memoryClient.retrieveMemories(memoryStoreId, profileId, request);
     }
   );
 }
@@ -88,20 +88,20 @@ export function createMemoryTools(
   memoryClient: MemoryClient,
   memoryStoreId: MemoryStoreId
 ): {
-  forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-  forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+  forProfile: (profileId: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+  forSession: (profileId?: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 } {
   return {
     /**
      * Create memory tool for specific profile
      */
-    forProfile: (profileId: string) =>
+    forProfile: (profileId: ProfileId) =>
       createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
 
     /**
      * Create memory tool for current session
      */
-    forSession: (profileId?: string) =>
+    forSession: (profileId?: ProfileId) =>
       createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
   };
 }
