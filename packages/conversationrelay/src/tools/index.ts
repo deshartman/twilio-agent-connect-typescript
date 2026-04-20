@@ -11,11 +11,15 @@
  */
 
 // Protocol tools (send CR WebSocket messages)
-export { playMediaTool } from './play-media.js';
-export { sendDigitsTool } from './send-digits.js';
-export { switchLanguageTool } from './switch-language.js';
-export { endCallTool } from './end-call.js';
+export { playMediaTool } from './play-media';
+export { sendDigitsTool } from './send-digits';
+export { switchLanguageTool } from './switch-language';
+export { endCallTool } from './end-call';
 
 // State management tools (return flags for user logic)
-export { setSilenceDetectionTool } from './set-silence-detection.js';
-export { setListenModeTool } from './set-listen-mode.js';
+export { setSilenceDetectionTool } from './set-silence-detection';
+export { setListenModeTool } from './set-listen-mode';
+
+// Tool definition helpers (for user-authored CR tools)
+export { CRTool, defineTool, JSONSchemaSchema } from './define-tool';
+export type { JSONSchema, ToolFunction } from './define-tool';

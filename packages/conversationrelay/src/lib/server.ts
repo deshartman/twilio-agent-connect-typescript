@@ -9,8 +9,8 @@ import websocket from '@fastify/websocket';
 import type { WebSocket } from 'ws';
 import twilio from 'twilio';
 
-import { ConversationRelay } from '../crelay.js';
-import type { ConversationRelayConfig } from '../types.js';
+import { ConversationRelay } from '../crelay';
+import type { ConversationRelayConfig } from '../types';
 
 /**
  * Server configuration for standalone ConversationRelay (without Maestro)

@@ -5,7 +5,7 @@
  * Users must wire up the returned flag to control response sending.
  */
 
-import { defineTool } from '@twilio/tac-tools';
+import { defineTool } from './define-tool';
 
 /**
  * Tool parameters for listen mode control

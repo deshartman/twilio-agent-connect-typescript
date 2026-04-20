@@ -5,7 +5,7 @@
  * Users must wire up the returned flag to control their SilenceDetector instance.
  */
 
-import { defineTool } from '@twilio/tac-tools';
+import { defineTool } from './define-tool';
 
 /**
  * Tool parameters for silence detection control

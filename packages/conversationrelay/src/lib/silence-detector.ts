@@ -5,7 +5,7 @@
  * Based on the simple-conversation-relay SilenceHandler pattern.
  */
 
-import type { CallSid } from '../types.js';
+import type { CallSid } from '../types';
 import type { Logger } from 'pino';
 
 /**

@@ -33,7 +33,7 @@ import {
   ConversationRelayConfigSchema,
   CustomParametersSchema,
   WebSocketMessageSchema,
-} from './types.js';
+} from './types';
 
 // =============================================================================
 // Callback Types

@@ -2,8 +2,8 @@
  * Play Media Tool - Play audio file from URL during CR call
  */
 
-import { defineTool } from '@twilio/tac-tools';
-import type { PlayMessage } from '../types.js';
+import { defineTool } from './define-tool';
+import type { PlayMessage } from '../types';
 
 /**
  * Tool parameters for playing media

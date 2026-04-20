@@ -2,8 +2,8 @@
  * Send DTMF Digits Tool - Send touch-tone digits to caller
  */
 
-import { defineTool } from '@twilio/tac-tools';
-import type { SendDigitsMessage } from '../types.js';
+import { defineTool } from './define-tool';
+import type { SendDigitsMessage } from '../types';
 
 /**
  * Tool parameters for sending DTMF digits

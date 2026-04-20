@@ -9,7 +9,7 @@
  * cleaner separation of concerns.
  */
 
-import type { CallSid } from '../types.js';
+import type { CallSid } from '../types';
 
 /**
  * Content response event - text token from LLM

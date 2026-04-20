@@ -8,15 +8,15 @@
  * TwiML generation, and event routing for Twilio ConversationRelay.
  */
 
-export { ConversationRelay } from './crelay.js';
-export { CRelayServer } from './lib/server.js';
+export { ConversationRelay } from './crelay';
+export { CRelayServer } from './lib/server';
 
 // Server types
-export type { CRelayServerConfig } from './lib/server.js';
+export type { CRelayServerConfig } from './lib/server';
 
 // Silence detection helper
-export { SilenceDetector } from './lib/silence-detector.js';
-export type { SilenceDetectorConfig } from './lib/silence-detector.js';
+export { SilenceDetector } from './lib/silence-detector';
+export type { SilenceDetectorConfig } from './lib/silence-detector';
 
 // ResponseService interface (optional LLM integration pattern)
 export type {
@@ -24,7 +24,7 @@ export type {
   ResponseHandler,
   ContentResponse,
   ToolResultEvent,
-} from './lib/response-service.js';
+} from './lib/response-service';
 
 // Built-in tools
 export {
@@ -34,7 +34,11 @@ export {
   endCallTool,
   setSilenceDetectionTool,
   setListenModeTool,
-} from './tools/index.js';
+} from './tools/index';
+
+// Tool definition helpers (for user-authored CR tools)
+export { CRTool, defineTool, JSONSchemaSchema } from './tools/index';
+export type { JSONSchema, ToolFunction } from './tools/index';
 
 // Message types (incoming WebSocket)
 export type {
@@ -59,7 +63,7 @@ export type {
   ConversationRelayCallbackPayload,
   HandoffData,
   CRelaySession,
-} from './types.js';
+} from './types';
 
 // Zod schemas (for runtime validation)
 export {
@@ -83,4 +87,4 @@ export {
   LanguageAttributesSchema,
   ConversationRelayCallbackPayloadSchema,
   HandoffDataSchema,
-} from './types.js';
+} from './types';

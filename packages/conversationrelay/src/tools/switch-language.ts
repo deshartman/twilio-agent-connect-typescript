@@ -2,8 +2,8 @@
  * Switch Language Tool - Change TTS or transcription language mid-call
  */
 
-import { defineTool } from '@twilio/tac-tools';
-import type { SwitchLanguageMessage } from '../types.js';
+import { defineTool } from './define-tool';
+import type { SwitchLanguageMessage } from '../types';
 
 /**
  * Tool parameters for switching language

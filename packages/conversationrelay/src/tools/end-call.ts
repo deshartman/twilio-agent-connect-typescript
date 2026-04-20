@@ -2,8 +2,8 @@
  * End Call Tool - Terminate CR call with optional handoff data
  */
 
-import { defineTool } from '@twilio/tac-tools';
-import type { EndMessage } from '../types.js';
+import { defineTool } from './define-tool';
+import type { EndMessage } from '../types';
 
 /**
  * Tool parameters for ending a call

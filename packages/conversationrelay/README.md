@@ -133,6 +133,57 @@ new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConf
 - `validateWebhooks` - Enable signature validation
 - `twilioAuthToken` - Auth token for validation
 
+## Tools
+
+The package ships with six built-in CR tools plus a `defineTool()` factory for authoring your own. Tools are plain objects you can hand to an LLM — each exposes `name`, `description`, `parameters` (JSON schema), `implementation`, plus format helpers `toOpenAIFormat()`, `toAnthropicFormat()`, `toJSON()`.
+
+### Built-in tools
+
+| Tool | Purpose |
+|------|---------|
+| `playMediaTool` | Play audio URL to the caller |
+| `sendDigitsTool` | Send DTMF digits |
+| `switchLanguageTool` | Change TTS / transcription language mid-call |
+| `endCallTool` | Terminate the call, optional handoff data |
+| `setSilenceDetectionTool` | Returns a flag — wire to your silence monitor |
+| `setListenModeTool` | Returns a flag — suppress text responses |
+
+Protocol tools (first four) return `{ outgoingMessage }` — forward it to the CR socket. State tools return flags for your own control logic.
+
+```typescript
+import { playMediaTool, endCallTool } from '@twilio/tac-conversationrelay';
+
+const result = playMediaTool.implementation({ source: 'https://example.com/hold.mp3' });
+if (result.outgoingMessage) {
+  // send via ConversationRelay.sendMessage(callSid, result.outgoingMessage)
+}
+```
+
+### Authoring custom tools
+
+```typescript
+import { defineTool } from '@twilio/tac-conversationrelay';
+
+const lookupOrderTool = defineTool(
+  'lookup_order',
+  'Fetch order status by order ID',
+  {
+    type: 'object',
+    properties: {
+      orderId: { type: 'string', description: 'Order identifier' },
+    },
+    required: ['orderId'],
+  },
+  async ({ orderId }: { orderId: string }) => {
+    const order = await orderService.get(orderId);
+    return { success: true, status: order.status };
+  }
+);
+
+// Feed to an LLM
+const openaiTools = [lookupOrderTool.toOpenAIFormat()];
+```
+
 ## License
 
 MIT
