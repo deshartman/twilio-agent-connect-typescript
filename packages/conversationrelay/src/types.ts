@@ -41,7 +41,7 @@ export const SetupMessageSchema = z.object({
   callType: z.string(),
   callStatus: z.string(),
   accountSid: z.string(),
-  customParameters: z.record(z.unknown()).optional(),
+  customParameters: z.record(z.string(), z.string()).optional(),
 });
 
 export type SetupMessage = z.infer<typeof SetupMessageSchema>;
@@ -326,9 +326,12 @@ export const ConversationRelayConfigSchema: z.ZodType<ConversationRelayConfig> =
 
 /**
  * Custom parameters passed via TwiML <Parameter> elements.
- * Generic record type — any key/value pairs are allowed.
+ *
+ * TwiML <Parameter> is an XML attribute pair (name + value), so values must
+ * be strings. Callers should stringify non-string values before passing them
+ * (e.g. `String(num)`, `JSON.stringify(obj)`) to make the encoding explicit.
  */
-export const CustomParametersSchema = z.record(z.string(), z.unknown()).refine(
+export const CustomParametersSchema = z.record(z.string(), z.string()).refine(
   params => {
     return Object.keys(params).every(key => key.trim().length > 0);
   },
@@ -438,5 +441,5 @@ export interface CRelaySession {
   from: string;
   to: string;
   startedAt: Date;
-  customParameters?: Record<string, unknown> | undefined;
+  customParameters?: Record<string, string> | undefined;
 }

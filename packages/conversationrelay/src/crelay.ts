@@ -511,12 +511,10 @@ export class ConversationRelay {
       }
     }
 
-    // Add custom parameters as child <Parameter> elements (bug fix: per-parameter iteration)
+    // Add custom parameters as child <Parameter> elements
     if (parameters) {
       for (const [name, value] of Object.entries(parameters)) {
-        if (value !== undefined) {
-          relay.parameter({ name, value: String(value) });
-        }
+        relay.parameter({ name, value });
       }
     }
 
