@@ -23,6 +23,11 @@ import {
   type DtmfMessage,
   type InfoMessage,
   type TextTokenMessage,
+  type PlayMessage,
+  type SendDigitsMessage,
+  type SwitchLanguageMessage,
+  type EndMessage,
+  type OutgoingMessage,
   type ConversationRelayConfig,
   type CustomParameters,
   ConversationRelayConfigSchema,
@@ -298,6 +303,80 @@ export class ConversationRelay {
 
     ws.send(JSON.stringify(message));
     this.logger.debug({ call_sid: callSid, message_type: message.type }, 'Sent ConversationRelay message');
+  }
+
+  /**
+   * Play media from URL to the caller
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
+   */
+  public sendPlay(
+    callSid: CallSid,
+    source: string,
+    options?: { loop?: number; interruptible?: boolean; preemptible?: boolean }
+  ): void {
+    const message: PlayMessage = {
+      type: 'play',
+      source,
+      ...options,
+    };
+    this.sendRawMessage(callSid, message);
+  }
+
+  /**
+   * Send DTMF digits to the caller
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
+   */
+  public sendDigits(callSid: CallSid, digits: string): void {
+    const message: SendDigitsMessage = {
+      type: 'sendDigits',
+      digits,
+    };
+    this.sendRawMessage(callSid, message);
+  }
+
+  /**
+   * Switch TTS or transcription language mid-call
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
+   */
+  public switchLanguage(
+    callSid: CallSid,
+    options: { ttsLanguage?: string; transcriptionLanguage?: string }
+  ): void {
+    const message: SwitchLanguageMessage = {
+      type: 'language',
+      ...options,
+    };
+    this.sendRawMessage(callSid, message);
+  }
+
+  /**
+   * End the call with optional handoff data
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
+   */
+  public endCall(callSid: CallSid, handoffData?: Record<string, unknown>): void {
+    const message: EndMessage = {
+      type: 'end',
+      handoffData: handoffData ? JSON.stringify(handoffData) : undefined,
+    };
+    this.sendRawMessage(callSid, message);
+  }
+
+  /**
+   * Send a raw outgoing message via WebSocket.
+   * @private Internal helper for sending any outgoing message type.
+   */
+  private sendRawMessage(callSid: CallSid, message: OutgoingMessage): void {
+    const ws = this.connections.get(callSid);
+    if (!ws) {
+      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
+    }
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
+    }
+
+    ws.send(JSON.stringify(message));
+    this.logger.debug({ call_sid: callSid, message_type: message.type }, 'Sent CR message');
   }
 
   // ===========================================================================

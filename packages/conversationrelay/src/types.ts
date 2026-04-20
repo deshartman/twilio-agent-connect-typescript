@@ -138,6 +138,78 @@ export const TextTokenMessageSchema = z.object({
 
 export type TextTokenMessage = z.infer<typeof TextTokenMessageSchema>;
 
+/**
+ * Play media message - play audio file from URL
+ * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
+ */
+export const PlayMessageSchema = z.object({
+  type: z.literal('play'),
+  source: z.string().url(),
+  loop: z.number().int().min(0).optional(),
+  interruptible: z.boolean().optional(),
+  preemptible: z.boolean().optional(),
+});
+
+export type PlayMessage = z.infer<typeof PlayMessageSchema>;
+
+/**
+ * Send DTMF digits message
+ * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
+ */
+export const SendDigitsMessageSchema = z.object({
+  type: z.literal('sendDigits'),
+  digits: z.string().regex(/^[0-9w*#]+$/),
+});
+
+export type SendDigitsMessage = z.infer<typeof SendDigitsMessageSchema>;
+
+/**
+ * Switch language message - change TTS or transcription language
+ * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
+ */
+export const SwitchLanguageMessageBaseSchema = z.object({
+  type: z.literal('language'),
+  ttsLanguage: z.string().optional(),
+  transcriptionLanguage: z.string().optional(),
+});
+
+/**
+ * Switch language message with validation (at least one language required).
+ * Use this for validating user input; use base schema for union types.
+ */
+export const SwitchLanguageMessageSchema = SwitchLanguageMessageBaseSchema.refine(
+  data => data.ttsLanguage || data.transcriptionLanguage,
+  {
+    message: 'At least one language must be specified',
+  }
+);
+
+export type SwitchLanguageMessage = z.infer<typeof SwitchLanguageMessageBaseSchema>;
+
+/**
+ * End session message - terminate call with optional handoff data
+ * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
+ */
+export const EndMessageSchema = z.object({
+  type: z.literal('end'),
+  handoffData: z.string().optional(), // JSON string
+});
+
+export type EndMessage = z.infer<typeof EndMessageSchema>;
+
+/**
+ * Union of all outgoing WebSocket message types
+ */
+export const OutgoingMessageSchema = z.discriminatedUnion('type', [
+  TextTokenMessageSchema,
+  PlayMessageSchema,
+  SendDigitsMessageSchema,
+  SwitchLanguageMessageBaseSchema,
+  EndMessageSchema,
+]);
+
+export type OutgoingMessage = z.infer<typeof OutgoingMessageSchema>;
+
 // =============================================================================
 // TwiML Configuration Schemas
 // =============================================================================

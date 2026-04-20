@@ -61,27 +61,38 @@ conversationRelay.onMessage((callSid: CallSid, message: string, _data: PromptMes
   const history = conversations.get(callSid) || [];
   history.push({ role: 'user', content: message });
 
-  // Call OpenAI (don't await - fire and forget to satisfy void return type)
+  // Stream from OpenAI (fire-and-forget to satisfy void return type)
   void (async () => {
     try {
-      const completion = await openai.chat.completions.create({
+      const stream = await openai.chat.completions.create({
         model: 'gpt-4',
         messages: [SYSTEM_MESSAGE, ...history],
+        stream: true,
       });
 
-      const response =
-        completion.choices[0]?.message?.content || 'Sorry, I did not understand that.';
-      history.push({ role: 'assistant', content: response });
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const token = chunk.choices[0]?.delta?.content || '';
+        if (token) {
+          fullResponse += token;
+          // Send token incrementally with last=false (more coming)
+          conversationRelay.sendResponse(callSid, token, false);
+        }
+      }
 
-      // Send response back to caller
-      conversationRelay.sendResponse(callSid, response);
-      logger.info({ callSid, response }, 'Assistant responded');
+      // Signal completion so TTS can synthesize the final utterance
+      conversationRelay.sendResponse(callSid, '', true);
+
+      if (fullResponse) {
+        history.push({ role: 'assistant', content: fullResponse });
+      }
+      logger.info({ callSid, response: fullResponse }, 'Assistant responded');
     } catch (error) {
       logger.error({ err: error, callSid }, 'OpenAI error');
       conversationRelay.sendResponse(
         callSid,
         'Sorry, I encountered an error. Please try again.',
-        true // last message - end call
+        true
       );
     }
   })();

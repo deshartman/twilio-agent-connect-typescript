@@ -180,24 +180,43 @@ tac.onMessageReady(async msg => {
       ...conversationMessages[convIdStr],
     ];
 
-    // Call OpenAI
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      messages,
-    });
-
-    const llmResponse = response.choices[0]?.message?.content ?? '';
-
-    // Add assistant response to history
-    conversationMessages[convIdStr].push({
-      role: 'assistant',
-      content: llmResponse,
-    });
-
-    // Send response based on channel
+    // Voice streams tokens for low latency; SMS uses blocking call (no streaming benefit).
     if (msg.channel === 'voice') {
-      await voiceChannel.sendResponse(convId, llmResponse);
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-5.4-mini',
+        messages,
+        stream: true,
+      });
+
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const token = chunk.choices[0]?.delta?.content || '';
+        if (token) {
+          fullResponse += token;
+          await voiceChannel.sendResponse(convId, token, { last: false });
+        }
+      }
+
+      // Final empty token signals completion to TTS
+      await voiceChannel.sendResponse(convId, '', { last: true });
+
+      conversationMessages[convIdStr].push({
+        role: 'assistant',
+        content: fullResponse,
+      });
     } else if (msg.channel === 'sms') {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-5.4-mini',
+        messages,
+      });
+
+      const llmResponse = response.choices[0]?.message?.content ?? '';
+
+      conversationMessages[convIdStr].push({
+        role: 'assistant',
+        content: llmResponse,
+      });
+
       await smsChannel.sendResponse(convId, llmResponse);
     }
   } catch (error) {

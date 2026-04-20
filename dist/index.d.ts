@@ -1165,6 +1165,14 @@ declare const CommunicationSchema: z.ZodObject<{
     updatedAt?: string | null | undefined;
     channelId?: string | null | undefined;
 }>;
+/**
+ * Communication type inferred from schema.
+ *
+ * Note: Uses plain string for conversationId (not branded ConversationId).
+ * This matches the API response structure where IDs are returned as strings.
+ * The branded ConversationId type is used for function parameters and session state,
+ * but not within API response objects themselves.
+ */
 type Communication = z.infer<typeof CommunicationSchema>;
 /**
  * List communications response
@@ -1608,6 +1616,12 @@ declare const SendCommunicationResponseSchema: z.ZodObject<{
     channelId: string | null;
     conversationId: string;
 }>;
+/**
+ * Send communication response type.
+ *
+ * Note: Uses plain string for conversationId (not branded ConversationId).
+ * This matches the API response structure. No Omit pattern is needed here.
+ */
 type SendCommunicationResponse = z.infer<typeof SendCommunicationResponseSchema>;
 /**
  * Author information for a conversation session
@@ -1627,7 +1641,7 @@ type AuthorInfo = z.infer<typeof AuthorInfoSchema>;
  * Profile information for a conversation participant
  */
 interface Profile {
-    profileId: string;
+    profileId: ProfileId;
     traits?: Record<string, unknown>;
 }
 /**
@@ -2720,19 +2734,19 @@ declare const LanguageAttributesSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     code: string;
     voice?: string | undefined;
-    ttsProvider?: string | undefined;
     ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+    ttsProvider?: string | undefined;
     transcriptionProvider?: string | undefined;
     speechModel?: string | undefined;
-    transcriptionLanguage?: string | undefined;
 }, {
     code: string;
     voice?: string | undefined;
-    ttsProvider?: string | undefined;
     ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+    ttsProvider?: string | undefined;
     transcriptionProvider?: string | undefined;
     speechModel?: string | undefined;
-    transcriptionLanguage?: string | undefined;
 }>;
 type LanguageAttributes = z.infer<typeof LanguageAttributesSchema>;
 /**
@@ -2785,45 +2799,45 @@ declare const ConversationRelayAttributesSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     url: string;
     voice?: string | undefined;
-    ttsProvider?: string | undefined;
+    interruptible?: "any" | "speech" | "none" | undefined;
+    preemptible?: boolean | undefined;
+    language?: string | undefined;
     ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+    ttsProvider?: string | undefined;
     transcriptionProvider?: string | undefined;
     speechModel?: string | undefined;
-    transcriptionLanguage?: string | undefined;
     welcomeGreeting?: string | undefined;
     welcomeGreetingInterruptible?: "any" | "speech" | "none" | undefined;
     elevenlabsTextNormalization?: string | undefined;
-    interruptible?: "any" | "speech" | "none" | undefined;
     interruptSensitivity?: "low" | "medium" | "high" | undefined;
     dtmfDetection?: boolean | undefined;
     hints?: string | undefined;
     reportInputDuringAgentSpeech?: boolean | undefined;
     partialPrompts?: boolean | undefined;
     profanityFilter?: boolean | undefined;
-    preemptible?: boolean | undefined;
-    language?: string | undefined;
     debug?: string | undefined;
     intelligenceService?: string | undefined;
 }, {
     url: string;
     voice?: string | undefined;
-    ttsProvider?: string | undefined;
+    interruptible?: "any" | "speech" | "none" | undefined;
+    preemptible?: boolean | undefined;
+    language?: string | undefined;
     ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+    ttsProvider?: string | undefined;
     transcriptionProvider?: string | undefined;
     speechModel?: string | undefined;
-    transcriptionLanguage?: string | undefined;
     welcomeGreeting?: string | undefined;
     welcomeGreetingInterruptible?: "any" | "speech" | "none" | undefined;
     elevenlabsTextNormalization?: string | undefined;
-    interruptible?: "any" | "speech" | "none" | undefined;
     interruptSensitivity?: "low" | "medium" | "high" | undefined;
     dtmfDetection?: boolean | undefined;
     hints?: string | undefined;
     reportInputDuringAgentSpeech?: boolean | undefined;
     partialPrompts?: boolean | undefined;
     profanityFilter?: boolean | undefined;
-    preemptible?: boolean | undefined;
-    language?: string | undefined;
     debug?: string | undefined;
     intelligenceService?: string | undefined;
 }>;
@@ -2904,6 +2918,188 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
 type ConversationRelayCallbackPayload = z.infer<typeof ConversationRelayCallbackPayloadSchema>;
 
 /**
+ * TAC Tool class with helper methods for LLM integration
+ *
+ * Matches Python's TACTool dataclass with conversion methods.
+ */
+declare class TACTool<TParams = unknown, TResult = unknown> {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: JSONSchema;
+    readonly implementation: ToolFunction<TParams, TResult>;
+    constructor(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>);
+    /**
+     * Convert to OpenAI function calling format
+     */
+    toOpenAIFormat(): Record<string, unknown>;
+    /**
+     * Convert to Anthropic tool calling format
+     */
+    toAnthropicFormat(): Record<string, unknown>;
+    /**
+     * Convert to JSON string (OpenAI format by default)
+     */
+    toJSON(): string;
+}
+/**
+ * Create a tool directly with all parameters
+ *
+ * Simplified approach matching Python's create_tool function.
+ * No builder pattern - just a simple function call.
+ */
+declare function defineTool<TParams = unknown, TResult = unknown>(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>): TACTool<TParams, TResult>;
+
+/**
+ * Parameters for memory retrieval tool
+ */
+interface MemoryRetrievalParams {
+    query?: string;
+    start_date?: string;
+    end_date?: string;
+    observation_limit?: number;
+    summary_limit?: number;
+    session_limit?: number;
+}
+/**
+ * Create memory retrieval tool
+ */
+declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId, profileId?: ProfileId): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+/**
+ * Create factory function for memory tools
+ */
+declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId): {
+    forProfile: (profileId: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+    forSession: (profileId?: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+};
+
+/**
+ * Parameters for send message tool
+ */
+interface SendMessageParams {
+    message: string;
+    metadata?: Record<string, unknown>;
+}
+/**
+ * Result from send message tool
+ */
+interface SendMessageResult {
+    success: boolean;
+    message_id?: string;
+    error?: string;
+}
+/**
+ * Create send message tool
+ *
+ * @param channel - The channel to send messages through
+ * @param conversationId - The conversation ID
+ */
+declare function createSendMessageTool(channel: Channel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
+/**
+ * Create factory function for messaging tools
+ */
+declare function createMessagingTools(): {
+    /**
+     * Create send message tool for specific channel and session
+     *
+     * @param channel - The channel to send messages through
+     * @param conversationId - The conversation ID
+     */
+    forSession: (channel: Channel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
+};
+
+/**
+ * Parameters for handoff tool
+ */
+interface HandoffParams {
+    reason: string;
+    urgency?: 'low' | 'medium' | 'high';
+    context?: string;
+    metadata?: Record<string, unknown>;
+}
+/**
+ * Result from handoff tool
+ */
+interface HandoffResult {
+    success: boolean;
+    handoff_id: string;
+    estimated_wait_time?: string;
+    error?: string;
+}
+/**
+ * Create human handoff tool
+ *
+ * @param tac - The TAC instance
+ * @param conversationId - The conversation ID
+ */
+declare function createHandoffTool(tac: TAC, conversationId: ConversationId): TACTool<HandoffParams, HandoffResult>;
+/**
+ * Create factory function for handoff tools
+ */
+declare function createHandoffTools(): {
+    /**
+     * Create handoff tool for specific TAC instance and session
+     *
+     * @param tac - The TAC instance
+     * @param conversationId - The conversation ID
+     */
+    forSession: (tac: TAC, conversationId: ConversationId) => TACTool<HandoffParams, HandoffResult>;
+};
+
+/**
+ * Parameters for knowledge search tool (visible to LLM)
+ */
+interface KnowledgeSearchParams {
+    query: string;
+}
+/**
+ * Configuration for knowledge search tool
+ */
+interface KnowledgeToolConfig {
+    name?: string;
+    description?: string;
+    topK?: number;
+}
+/**
+ * Create knowledge search tool with explicit name and description
+ *
+ * @param knowledgeClient - The Knowledge client instance
+ * @param knowledgeBaseId - The knowledge base ID to search
+ * @param config - Configuration with required name and description
+ * @returns TACTool configured for knowledge search
+ */
+declare function createKnowledgeSearchTool(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config: {
+    name: string;
+    description: string;
+    topK?: number;
+}): TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
+/**
+ * Create knowledge search tool with auto-fetched metadata from knowledge base
+ *
+ * This async version fetches the knowledge base metadata to auto-generate
+ * the tool name and description if not provided.
+ *
+ * @param knowledgeClient - The Knowledge client instance
+ * @param knowledgeBaseId - The knowledge base ID to search
+ * @param config - Optional configuration (name/description auto-generated if not provided)
+ * @returns Promise containing TACTool configured for knowledge search
+ */
+declare function createKnowledgeSearchToolAsync(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig): Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
+/**
+ * Create factory for knowledge tools
+ *
+ * @param knowledgeClient - The Knowledge client instance
+ * @returns Factory object with methods to create knowledge tools
+ */
+declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
+    forKnowledgeBase: (knowledgeBaseId: KnowledgeBaseId, config: {
+        name: string;
+        description: string;
+        topK?: number;
+    }) => TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
+    forKnowledgeBaseAsync: (knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig) => Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
+};
+
+/**
  * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
  *
  * These are TAC's own structured parameters for bridging ConversationRelay calls
@@ -2956,7 +3152,7 @@ type JSONSchema = z.infer<typeof JSONSchemaSchema>;
 /**
  * Tool function signature
  */
-type ToolFunction<TParams = any, TResult = any> = (params: TParams) => Promise<TResult> | TResult;
+type ToolFunction<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
 /**
  * OpenAI tool format
  */
@@ -3040,12 +3236,14 @@ declare const OpenAIToolSchema: z.ZodObject<{
     type: "function";
 }>;
 type OpenAITool = z.infer<typeof OpenAIToolSchema>;
+
 /**
  * Tool execution context
  */
 interface ToolContext {
-    conversationId?: string;
-    profileId?: string;
+    conversationId?: ConversationId;
+    profileId?: ProfileId;
+    memoryStoreId?: MemoryStoreId;
     channel?: string;
     metadata?: Record<string, unknown>;
 }
@@ -4421,188 +4619,6 @@ declare class OperatorResultProcessor {
      */
     private processSummaryEvent;
 }
-
-/**
- * TAC Tool class with helper methods for LLM integration
- *
- * Matches Python's TACTool dataclass with conversion methods.
- */
-declare class TACTool<TParams = unknown, TResult = unknown> {
-    readonly name: string;
-    readonly description: string;
-    readonly parameters: JSONSchema;
-    readonly implementation: ToolFunction<TParams, TResult>;
-    constructor(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>);
-    /**
-     * Convert to OpenAI function calling format
-     */
-    toOpenAIFormat(): Record<string, any>;
-    /**
-     * Convert to Anthropic tool calling format
-     */
-    toAnthropicFormat(): Record<string, any>;
-    /**
-     * Convert to JSON string (OpenAI format by default)
-     */
-    toJSON(): string;
-}
-/**
- * Create a tool directly with all parameters
- *
- * Simplified approach matching Python's create_tool function.
- * No builder pattern - just a simple function call.
- */
-declare function defineTool<TParams = unknown, TResult = unknown>(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>): TACTool<TParams, TResult>;
-
-/**
- * Parameters for memory retrieval tool
- */
-interface MemoryRetrievalParams {
-    query?: string;
-    start_date?: string;
-    end_date?: string;
-    observation_limit?: number;
-    summary_limit?: number;
-    session_limit?: number;
-}
-/**
- * Create memory retrieval tool
- */
-declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId, profileId?: string): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-/**
- * Create factory function for memory tools
- */
-declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId): {
-    forProfile: (profileId: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-    forSession: (profileId?: string) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-};
-
-/**
- * Parameters for send message tool
- */
-interface SendMessageParams {
-    message: string;
-    metadata?: Record<string, unknown>;
-}
-/**
- * Result from send message tool
- */
-interface SendMessageResult {
-    success: boolean;
-    message_id?: string;
-    error?: string;
-}
-/**
- * Create send message tool
- *
- * @param channel - The channel to send messages through
- * @param conversationId - The conversation ID
- */
-declare function createSendMessageTool(channel: Channel, conversationId: ConversationId): TACTool<SendMessageParams, SendMessageResult>;
-/**
- * Create factory function for messaging tools
- */
-declare function createMessagingTools(): {
-    /**
-     * Create send message tool for specific channel and session
-     *
-     * @param channel - The channel to send messages through
-     * @param conversationId - The conversation ID
-     */
-    forSession: (channel: Channel, conversationId: ConversationId) => TACTool<SendMessageParams, SendMessageResult>;
-};
-
-/**
- * Parameters for handoff tool
- */
-interface HandoffParams {
-    reason: string;
-    urgency?: 'low' | 'medium' | 'high';
-    context?: string;
-    metadata?: Record<string, unknown>;
-}
-/**
- * Result from handoff tool
- */
-interface HandoffResult {
-    success: boolean;
-    handoff_id: string;
-    estimated_wait_time?: string;
-    error?: string;
-}
-/**
- * Create human handoff tool
- *
- * @param tac - The TAC instance
- * @param conversationId - The conversation ID
- */
-declare function createHandoffTool(tac: TAC, conversationId: ConversationId): TACTool<HandoffParams, HandoffResult>;
-/**
- * Create factory function for handoff tools
- */
-declare function createHandoffTools(): {
-    /**
-     * Create handoff tool for specific TAC instance and session
-     *
-     * @param tac - The TAC instance
-     * @param conversationId - The conversation ID
-     */
-    forSession: (tac: TAC, conversationId: ConversationId) => TACTool<HandoffParams, HandoffResult>;
-};
-
-/**
- * Parameters for knowledge search tool (visible to LLM)
- */
-interface KnowledgeSearchParams {
-    query: string;
-}
-/**
- * Configuration for knowledge search tool
- */
-interface KnowledgeToolConfig {
-    name?: string;
-    description?: string;
-    topK?: number;
-}
-/**
- * Create knowledge search tool with explicit name and description
- *
- * @param knowledgeClient - The Knowledge client instance
- * @param knowledgeBaseId - The knowledge base ID to search
- * @param config - Configuration with required name and description
- * @returns TACTool configured for knowledge search
- */
-declare function createKnowledgeSearchTool(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config: {
-    name: string;
-    description: string;
-    topK?: number;
-}): TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
-/**
- * Create knowledge search tool with auto-fetched metadata from knowledge base
- *
- * This async version fetches the knowledge base metadata to auto-generate
- * the tool name and description if not provided.
- *
- * @param knowledgeClient - The Knowledge client instance
- * @param knowledgeBaseId - The knowledge base ID to search
- * @param config - Optional configuration (name/description auto-generated if not provided)
- * @returns Promise containing TACTool configured for knowledge search
- */
-declare function createKnowledgeSearchToolAsync(knowledgeClient: KnowledgeClient, knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig): Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
-/**
- * Create factory for knowledge tools
- *
- * @param knowledgeClient - The Knowledge client instance
- * @returns Factory object with methods to create knowledge tools
- */
-declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
-    forKnowledgeBase: (knowledgeBaseId: KnowledgeBaseId, config: {
-        name: string;
-        description: string;
-        topK?: number;
-    }) => TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>;
-    forKnowledgeBaseAsync: (knowledgeBaseId: KnowledgeBaseId, config?: KnowledgeToolConfig) => Promise<TACTool<KnowledgeSearchParams, KnowledgeChunkResult[]>>;
-};
 
 /**
  * Server configuration options

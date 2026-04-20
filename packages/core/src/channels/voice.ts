@@ -344,7 +344,8 @@ export class VoiceChannel implements Channel {
         throw new Error(`No CallSid found for conversation ${conversationId}`);
       }
 
-      this.conversationRelay.sendResponse(callSid as CallSid, message);
+      const last = metadata?.last === undefined ? true : (metadata.last as boolean);
+      this.conversationRelay.sendResponse(callSid as CallSid, message, last);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,
