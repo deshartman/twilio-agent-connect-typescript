@@ -534,11 +534,11 @@ describe('Memory Client Write Methods', () => {
         conversationIds: ['conv_conversation_01jg3r5h4zx8yvw6kqp2mn7stb'],
       };
       mockAdapter
-        .onPost('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
+        .onPost('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
         .reply(200, mockResponse);
 
       const result = await memoryClient.createObservation(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         'Test observation',
         'conversation-intelligence',
@@ -549,7 +549,7 @@ describe('Memory Client Write Methods', () => {
       expect(result).toEqual(mockResponse);
       expect(mockAdapter.history.post.length).toBe(1);
       expect(mockAdapter.history.post[0].url).toBe(
-        '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'
+        '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations'
       );
       const body = JSON.parse(mockAdapter.history.post[0].data);
       expect(body.content).toBe('Test observation');
@@ -557,12 +557,12 @@ describe('Memory Client Write Methods', () => {
 
     it('should handle API errors', async () => {
       mockAdapter
-        .onPost('/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
+        .onPost('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/Observations')
         .reply(500, { error: 'Internal Server Error' });
 
       await expect(
         memoryClient.createObservation(
-          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           'Test observation'
         )
@@ -575,12 +575,12 @@ describe('Memory Client Write Methods', () => {
       const mockResponse = { message: 'Summaries created successfully' };
       mockAdapter
         .onPost(
-          '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
         )
         .reply(200, mockResponse);
 
       const result = await memoryClient.createConversationSummaries(
-        'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
         'profile_123',
         [
           {
@@ -595,20 +595,20 @@ describe('Memory Client Write Methods', () => {
       expect(result).toEqual(mockResponse);
       expect(mockAdapter.history.post.length).toBe(1);
       expect(mockAdapter.history.post[0].url).toBe(
-        '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+        '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
       );
     });
 
     it('should handle API errors', async () => {
       mockAdapter
         .onPost(
-          '/v1/Stores/mem_service_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
+          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/profile_123/ConversationSummaries'
         )
         .reply(500, { error: 'Internal Server Error' });
 
       await expect(
         memoryClient.createConversationSummaries(
-          'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+          'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
           'profile_123',
           [
             {

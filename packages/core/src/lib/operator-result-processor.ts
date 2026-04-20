@@ -18,9 +18,10 @@ import { Logger, createLogger } from './logger';
  * Extract profile IDs from operator result execution details
  *
  * @param operatorResult - The operator result to extract profile IDs from
+ * @param logger - Logger instance for structured logging
  * @returns Array of validated profile IDs found in participants
  */
-function extractProfileIds(operatorResult: OperatorResult): ProfileId[] {
+function extractProfileIds(operatorResult: OperatorResult, logger: Logger): ProfileId[] {
   const profileIds: ProfileId[] = [];
 
   if (operatorResult.executionDetails?.participants) {
@@ -31,8 +32,13 @@ function extractProfileIds(operatorResult: OperatorResult): ProfileId[] {
           profileIds.push(participant.profileId);
         } else {
           // Log warning but continue processing other participants
-          console.warn(
-            `Invalid profile ID format from Cintel operator: ${participant.profileId}. Expected mem_profile_[0-9a-z]{26}. Skipping.`
+          logger.warn(
+            {
+              invalid_profile_id: participant.profileId,
+              operator_id: operatorResult.operator.id,
+              expected_format: 'mem_profile_[0-9a-z]{26}',
+            },
+            'Invalid profile ID format from Cintel operator, skipping participant'
           );
         }
       }
@@ -307,7 +313,7 @@ export class OperatorResultProcessor {
     }
 
     // Extract profile IDs from execution details
-    const profileIds = extractProfileIds(operatorResult);
+    const profileIds = extractProfileIds(operatorResult, this.logger);
 
     if (profileIds.length === 0) {
       this.logger.warn(

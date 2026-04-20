@@ -161,12 +161,31 @@ export class ConversationClient extends BaseClient {
   ): Promise<ConversationParticipant> {
     // First, check if participant already exists (e.g., added by Maestro capture rules)
     const existingParticipants = await this.listParticipants(conversationId);
-    const existingParticipant = existingParticipants.find(p => p.type === participantType);
+
+    // Match on both type AND addresses to handle multiple participants of same type
+    // (e.g., CUSTOMER with SMS + VOICE addresses)
+    const existingParticipant = existingParticipants.find(p => {
+      if (p.type !== participantType) return false;
+
+      // Check if participant has ALL requested addresses
+      return addresses.every(reqAddr => {
+        return p.addresses.some(existingAddr => {
+          const channelMatch = existingAddr.channel === reqAddr.channel;
+          const addressMatch = existingAddr.address === reqAddr.address;
+          const channelIdMatch = !reqAddr.channelId || existingAddr.channelId === reqAddr.channelId;
+          return channelMatch && addressMatch && channelIdMatch;
+        });
+      });
+    });
 
     if (existingParticipant) {
       this.logger.info(
-        { conversation_id: conversationId, participant_type: participantType },
-        'Participant already exists, using existing participant'
+        {
+          conversation_id: conversationId,
+          participant_type: participantType,
+          addresses: addresses.map(a => `${a.channel}:${a.address}`),
+        },
+        'Participant already exists with all requested addresses'
       );
       return existingParticipant;
     }
@@ -187,7 +206,19 @@ export class ConversationClient extends BaseClient {
           'Caught 409 conflict - participant was added by Maestro between check and add, fetching existing participant'
         );
         const updatedParticipants = await this.listParticipants(conversationId);
-        const nowExistingParticipant = updatedParticipants.find(p => p.type === participantType);
+        // Use same matching logic as above - match on type AND addresses
+        const nowExistingParticipant = updatedParticipants.find(p => {
+          if (p.type !== participantType) return false;
+          return addresses.every(reqAddr => {
+            return p.addresses.some(existingAddr => {
+              const channelMatch = existingAddr.channel === reqAddr.channel;
+              const addressMatch = existingAddr.address === reqAddr.address;
+              const channelIdMatch =
+                !reqAddr.channelId || existingAddr.channelId === reqAddr.channelId;
+              return channelMatch && addressMatch && channelIdMatch;
+            });
+          });
+        });
         if (nowExistingParticipant) {
           return nowExistingParticipant;
         }

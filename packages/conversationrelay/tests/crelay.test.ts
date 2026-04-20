@@ -605,5 +605,23 @@ describe('ConversationRelay', () => {
       expect(conversationRelay.hasSession('CA_test1' as CallSid)).toBe(false);
       expect(conversationRelay.hasSession('CA_test2' as CallSid)).toBe(false);
     });
+
+    it('should log error and return early for non-Buffer WebSocket data', () => {
+      const testLogger = createTestLogger();
+      const errorSpy = vi.spyOn(testLogger, 'error');
+      const conversationRelay = new ConversationRelay(testLogger);
+      const mockWs = createMockWebSocket();
+      conversationRelay.handleConnection(mockWs);
+
+      // Emit ArrayBuffer (edge case that should never happen with Twilio)
+      const arrayBuffer = new TextEncoder().encode('{"type":"setup"}').buffer;
+      mockWs._emit('message', arrayBuffer);
+
+      // Should log error and not process message
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ data_type: 'ArrayBuffer' }),
+        'Unexpected WebSocket data type - expected Buffer from ConversationRelay'
+      );
+    });
   });
 });

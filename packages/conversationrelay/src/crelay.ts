@@ -119,10 +119,30 @@ export class ConversationRelay {
   public handleConnection(ws: WebSocket): void {
     let callSid: CallSid | null = null;
 
+    /**
+     * Handle incoming WebSocket messages from Twilio ConversationRelay.
+     *
+     * Note: The ws library types data as RawData = Buffer | ArrayBuffer | Buffer[].
+     * Twilio ConversationRelay always sends Buffer in practice. We validate this
+     * with a type guard and log an error if we ever receive other types.
+     *
+     * Reference: https://github.com/websockets/ws - see RawData type definition
+     */
     ws.on('message', (data: RawData) => {
       try {
-        // ConversationRelay always sends text (JSON) messages, delivered as Buffer by ws
-        const messageText = (data as Buffer).toString();
+        // Type guard: Twilio ConversationRelay sends Buffer
+        if (!Buffer.isBuffer(data)) {
+          this.logger.error(
+            {
+              data_type: data instanceof ArrayBuffer ? 'ArrayBuffer' : 'Buffer[]',
+              call_sid: callSid
+            },
+            'Unexpected WebSocket data type - expected Buffer from ConversationRelay'
+          );
+          return;
+        }
+
+        const messageText = data.toString();
         const messageData = JSON.parse(messageText) as unknown;
 
         this.logger.debug({ raw_message: messageData }, 'Received ConversationRelay message');

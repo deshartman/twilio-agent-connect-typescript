@@ -68,6 +68,27 @@ describe('TACConfig', () => {
       }).toThrow();
     });
 
+    it('should reject legacy mem_service_ format', () => {
+      const legacyConfig = {
+        ...getTestConfigData(),
+        memoryStoreId: 'mem_service_01kbjqhhdpft0tbp21jt4ktbxg',
+      };
+
+      expect(() => {
+        new TACConfig(legacyConfig);
+      }).toThrow('Invalid Memory Store ID format');
+    });
+
+    it('should accept mem_store_ format', () => {
+      const validConfig = {
+        ...getTestConfigData(),
+        memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+      };
+
+      const config = new TACConfig(validConfig);
+      expect(config.memoryStoreId).toBe('mem_store_01kbjqhhdpft0tbp21jt4ktbxg');
+    });
+
     it('should work without memoryStoreId', () => {
       const configWithoutMemory = {
         ...getTestConfigData(),
