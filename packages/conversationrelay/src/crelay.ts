@@ -170,7 +170,7 @@ export class ConversationRelay {
               from: message.from,
               to: message.to,
               startedAt: new Date(),
-              customParameters: message.customParameters as Record<string, unknown> | undefined,
+              customParameters: message.customParameters,
             };
             this.sessions.set(callSid, session);
 
@@ -357,12 +357,10 @@ export class ConversationRelay {
       }
     }
 
-    // Add custom parameters as child <Parameter> elements (bug fix: per-parameter iteration)
+    // Add custom parameters as child <Parameter> elements
     if (parameters) {
       for (const [name, value] of Object.entries(parameters)) {
-        if (value !== undefined) {
-          relay.parameter({ name, value: String(value) });
-        }
+        relay.parameter({ name, value });
       }
     }
 
