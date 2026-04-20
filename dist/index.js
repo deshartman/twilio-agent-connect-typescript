@@ -2931,6 +2931,25 @@ var ChatChannel = class extends MessagingChannel {
     }
   }
 };
+function createLogger2(options) {
+  const level = options?.level || process.env.LOG_LEVEL || "info";
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  const usePretty = options?.pretty !== void 0 ? options.pretty : isDevelopment;
+  const pinoOptions = {
+    level,
+    ...options?.name && { name: options.name }
+  };
+  if (usePretty) {
+    return pino({
+      ...pinoOptions,
+      transport: {
+        target: "pino-pretty",
+        options: {}
+      }
+    });
+  }
+  return pino(pinoOptions);
+}
 var SetupMessageSchema = z.object({
   type: z.literal("setup"),
   sessionId: z.string(),
@@ -3140,7 +3159,7 @@ var ConversationRelay = class _ConversationRelay {
   sessions;
   callbacks;
   constructor(logger2) {
-    this.logger = logger2;
+    this.logger = logger2 ?? createLogger2({ name: "conversation-relay" });
     this.connections = /* @__PURE__ */ new Map();
     this.sessions = /* @__PURE__ */ new Map();
     this.callbacks = {};

@@ -22,10 +22,8 @@ npm install @twilio/tac-conversationrelay
 
 ```typescript
 import { ConversationRelay, CRelayServer } from '@twilio/tac-conversationrelay';
-import { pino } from 'pino';
 
-const logger = pino();
-const conversationRelay = new ConversationRelay(logger);
+const conversationRelay = new ConversationRelay();
 
 // Register event callbacks
 conversationRelay.onSessionStarted((callSid, session, data) => {
@@ -69,7 +67,7 @@ import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 
 const fastify = Fastify();
-const conversationRelay = new ConversationRelay(logger);
+const conversationRelay = new ConversationRelay();
 
 // Register callbacks
 conversationRelay.onMessage((callSid, message) => {

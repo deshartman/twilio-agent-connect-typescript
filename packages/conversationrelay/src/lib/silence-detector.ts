@@ -6,7 +6,7 @@
  */
 
 import type { CallSid } from '../types';
-import type { Logger } from 'pino';
+import type { Logger } from './logger';
 
 /**
  * Configuration for silence detection behavior

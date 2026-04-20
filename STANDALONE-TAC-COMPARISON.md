@@ -406,7 +406,7 @@ import { ConversationRelay } from '@twilio/tac-conversationrelay';
 import Fastify from 'fastify';
 
 const app = Fastify();
-const cr = new ConversationRelay(logger);
+const cr = new ConversationRelay();
 
 cr.onMessage((callSid, message) => {
   console.log(`User said: ${message}`);

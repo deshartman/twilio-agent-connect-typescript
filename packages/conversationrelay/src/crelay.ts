@@ -13,7 +13,7 @@
 
 import { WebSocket, type RawData } from 'ws';
 import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
-import type { Logger } from 'pino';
+import { createLogger, type Logger } from './lib/logger';
 import {
   type CallSid,
   type CRelaySession,
@@ -67,8 +67,8 @@ export class ConversationRelay {
     onError?: ErrorCallback;
   };
 
-  constructor(logger: Logger) {
-    this.logger = logger;
+  constructor(logger?: Logger) {
+    this.logger = logger ?? createLogger({ name: 'conversation-relay' });
     this.connections = new Map();
     this.sessions = new Map();
     this.callbacks = {};

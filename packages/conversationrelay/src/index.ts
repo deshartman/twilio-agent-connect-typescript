@@ -14,6 +14,10 @@ export { CRelayServer } from './lib/server';
 // Server types
 export type { CRelayServerConfig } from './lib/server';
 
+// Logger helpers (CR has its own logger — no dep on @twilio/tac-core)
+export { createLogger } from './lib/logger';
+export type { Logger } from './lib/logger';
+
 // Silence detection helper
 export { SilenceDetector } from './lib/silence-detector';
 export type { SilenceDetectorConfig } from './lib/silence-detector';

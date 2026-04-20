@@ -2799,6 +2799,7 @@ declare const ConversationRelayAttributesSchema: z.ZodObject<{
 }, "strip", z.ZodTypeAny, {
     url: string;
     voice?: string | undefined;
+    debug?: string | undefined;
     interruptible?: "any" | "speech" | "none" | undefined;
     preemptible?: boolean | undefined;
     language?: string | undefined;
@@ -2816,11 +2817,11 @@ declare const ConversationRelayAttributesSchema: z.ZodObject<{
     reportInputDuringAgentSpeech?: boolean | undefined;
     partialPrompts?: boolean | undefined;
     profanityFilter?: boolean | undefined;
-    debug?: string | undefined;
     intelligenceService?: string | undefined;
 }, {
     url: string;
     voice?: string | undefined;
+    debug?: string | undefined;
     interruptible?: "any" | "speech" | "none" | undefined;
     preemptible?: boolean | undefined;
     language?: string | undefined;
@@ -2838,7 +2839,6 @@ declare const ConversationRelayAttributesSchema: z.ZodObject<{
     reportInputDuringAgentSpeech?: boolean | undefined;
     partialPrompts?: boolean | undefined;
     profanityFilter?: boolean | undefined;
-    debug?: string | undefined;
     intelligenceService?: string | undefined;
 }>;
 type ConversationRelayAttributes = z.infer<typeof ConversationRelayAttributesSchema>;

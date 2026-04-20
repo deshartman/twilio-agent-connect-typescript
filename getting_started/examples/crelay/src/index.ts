@@ -2,25 +2,18 @@ import { config } from 'dotenv';
 import {
   ConversationRelay,
   CRelayServer,
+  createLogger,
   type CallSid,
   type CRelaySession,
   type SetupMessage,
   type PromptMessage,
 } from '@twilio/tac-conversationrelay';
-import { pino } from 'pino';
 import OpenAI from 'openai';
 
 // Load environment variables from parent directory
 config({ path: '../.env' });
 
-// Initialize logger
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  transport: {
-    target: 'pino-pretty',
-    options: { colorize: true },
-  },
-});
+const logger = createLogger({ name: 'crelay-example' });
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -41,8 +34,8 @@ Important constraints: This is VOICE - never reference websites, documentation, 
 This demo: You're running ON Conversation Relay right now - the user is experiencing the technology firsthand. You can discuss the WebSocket message types, voice configuration, implementation patterns, and how this application itself works as a working example.`,
 };
 
-// Initialize ConversationRelay voice handler
-const conversationRelay = new ConversationRelay(logger);
+// Initialize ConversationRelay voice handler (defaults its own logger when none is passed)
+const conversationRelay = new ConversationRelay();
 
 // Store conversation history per call
 const conversations = new Map<CallSid, Array<{ role: 'user' | 'assistant'; content: string }>>();
