@@ -9,6 +9,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 - **Memory Integration**: Automatically retrieves user profiles and conversation history from Twilio Memory
 - **Profile Personalization**: Incorporates user profile traits into responses for personalized interactions
 - **Conversation History**: Maintains context across multiple message exchanges
+- **Uniform Tool Flow**: Voice channel exposes CR's built-in protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) through the same `listTools()` / `executeTool()` surface used by every channel
 
 ## Prerequisites
 
@@ -157,6 +158,37 @@ The application maintains conversation history per conversation ID, allowing the
 - Remember what was said earlier in the conversation
 - Provide contextually relevant responses
 - Build on previous exchanges
+
+### Uniform Tool Dispatch
+
+Every channel implements the same tool surface — `listTools()`, `registerTool(tool)`, `executeTool(conversationId, name, args)` — so the LLM glue is the same shape regardless of channel. On voice, the built-in CR protocol tools are auto-registered, and `executeTool` auto-ships their `outgoingMessage` (play/sendDigits/language/end) over the CR WebSocket:
+
+```typescript
+const tools = voiceChannel
+  .listTools()
+  .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
+const stream = await openai.chat.completions.create({ model, messages, tools, stream: true });
+
+for (const call of toolCalls.values()) {
+  // Protocol tools ship their outgoing frame automatically; non-protocol tools
+  // return their result for the next LLM turn to consume.
+  await voiceChannel.executeTool(convId, call.name, JSON.parse(call.argumentsJson));
+}
+```
+
+SMS uses the same pattern — register a tool on `smsChannel`, it shows up in `smsChannel.listTools()`, and `smsChannel.executeTool(...)` invokes it. There's no special casing per channel in the LLM loop.
+
+### Handling voice interruptions
+
+Interruptions arrive on the unified `onMessageReady` surface as `ChannelMessage` with `messageType: 'system'` and `metadata.type: 'interrupt'`. The message metadata includes `utteranceUntilInterrupt` (what the caller actually heard) and `durationUntilInterruptMs`.
+
+This example keeps a `Map<ConversationId, AbortController>` so the interruption handler can:
+
+1. **Cancel the in-flight OpenAI stream** — `voiceStreams.get(convIdStr)?.abort()`. The `signal` is threaded into `openai.chat.completions.create` so TTS stops receiving tokens immediately.
+2. **Rewrite the last assistant turn** in `conversationMessages[convIdStr]` to `utteranceUntilInterrupt`. This matters for multi-turn accuracy — without it the next prompt carries text the caller never heard, and the LLM starts referring to things it never actually said.
+
+Because the branch runs before the `messageType !== 'user'` guard, the interrupt is handled as context rather than triggering a new LLM turn. See `src/index.ts` for the complete handler.
 
 ## Production Considerations
 

@@ -61,6 +61,44 @@ All channels require `CONVERSATION_SERVICE_ID` to be configured in your environm
 
 For advanced use cases, `VoiceWebhookChannel` is available for bring-your-own ConversationRelay server setups (webhook-only, no WebSocket management).
 
+```
+          Twilio WS         +-------------------------+
+          (ConvRelay) <---->| VoiceChannel            |
+                            |   |- embeds CR          | <-- Channel[voice] -----+
+                            |   |- listTools/exec     |                         |
+                            |   +- sendResponse       |                         |
+                            +-------------------------+                         |
+          Twilio SMS        +-------------------------+                         |                +----------+
+        (via Maestro) <---->| SMSChannel              |                         | onMessageReady |  User    |
+                            |   |- listTools/exec     | <-- Channel[sms] -------+---(unified)--->|  LLM     |
+                            |   +- sendResponse       |                         |                |  loop    |
+                            +-------------------------+                         |  executeTool   +----------+
+          Twilio Chat       +-------------------------+                         | <--(by conv id)-----^
+        (via Maestro) <---->| ChatChannel             |                         |                     |
+                            |   |- listTools/exec     | <-- Channel[chat] ------+                     |
+                            |   +- sendResponse       |         ^                                     |
+                            +-------------------------+         |                                     |
+                                                     +----------+------------+                        |
+                                                     |         TAC           |                        |
+                                                     |  - composes channels  |                        |
+                                                     |  - tac.getChannel()   |                        |
+                                                     |  - onMessageReady     |  <- single callback    |
+                                                     |  - onHandoff/         |    for all channels    |
+                                                     |    onConversationEnded|                        |
+                                                     +-----------------------+                        |
+                                                                                                      |
+    LLM SDK lives in USER code. -----------------------------------------------------------------------+
+    Uniform dispatch:
+      channel.listTools().map(t => t.toOpenAIFormat())
+      channel.executeTool(msg.conversationId, name, args)
+    msg.channel discriminator routes to the right channel.
+```
+
+Two principles drive the design:
+
+- **LLM-agnostic.** Neither `@twilio/tac-core` nor `@twilio/tac-conversationrelay` imports any LLM SDK. Vendor format is opt-in via `CRTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
+- **Uniform tool flow.** A user integrating an LLM looks at exactly one place per channel to find tools and dispatch them: `channel.listTools()` + `channel.executeTool(conversationId, ...)`. No branching on tool "type" in user code — voice `outgoingMessage` auto-shipping happens inside `executeTool`, not at the call site.
+
 ## Quick Examples
 
 Create Memory and Conversation services through the [Twilio Console](https://1console.twilio.com), then configure your `.env` file (see the [getting started guide](getting_started/README.md) for details).
@@ -118,19 +156,33 @@ tac.onMessageReady(async msg => {
 
   conversationHistory[convId].push({ role: 'user', content: msg.message });
 
+  // Uniform tool discovery — works for voice, sms, chat
+  const channel = tac.getChannel(msg.channel)!;
+  const tools = channel
+    .listTools()
+    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
   const response = await openai.chat.completions.create({
     model: 'gpt-5.4-mini',
     messages: conversationHistory[convId],
+    ...(tools.length > 0 && { tools }),
   });
 
-  const llmResponse = response.choices[0]?.message?.content ?? '';
+  const choice = response.choices[0]?.message;
+  const llmResponse = choice?.content ?? '';
   conversationHistory[convId].push({ role: 'assistant', content: llmResponse });
 
-  // Send response based on channel
-  if (msg.channel === 'voice') {
-    await voiceChannel.sendResponse(msg.conversationId as ConversationId, llmResponse);
-  } else if (msg.channel === 'sms') {
-    await smsChannel.sendResponse(msg.conversationId as ConversationId, llmResponse);
+  // Send response via the channel that delivered the message
+  await channel.sendResponse(convId as ConversationId, llmResponse);
+
+  // Uniform tool dispatch. On voice, CR protocol tools are auto-shipped via the
+  // WebSocket by executeTool. On sms/chat, messaging tools are plain functions.
+  for (const call of choice?.tool_calls ?? []) {
+    await channel.executeTool(
+      convId as ConversationId,
+      call.function.name,
+      JSON.parse(call.function.arguments)
+    );
   }
 });
 
@@ -163,6 +215,40 @@ TAC simplifies building AI agents by handling the integration between Twilio's c
 5. **LLM Integration**: Your code calls LLM with message and memories, sends response through the appropriate channel
 
 For detailed architecture and advanced usage, see [CLAUDE.md](CLAUDE.md).
+
+## Real-time conversation control (voice)
+
+Voice calls have turn-taking signals that SMS and chat don't — caller interruptions, DTMF keypresses, and silence. TAC surfaces all three as `ChannelMessage` events with `messageType: 'system'` (so your LLM loop can skip them) and a discriminator in `metadata.type`.
+
+### Interruptions (caller speaks over the agent)
+
+When the caller cuts in while the agent is speaking, ConversationRelay sends an `interrupt` frame:
+
+```json
+{
+  "type": "interrupt",
+  "utteranceUntilInterrupt": "Sure, let me help you with",
+  "durationUntilInterruptMs": 1342
+}
+```
+
+- `utteranceUntilInterrupt` — the slice of TTS the caller actually *heard* before cutting in. Anything after this was never spoken.
+- `durationUntilInterruptMs` — ms into the agent's TTS turn when the interruption fired.
+
+Your handler has two responsibilities the framework cannot do for you:
+
+1. **Abort the in-flight LLM stream.** Hold an `AbortController` per call and call `.abort()` — otherwise tokens keep streaming into TTS after the caller cuts in.
+2. **Truncate the last assistant turn** in history to `utteranceUntilInterrupt`. Otherwise the next LLM call carries text the caller never heard, and multi-turn accuracy degrades fast.
+
+See [getting_started/examples/conversation/src/index.ts](getting_started/examples/conversation/src/index.ts) and [getting_started/examples/crelay/src/index.ts](getting_started/examples/crelay/src/index.ts) for the working pattern.
+
+### DTMF (keypad input)
+
+Keypresses arrive as a `ChannelMessage` with `metadata.type: 'dtmf'` and the digit in `metadata.digit`. Route them in your `onMessageReady` callback (or `onDtmf` if using `ConversationRelay` directly) — typical use is IVR-style menus or collecting account/PIN numbers mid-call.
+
+### Silence detection and listen-mode
+
+The CR package ships a `SilenceDetector` class for idle-call detection (prompt the caller, escalate, or hang up after N seconds of silence). Listen-mode is a user-space pattern — gate your LLM loop on a `Map<ConversationId, boolean>` so specific calls go mute without tearing down the connection. Recipes and examples: [packages/conversationrelay/README.md](packages/conversationrelay/README.md).
 
 ## Learn More
 

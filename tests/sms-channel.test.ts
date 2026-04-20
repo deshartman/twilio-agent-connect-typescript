@@ -486,6 +486,37 @@ describe('SMS Channel', () => {
     });
   });
 
+  describe('tool registry', () => {
+    it('listTools returns an empty list on a fresh messaging channel', () => {
+      expect(channel.listTools()).toEqual([]);
+    });
+
+    it('registerTool makes a user tool visible via listTools', async () => {
+      const { defineTool } = await import('@twilio/tac-conversationrelay');
+      const lookup = defineTool(
+        'lookup_order',
+        'Fetch an order by id',
+        { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        async ({ id }) => ({ id, status: 'shipped' })
+      );
+      channel.registerTool(lookup);
+      expect(channel.listTools().map(t => t.name)).toContain('lookup_order');
+    });
+
+    it('executeTool returns the tool result unchanged (no auto-ship on messaging)', async () => {
+      const { defineTool } = await import('@twilio/tac-conversationrelay');
+      const tool = defineTool(
+        'get_balance',
+        'Fetch account balance',
+        { type: 'object', properties: {}, additionalProperties: false },
+        async () => ({ balance: 42 })
+      );
+      channel.registerTool(tool);
+      const result = await channel.executeTool(TEST_CONVERSATION_ID, 'get_balance', {});
+      expect(result).toEqual({ balance: 42 });
+    });
+  });
+
   describe('sendResponse', () => {
     beforeEach(() => {
       // Access the conversation client's axios instance through TAC

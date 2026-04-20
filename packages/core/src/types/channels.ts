@@ -8,6 +8,7 @@
 import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
 import type { TACMemoryResponse } from '../lib/tac-memory-response';
+import type { CRTool } from '@twilio/tac-conversationrelay';
 
 /**
  * Unified message shape emitted by all channels via the 'message' event.
@@ -112,4 +113,28 @@ export interface Channel {
    * Shutdown channel and cleanup resources
    */
   shutdown(): void;
+
+  /**
+   * List all tools registered on this channel (for LLM discovery).
+   * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+   */
+  listTools(): CRTool[];
+
+  /**
+   * Register an additional tool on this channel. Overwrites any tool with the same name.
+   */
+  registerTool(tool: CRTool): void;
+
+  /**
+   * Execute a registered tool by name.
+   *
+   * VoiceChannel auto-ships any `outgoingMessage` the tool produces via the CR
+   * WebSocket. MessagingChannel subclasses simply invoke the tool's implementation.
+   *
+   * @param conversationId - Conversation identifier to scope the execution
+   * @param name - Registered tool name
+   * @param args - Arguments forwarded to the tool's implementation
+   * @returns The tool's result (to feed back to the LLM loop)
+   */
+  executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
 }

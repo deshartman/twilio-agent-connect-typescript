@@ -4,8 +4,6 @@ import {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
-  setSilenceDetectionTool,
-  setListenModeTool,
 } from '@twilio/tac-conversationrelay';
 
 describe('ConversationRelay Tools', () => {
@@ -254,94 +252,6 @@ describe('ConversationRelay Tools', () => {
   });
 
   // =========================================================================
-  // State Management Tools (Return flags)
-  // =========================================================================
-
-  describe('setSilenceDetectionTool', () => {
-    it('should return success with enabled flag true', () => {
-      const result = setSilenceDetectionTool.implementation({
-        enabled: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('enabled');
-      expect(result.message).toContain('will monitor for silence');
-      expect(result.silenceDetectionEnabled).toBe(true);
-    });
-
-    it('should return success with enabled flag false', () => {
-      const result = setSilenceDetectionTool.implementation({
-        enabled: false,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('disabled');
-      expect(result.message).toContain('no silence monitoring');
-      expect(result.silenceDetectionEnabled).toBe(false);
-    });
-
-    it('should not return outgoingMessage property', () => {
-      const result = setSilenceDetectionTool.implementation({
-        enabled: true,
-      });
-
-      expect('outgoingMessage' in result).toBe(false);
-    });
-
-    it('should have correct tool metadata', () => {
-      expect(setSilenceDetectionTool.name).toBe('set_silence_detection');
-      expect(setSilenceDetectionTool.description).toBe(
-        'Enable or disable silence monitoring during the call'
-      );
-      expect(setSilenceDetectionTool.parameters.type).toBe('object');
-      expect(setSilenceDetectionTool.parameters.required).toContain('enabled');
-    });
-  });
-
-  describe('setListenModeTool', () => {
-    it('should return success with listen mode enabled', () => {
-      const result = setListenModeTool.implementation({
-        enabled: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('enabled');
-      expect(result.message).toContain('listen-only mode');
-      expect(result.message).toContain('text responses suppressed');
-      expect(result.listenMode).toBe(true);
-    });
-
-    it('should return success with listen mode disabled', () => {
-      const result = setListenModeTool.implementation({
-        enabled: false,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain('disabled');
-      expect(result.message).toContain('normal mode');
-      expect(result.message).toContain('text responses enabled');
-      expect(result.listenMode).toBe(false);
-    });
-
-    it('should not return outgoingMessage property', () => {
-      const result = setListenModeTool.implementation({
-        enabled: true,
-      });
-
-      expect('outgoingMessage' in result).toBe(false);
-    });
-
-    it('should have correct tool metadata', () => {
-      expect(setListenModeTool.name).toBe('set_listen_mode');
-      expect(setListenModeTool.description).toBe(
-        'Enable or disable text responses while keeping tool execution active'
-      );
-      expect(setListenModeTool.parameters.type).toBe('object');
-      expect(setListenModeTool.parameters.required).toContain('enabled');
-    });
-  });
-
-  // =========================================================================
   // Tool Pattern Verification
   // =========================================================================
 
@@ -360,24 +270,12 @@ describe('ConversationRelay Tools', () => {
       expect(endResult.outgoingMessage).toBeDefined();
     });
 
-    it('state management tools should return control flags', () => {
-      const silenceResult = setSilenceDetectionTool.implementation({ enabled: true });
-      const listenResult = setListenModeTool.implementation({ enabled: true });
-
-      expect(silenceResult.silenceDetectionEnabled).toBeDefined();
-      expect(listenResult.listenMode).toBeDefined();
-      expect('outgoingMessage' in silenceResult).toBe(false);
-      expect('outgoingMessage' in listenResult).toBe(false);
-    });
-
-    it('all tools should return success and message fields', () => {
+    it('all protocol tools should return success and message fields', () => {
       const tools = [
         playMediaTool.implementation({ source: 'https://example.com/audio.mp3' }),
         sendDigitsTool.implementation({ digits: '123' }),
         switchLanguageTool.implementation({ ttsLanguage: 'es-ES' }),
         endCallTool.implementation({ reason: 'test' }),
-        setSilenceDetectionTool.implementation({ enabled: true }),
-        setListenModeTool.implementation({ enabled: true }),
       ];
 
       for (const result of tools) {

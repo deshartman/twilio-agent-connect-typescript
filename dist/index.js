@@ -8,8 +8,8 @@ import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 import Fastify2 from 'fastify';
 import formbody2 from '@fastify/formbody';
 import websocket2 from '@fastify/websocket';
+import gracefulShutdown2 from 'fastify-graceful-shutdown';
 import twilio2 from 'twilio';
-import gracefulShutdown from 'fastify-graceful-shutdown';
 
 // packages/core/src/types/config.ts
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
@@ -2185,6 +2185,7 @@ var MessagingChannel = class {
   memoryRetriever;
   processedTokens = /* @__PURE__ */ new Set();
   maxTrackedTokens;
+  tools = /* @__PURE__ */ new Map();
   constructor(deps, channelConfig) {
     this.config = deps.config;
     this.logger = deps.logger.child({ component: "channel" });
@@ -2345,6 +2346,34 @@ var MessagingChannel = class {
         this.callbacks.onError = callback;
         break;
     }
+  }
+  /**
+   * List tools registered on this channel (for LLM discovery).
+   * MessagingChannel starts with an empty registry; future messaging tools
+   * (e.g., send_mms) can be added via `registerTool`.
+   */
+  listTools() {
+    return Array.from(this.tools.values());
+  }
+  /**
+   * Register a tool on this channel. Overwrites any tool with the same name.
+   */
+  registerTool(tool) {
+    this.tools.set(tool.name, tool);
+  }
+  /**
+   * Execute a registered tool by name.
+   *
+   * Messaging tools are plain side-effect functions — unlike VoiceChannel,
+   * there is no `outgoingMessage` auto-shipping. The tool's result is
+   * returned unchanged for the caller to feed back to the LLM loop.
+   */
+  executeTool(_conversationId, name, args) {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    return Promise.resolve(tool.implementation(args));
   }
   /**
    * Check if this webhook event belongs to this channel.
@@ -3029,7 +3058,7 @@ var EndMessageSchema = z.object({
   handoffData: z.string().optional()
   // JSON string
 });
-z.discriminatedUnion("type", [
+var OutgoingMessageSchema = z.discriminatedUnion("type", [
   TextTokenMessageSchema,
   PlayMessageSchema,
   SendDigitsMessageSchema,
@@ -3151,18 +3180,211 @@ var HandoffDataSchema = z.object({
   call_summary: z.string(),
   sentiment: z.string()
 });
+z.object({
+  type: z.enum(["object", "string", "number", "boolean", "array"]),
+  properties: z.record(z.any()).optional(),
+  required: z.array(z.string()).optional(),
+  items: z.any().optional(),
+  enum: z.array(z.any()).optional(),
+  description: z.string().optional()
+});
+var CRTool = class {
+  constructor(name, description, parameters, implementation) {
+    this.name = name;
+    this.description = description;
+    this.parameters = parameters;
+    this.implementation = implementation;
+  }
+  toOpenAIFormat() {
+    return {
+      type: "function",
+      function: {
+        name: this.name,
+        description: this.description,
+        parameters: this.parameters
+      }
+    };
+  }
+  toAnthropicFormat() {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: this.parameters
+    };
+  }
+  toJSON() {
+    return JSON.stringify(this.toOpenAIFormat(), null, 2);
+  }
+};
+function defineTool(name, description, parameters, implementation) {
+  if (!name) {
+    throw new Error("Tool name is required");
+  }
+  if (!description) {
+    throw new Error("Tool description is required");
+  }
+  if (!parameters) {
+    throw new Error("Tool parameters schema is required");
+  }
+  if (!implementation) {
+    throw new Error("Tool implementation is required");
+  }
+  return new CRTool(name, description, parameters, implementation);
+}
+
+// packages/conversationrelay/src/tools/play-media.ts
+var playMediaTool = defineTool(
+  "play_media",
+  "Play audio file from URL to caller",
+  {
+    type: "object",
+    properties: {
+      source: {
+        type: "string",
+        format: "uri",
+        description: "URL of audio file to play (must be accessible to Twilio)"
+      },
+      loop: {
+        type: "number",
+        minimum: 0,
+        description: "Number of times to loop (0 = 1000 times max, default = 1)"
+      },
+      interruptible: {
+        type: "boolean",
+        description: "Allow user to interrupt playback with speech or DTMF"
+      },
+      preemptible: {
+        type: "boolean",
+        description: "Allow subsequent messages to preempt this playback"
+      }
+    },
+    required: ["source"]
+  },
+  (params) => {
+    return {
+      success: true,
+      message: `Playing media: ${params.source}`,
+      outgoingMessage: {
+        type: "play",
+        source: params.source,
+        loop: params.loop,
+        interruptible: params.interruptible,
+        preemptible: params.preemptible
+      }
+    };
+  }
+);
+
+// packages/conversationrelay/src/tools/send-digits.ts
+var sendDigitsTool = defineTool(
+  "send_dtmf",
+  "Send DTMF digits to caller",
+  {
+    type: "object",
+    properties: {
+      digits: {
+        type: "string",
+        pattern: "^[0-9w*#]+$",
+        description: "Digits to send (0-9, w=500ms pause, *, #)"
+      }
+    },
+    required: ["digits"]
+  },
+  (params) => {
+    return {
+      success: true,
+      message: `Sending DTMF: ${params.digits}`,
+      outgoingMessage: {
+        type: "sendDigits",
+        digits: params.digits
+      }
+    };
+  }
+);
+
+// packages/conversationrelay/src/tools/switch-language.ts
+var switchLanguageTool = defineTool(
+  "switch_language",
+  "Change TTS or transcription language during call",
+  {
+    type: "object",
+    properties: {
+      ttsLanguage: {
+        type: "string",
+        description: "Language code for text-to-speech (e.g., en-US, es-ES, fr-FR)"
+      },
+      transcriptionLanguage: {
+        type: "string",
+        description: "Language code for speech-to-text (e.g., en-US, es-ES, fr-FR)"
+      }
+    }
+  },
+  (params) => {
+    if (!params.ttsLanguage && !params.transcriptionLanguage) {
+      return {
+        success: false,
+        message: "At least one language must be specified"
+      };
+    }
+    return {
+      success: true,
+      message: `Switching language: TTS=${params.ttsLanguage || "unchanged"}, STT=${params.transcriptionLanguage || "unchanged"}`,
+      outgoingMessage: {
+        type: "language",
+        ttsLanguage: params.ttsLanguage,
+        transcriptionLanguage: params.transcriptionLanguage
+      }
+    };
+  }
+);
+
+// packages/conversationrelay/src/tools/end-call.ts
+var endCallTool = defineTool(
+  "end_call",
+  "End the call with optional handoff data",
+  {
+    type: "object",
+    properties: {
+      reason: {
+        type: "string",
+        description: "Reason for ending the call"
+      },
+      handoffData: {
+        type: "object",
+        description: "Optional handoff metadata (JSON object sent to ConversationRelay callback webhook)"
+      }
+    },
+    required: ["reason"]
+  },
+  (params) => {
+    return {
+      success: true,
+      message: `Ending call: ${params.reason}`,
+      outgoingMessage: {
+        type: "end",
+        handoffData: params.handoffData ? JSON.stringify(params.handoffData) : void 0
+      }
+    };
+  }
+);
 
 // packages/conversationrelay/src/crelay.ts
 var ConversationRelay = class _ConversationRelay {
   logger;
   connections;
   sessions;
+  tools;
   callbacks;
   constructor(logger2) {
     this.logger = logger2 ?? createLogger2({ name: "conversation-relay" });
     this.connections = /* @__PURE__ */ new Map();
     this.sessions = /* @__PURE__ */ new Map();
     this.callbacks = {};
+    this.tools = /* @__PURE__ */ new Map();
+    const builtIns = [playMediaTool, sendDigitsTool, switchLanguageTool, endCallTool];
+    for (const tool of builtIns) {
+      this.tools.set(tool.name, tool);
+    }
   }
   // ===========================================================================
   // Callback Registration
@@ -3171,9 +3393,9 @@ var ConversationRelay = class _ConversationRelay {
   onSessionStarted(callback) {
     this.callbacks.onSessionStarted = callback;
   }
-  /** Register callback for user message (prompt transcription) */
-  onMessage(callback) {
-    this.callbacks.onMessage = callback;
+  /** Register callback for user prompt (transcribed speech from the caller) */
+  onPrompt(callback) {
+    this.callbacks.onPrompt = callback;
   }
   /** Register callback for user interrupt */
   onInterrupt(callback) {
@@ -3194,6 +3416,52 @@ var ConversationRelay = class _ConversationRelay {
   /** Register callback for errors */
   onError(callback) {
     this.callbacks.onError = callback;
+  }
+  // ===========================================================================
+  // Tool Registry
+  // ===========================================================================
+  /** Register an additional tool. Overwrites any tool with the same name. */
+  registerTool(tool) {
+    this.tools.set(tool.name, tool);
+  }
+  /** Unregister a tool by name. */
+  unregisterTool(name) {
+    this.tools.delete(name);
+  }
+  /**
+   * List all registered tools (built-in protocol tools + user-registered).
+   * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+   */
+  listTools() {
+    return Array.from(this.tools.values());
+  }
+  /**
+   * Execute a registered tool by name. If the tool returns an object with an
+   * `outgoingMessage` field (the built-in CR protocol tools), CR validates it
+   * against `OutgoingMessageSchema` and ships it via the WebSocket automatically.
+   * The tool result is returned so the caller can feed it back to the LLM loop.
+   *
+   * @throws if the tool is not registered or if an `outgoingMessage` fails schema validation.
+   */
+  async executeTool(callSid, name, args) {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    const result = await tool.implementation(args);
+    if (result !== null && typeof result === "object" && "outgoingMessage" in result && result.outgoingMessage !== void 0) {
+      const candidate = result.outgoingMessage;
+      const validated = OutgoingMessageSchema.safeParse(candidate);
+      if (!validated.success) {
+        this.logger.error(
+          { tool: name, errors: validated.error.errors, outgoingMessage: candidate },
+          "Tool produced invalid outgoingMessage \u2014 not shipping"
+        );
+        throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
+      }
+      this.sendRawMessage(callSid, validated.data);
+    }
+    return result;
   }
   // ===========================================================================
   // WebSocket Connection Handling
@@ -3245,7 +3513,7 @@ var ConversationRelay = class _ConversationRelay {
           }
           case "prompt":
             if (callSid) {
-              this.callbacks.onMessage?.(callSid, message.voicePrompt, message);
+              this.callbacks.onPrompt?.(callSid, message.voicePrompt, message);
             }
             break;
           case "interrupt":
@@ -3487,241 +3755,6 @@ var ConversationRelay = class _ConversationRelay {
     );
   }
 };
-z.object({
-  type: z.enum(["object", "string", "number", "boolean", "array"]),
-  properties: z.record(z.any()).optional(),
-  required: z.array(z.string()).optional(),
-  items: z.any().optional(),
-  enum: z.array(z.any()).optional(),
-  description: z.string().optional()
-});
-var CRTool = class {
-  constructor(name, description, parameters, implementation) {
-    this.name = name;
-    this.description = description;
-    this.parameters = parameters;
-    this.implementation = implementation;
-  }
-  toOpenAIFormat() {
-    return {
-      type: "function",
-      function: {
-        name: this.name,
-        description: this.description,
-        parameters: this.parameters
-      }
-    };
-  }
-  toAnthropicFormat() {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: this.parameters
-    };
-  }
-  toJSON() {
-    return JSON.stringify(this.toOpenAIFormat(), null, 2);
-  }
-};
-function defineTool(name, description, parameters, implementation) {
-  if (!name) {
-    throw new Error("Tool name is required");
-  }
-  if (!description) {
-    throw new Error("Tool description is required");
-  }
-  if (!parameters) {
-    throw new Error("Tool parameters schema is required");
-  }
-  if (!implementation) {
-    throw new Error("Tool implementation is required");
-  }
-  return new CRTool(name, description, parameters, implementation);
-}
-
-// packages/conversationrelay/src/tools/play-media.ts
-defineTool(
-  "play_media",
-  "Play audio file from URL to caller",
-  {
-    type: "object",
-    properties: {
-      source: {
-        type: "string",
-        format: "uri",
-        description: "URL of audio file to play (must be accessible to Twilio)"
-      },
-      loop: {
-        type: "number",
-        minimum: 0,
-        description: "Number of times to loop (0 = 1000 times max, default = 1)"
-      },
-      interruptible: {
-        type: "boolean",
-        description: "Allow user to interrupt playback with speech or DTMF"
-      },
-      preemptible: {
-        type: "boolean",
-        description: "Allow subsequent messages to preempt this playback"
-      }
-    },
-    required: ["source"]
-  },
-  (params) => {
-    return {
-      success: true,
-      message: `Playing media: ${params.source}`,
-      outgoingMessage: {
-        type: "play",
-        source: params.source,
-        loop: params.loop,
-        interruptible: params.interruptible,
-        preemptible: params.preemptible
-      }
-    };
-  }
-);
-
-// packages/conversationrelay/src/tools/send-digits.ts
-defineTool(
-  "send_dtmf",
-  "Send DTMF digits to caller",
-  {
-    type: "object",
-    properties: {
-      digits: {
-        type: "string",
-        pattern: "^[0-9w*#]+$",
-        description: "Digits to send (0-9, w=500ms pause, *, #)"
-      }
-    },
-    required: ["digits"]
-  },
-  (params) => {
-    return {
-      success: true,
-      message: `Sending DTMF: ${params.digits}`,
-      outgoingMessage: {
-        type: "sendDigits",
-        digits: params.digits
-      }
-    };
-  }
-);
-
-// packages/conversationrelay/src/tools/switch-language.ts
-defineTool(
-  "switch_language",
-  "Change TTS or transcription language during call",
-  {
-    type: "object",
-    properties: {
-      ttsLanguage: {
-        type: "string",
-        description: "Language code for text-to-speech (e.g., en-US, es-ES, fr-FR)"
-      },
-      transcriptionLanguage: {
-        type: "string",
-        description: "Language code for speech-to-text (e.g., en-US, es-ES, fr-FR)"
-      }
-    }
-  },
-  (params) => {
-    if (!params.ttsLanguage && !params.transcriptionLanguage) {
-      return {
-        success: false,
-        message: "At least one language must be specified"
-      };
-    }
-    return {
-      success: true,
-      message: `Switching language: TTS=${params.ttsLanguage || "unchanged"}, STT=${params.transcriptionLanguage || "unchanged"}`,
-      outgoingMessage: {
-        type: "language",
-        ttsLanguage: params.ttsLanguage,
-        transcriptionLanguage: params.transcriptionLanguage
-      }
-    };
-  }
-);
-
-// packages/conversationrelay/src/tools/end-call.ts
-defineTool(
-  "end_call",
-  "End the call with optional handoff data",
-  {
-    type: "object",
-    properties: {
-      reason: {
-        type: "string",
-        description: "Reason for ending the call"
-      },
-      handoffData: {
-        type: "object",
-        description: "Optional handoff metadata (JSON object sent to ConversationRelay callback webhook)"
-      }
-    },
-    required: ["reason"]
-  },
-  (params) => {
-    return {
-      success: true,
-      message: `Ending call: ${params.reason}`,
-      outgoingMessage: {
-        type: "end",
-        handoffData: params.handoffData ? JSON.stringify(params.handoffData) : void 0
-      }
-    };
-  }
-);
-
-// packages/conversationrelay/src/tools/set-silence-detection.ts
-defineTool(
-  "set_silence_detection",
-  "Enable or disable silence monitoring during the call",
-  {
-    type: "object",
-    properties: {
-      enabled: {
-        type: "boolean",
-        description: "Whether to enable (true) or disable (false) silence monitoring"
-      }
-    },
-    required: ["enabled"]
-  },
-  (params) => {
-    const modeDescription = params.enabled ? "enabled (will monitor for silence and send reminders)" : "disabled (no silence monitoring)";
-    return {
-      success: true,
-      message: `Silence detection ${modeDescription}`,
-      silenceDetectionEnabled: params.enabled
-    };
-  }
-);
-
-// packages/conversationrelay/src/tools/set-listen-mode.ts
-defineTool(
-  "set_listen_mode",
-  "Enable or disable text responses while keeping tool execution active",
-  {
-    type: "object",
-    properties: {
-      enabled: {
-        type: "boolean",
-        description: "Whether to enable (true) listen-only mode or disable (false) for normal responses"
-      }
-    },
-    required: ["enabled"]
-  },
-  (params) => {
-    const modeDescription = params.enabled ? "listen-only mode (text responses suppressed)" : "normal mode (text responses enabled)";
-    return {
-      success: true,
-      message: `Listen mode set to ${params.enabled ? "enabled" : "disabled"}. ${modeDescription}`,
-      listenMode: params.enabled
-    };
-  }
-);
 
 // packages/core/src/channels/voice.ts
 var VoiceChannel = class {
@@ -3745,7 +3778,7 @@ var VoiceChannel = class {
     this.conversationRelay.onSessionStarted((callSid, _session, data) => {
       this.handleSetupFromRelay(callSid, data);
     });
-    this.conversationRelay.onMessage((callSid, _message, data) => {
+    this.conversationRelay.onPrompt((callSid, _message, data) => {
       this.handlePromptFromRelay(callSid, data);
     });
     this.conversationRelay.onInterrupt((callSid, data) => {
@@ -3995,6 +4028,78 @@ var VoiceChannel = class {
   }
   handleWebSocketConnection(ws) {
     this.conversationRelay.handleConnection(ws);
+  }
+  // ===========================================================================
+  // Tool Registry (delegated to embedded ConversationRelay)
+  // ===========================================================================
+  /**
+   * List tools registered on this channel (for LLM discovery).
+   * Includes CR built-in protocol tools (playMedia, sendDigits, switchLanguage, endCall)
+   * plus any user-registered tools.
+   */
+  listTools() {
+    return this.conversationRelay.listTools();
+  }
+  /**
+   * Register a tool on this channel. Overwrites any tool with the same name.
+   */
+  registerTool(tool) {
+    this.conversationRelay.registerTool(tool);
+  }
+  /**
+   * Execute a registered tool by name.
+   *
+   * If the tool returns an `outgoingMessage` (CR protocol tool), it is validated
+   * and auto-shipped via the ConversationRelay WebSocket. The tool's result is
+   * returned unchanged for the caller to feed back to the LLM loop.
+   */
+  async executeTool(conversationId, name, args) {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    return this.conversationRelay.executeTool(callSid, name, args);
+  }
+  /**
+   * Send DTMF digits to the caller.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  sendDigits(conversationId, digits) {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.sendDigits(callSid, digits);
+  }
+  /**
+   * Play media from a URL to the caller.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  sendPlay(conversationId, source, options) {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.sendPlay(callSid, source, options);
+  }
+  /**
+   * End the call with optional handoff data.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  endCall(conversationId, handoffData) {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.endCall(callSid, handoffData);
+  }
+  findCallSid(conversationId) {
+    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
+      if (convId === conversationId) {
+        return callSid;
+      }
+    }
+    return void 0;
   }
   // ===========================================================================
   // Session Management
@@ -4875,13 +4980,13 @@ var TACServer = class {
     try {
       await this.fastify.register(formbody2);
       await this.fastify.register(websocket2);
-      await this.fastify.register(gracefulShutdown);
+      await this.fastify.register(gracefulShutdown2);
       this.registerWebhookValidation();
       await this.setupRoutes();
       this.fastify.gracefulShutdown(async (signal) => {
         this.fastify.log.info({ signal }, "Received shutdown signal");
-        await this.waitForWebSocketsToClose();
         this.tac.shutdown();
+        await this.waitForWebSocketsToClose();
       });
       const voiceConfig = VoiceServerConfigSchema.parse(this.config.voice);
       await this.fastify.listen({

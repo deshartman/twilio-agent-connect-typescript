@@ -8,7 +8,36 @@ Pure ConversationRelay protocol utility for voice-only Twilio applications. Can 
 - Session lifecycle management (per CallSid)
 - Event routing via callbacks
 - TwiML generation for `<ConversationRelay>` noun
+- Built-in protocol tool registry — LLM-discoverable, auto-ships outgoing messages
 - Standalone server option (no Maestro required)
+
+## Architecture
+
+```
+ +------------+         +-------------------------------------------------+
+ |  Twilio    |         |  ConversationRelay (this package)               |
+ | ConvRelay  |<---WS-->|                                                 |    +---------+
+ |  (voice)   |         |   +-------------------+   +-----------------+   |<-->|  User   |
+ +------------+         |   | tool registry     |   | callbacks       |   |    |  LLM    |
+                        |   |  playMedia        |   |  onPrompt       |   |    |  loop   |
+                        |   |  sendDigits       |   |  onDtmf         |   |    +---------+
+                        |   |  switchLanguage   |   |  onInterrupt    |   |         ^
+                        |   |  endCall          |   |  onSession*     |   |         |
+                        |   |  + user tools     |   |  onError/Info   |   |         |
+                        |   +-------------------+   +-----------------+   |         |
+                        |                                                 |         |
+                        |   public API:                                   |         |
+                        |     sendResponse(callSid, text)                 |         |
+                        |     listTools()                                 |         |
+                        |     executeTool(callSid, name, args)            |         |
+                        |       +-- auto-ships protocol outgoingMessage   |         |
+                        |          via Twilio WS                          |         |
+                        +-------------------------------------------------+         |
+                                                                                    |
+    LLM SDK (OpenAI, Anthropic, Google...) lives in USER code, never in CR. --------+
+    Tool format conversion via CRTool.toOpenAIFormat() / toAnthropicFormat()
+    at call site.
+```
 
 ## Installation
 
@@ -30,12 +59,12 @@ conversationRelay.onSessionStarted((callSid, session, data) => {
   console.log(`Call started: ${callSid}`);
 });
 
-conversationRelay.onMessage(async (callSid, message, data) => {
+conversationRelay.onPrompt(async (callSid, message, data) => {
   console.log(`User said: ${message}`);
-  
+
   // Generate your response (LLM, business logic, etc.)
   const response = await generateResponse(message);
-  
+
   // Send response back to caller
   conversationRelay.sendResponse(callSid, response);
 });
@@ -70,7 +99,7 @@ const fastify = Fastify();
 const conversationRelay = new ConversationRelay();
 
 // Register callbacks
-conversationRelay.onMessage((callSid, message) => {
+conversationRelay.onPrompt((callSid, message) => {
   const response = generateResponse(message);
   conversationRelay.sendResponse(callSid, response);
 });
@@ -100,18 +129,32 @@ await fastify.listen({ port: 3000 });
 
 Main class for ConversationRelay protocol handling.
 
-**Methods:**
-- `onSessionStarted(callback)` - Called when call connects
-- `onMessage(callback)` - Called when user speaks
-- `onInterrupt(callback)` - Called when user interrupts agent
-- `onDtmf(callback)` - Called on DTMF input
-- `onInfo(callback)` - Called for INFO messages (diagnostic/metadata)
-- `onSessionEnded(callback)` - Called when call ends
-- `onError(callback)` - Called on errors
-- `sendResponse(callSid, message, last?)` - Send text to be spoken
-- `generateTwiML(config, parameters, options)` - Generate TwiML
-- `handleConnection(ws)` - Accept WebSocket connection
-- `shutdown()` - Close all connections
+**Callbacks:**
+- `onSessionStarted(callback)` — call connects (setup message received)
+- `onPrompt(callback)` — user transcript arrived (CR `prompt` message)
+- `onInterrupt(callback)` — user interrupted agent speech
+- `onDtmf(callback)` — DTMF input
+- `onInfo(callback)` — INFO / diagnostic messages
+- `onSessionEnded(callback)` — call ended (WebSocket closed)
+- `onError(callback)` — error reported
+
+**Response / action methods:**
+- `sendResponse(callSid, message, last?)` — send text for TTS
+- `sendPlay(callSid, source, options?)` — play media
+- `sendDigits(callSid, digits)` — send DTMF
+- `switchLanguage(callSid, options)` — switch TTS/transcription language
+- `endCall(callSid, handoffData?)` — end the call
+
+**Tool registry:**
+- `listTools()` — all registered tools (built-ins + user-registered)
+- `registerTool(tool)` — register an additional `CRTool`
+- `unregisterTool(name)` — remove a tool
+- `executeTool(callSid, name, args)` — run a tool; auto-ships any protocol `outgoingMessage`
+
+**Server / lifecycle:**
+- `generateTwiML(config, parameters, options)` — generate `<ConversationRelay>` TwiML
+- `handleConnection(ws)` — accept a WebSocket connection
+- `shutdown()` — close all connections
 
 ### CRelayServer
 
@@ -133,9 +176,9 @@ new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConf
 
 ## Tools
 
-The package ships with six built-in CR tools plus a `defineTool()` factory for authoring your own. Tools are plain objects you can hand to an LLM — each exposes `name`, `description`, `parameters` (JSON schema), `implementation`, plus format helpers `toOpenAIFormat()`, `toAnthropicFormat()`, `toJSON()`.
+### Built-in protocol tools
 
-### Built-in tools
+Four CR protocol tools are auto-registered on every `ConversationRelay` instance:
 
 | Tool | Purpose |
 |------|---------|
@@ -143,18 +186,51 @@ The package ships with six built-in CR tools plus a `defineTool()` factory for a
 | `sendDigitsTool` | Send DTMF digits |
 | `switchLanguageTool` | Change TTS / transcription language mid-call |
 | `endCallTool` | Terminate the call, optional handoff data |
-| `setSilenceDetectionTool` | Returns a flag — wire to your silence monitor |
-| `setListenModeTool` | Returns a flag — suppress text responses |
 
-Protocol tools (first four) return `{ outgoingMessage }` — forward it to the CR socket. State tools return flags for your own control logic.
+Each tool is a `CRTool` exposing `name`, `description`, `parameters` (JSON schema), `implementation`, plus format helpers `toOpenAIFormat()`, `toAnthropicFormat()`, `toJSON()`.
+
+Remove any built-in you don't want discoverable:
 
 ```typescript
-import { playMediaTool, endCallTool } from '@twilio/tac-conversationrelay';
+conversationRelay.unregisterTool('end_call');
+```
 
-const result = playMediaTool.implementation({ source: 'https://example.com/hold.mp3' });
-if (result.outgoingMessage) {
-  // send via ConversationRelay.sendMessage(callSid, result.outgoingMessage)
-}
+### Tool flow (LLM dispatch)
+
+Hand the tool list to your LLM, then dispatch each tool call back through CR. For protocol tools, `executeTool` validates and auto-ships the `outgoingMessage` via the WebSocket — you never have to shuttle it yourself.
+
+```typescript
+import OpenAI from 'openai';
+
+const openai = new OpenAI();
+
+conversationRelay.onPrompt(async (callSid, message) => {
+  const tools = conversationRelay
+    .listTools()
+    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4',
+    messages: [/* system + history + user */],
+    tools,
+  });
+
+  const choice = completion.choices[0];
+
+  // Send spoken response
+  if (choice?.message?.content) {
+    conversationRelay.sendResponse(callSid, choice.message.content);
+  }
+
+  // Dispatch tool calls — CR ships protocol outgoingMessages automatically
+  for (const call of choice?.message?.tool_calls ?? []) {
+    await conversationRelay.executeTool(
+      callSid,
+      call.function.name,
+      JSON.parse(call.function.arguments)
+    );
+  }
+});
 ```
 
 ### Authoring custom tools
@@ -178,9 +254,82 @@ const lookupOrderTool = defineTool(
   }
 );
 
-// Feed to an LLM
-const openaiTools = [lookupOrderTool.toOpenAIFormat()];
+conversationRelay.registerTool(lookupOrderTool);
 ```
+
+User-authored tools without an `outgoingMessage` field simply return their result. `executeTool` hands that result back to you — feed it to the LLM loop.
+
+## Best-practice patterns
+
+Silence handling and listen-mode are **not** CR protocol operations, so they are not built-in tools. They're small patterns you wire in user code — both rely on primitives this package provides.
+
+### Silence detection
+
+Use the `SilenceDetector` helper to track gaps between prompts and take action (warn, end call, etc.) when the caller has been quiet for too long:
+
+```typescript
+import { ConversationRelay, SilenceDetector } from '@twilio/tac-conversationrelay';
+
+const conversationRelay = new ConversationRelay();
+const silenceDetectors = new Map<string, SilenceDetector>();
+
+conversationRelay.onSessionStarted((callSid) => {
+  const detector = new SilenceDetector({
+    thresholdMs: 15_000,
+    onSilence: () => {
+      conversationRelay.sendResponse(callSid, 'Are you still there?');
+    },
+  });
+  silenceDetectors.set(callSid, detector);
+});
+
+conversationRelay.onPrompt((callSid) => {
+  silenceDetectors.get(callSid)?.reset();
+});
+
+conversationRelay.onSessionEnded((callSid) => {
+  silenceDetectors.get(callSid)?.shutdown();
+  silenceDetectors.delete(callSid);
+});
+```
+
+### Listen-mode (response suppression)
+
+Sometimes you want the agent to listen but not speak — e.g., during a verification flow where the caller is reading a code aloud. Gate your `sendResponse` calls with a per-call flag:
+
+```typescript
+const listenMode = new Map<string, boolean>();
+
+conversationRelay.onPrompt(async (callSid, message) => {
+  // ... run your LLM loop, build `response` ...
+  if (!listenMode.get(callSid)) {
+    conversationRelay.sendResponse(callSid, response);
+  }
+});
+
+// Register a user tool the LLM can call to toggle listen-mode
+import { defineTool } from '@twilio/tac-conversationrelay';
+
+conversationRelay.registerTool(
+  defineTool(
+    'set_listen_mode',
+    'Toggle whether the agent speaks aloud. Use during sensitive input flows.',
+    {
+      type: 'object',
+      properties: { enabled: { type: 'boolean' } },
+      required: ['enabled'],
+    },
+    ({ enabled }: { enabled: boolean }) => {
+      // `executeTool` receives the callSid internally; capture it via closure
+      // in your session initializer, or key this tool per-call.
+      listenMode.set(currentCallSid, enabled);
+      return { success: true };
+    }
+  )
+);
+```
+
+Both patterns compose cleanly with the tool registry — register the gating tool once and the LLM can toggle behavior via function calls.
 
 ## License
 

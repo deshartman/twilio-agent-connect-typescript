@@ -96,6 +96,6 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 ## Next Steps
 
 - Customize the agent's behavior by modifying the message handler in `examples/conversation/src/index.ts`
-- Add tool calling to enable agent actions beyond text responses
+- Register your own tools with `channel.registerTool(defineTool(...))` — they show up in `channel.listTools()` alongside CR's built-in protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) and dispatch through the same `channel.executeTool(conversationId, name, args)` call
 - Explore the main [README](../README.md) for advanced features
 - Review [CLAUDE.md](../CLAUDE.md) for architecture and development guidelines

@@ -404,15 +404,13 @@ export class TACServer {
       // Set up routes (must be after plugin registration)
       await this.setupRoutes();
 
-      // Configure graceful shutdown to wait for WebSocket connections
+      // Configure graceful shutdown. Force-close channel WebSockets first so the
+      // wait loop below exits on its next tick instead of hanging up to 30s on
+      // long-lived Twilio CR connections.
       this.fastify.gracefulShutdown(async (signal: string) => {
         this.fastify.log.info({ signal }, 'Received shutdown signal');
-
-        // Wait for WebSocket connections to close naturally
-        await this.waitForWebSocketsToClose();
-
-        // Shutdown TAC (cleans up channel state)
         this.tac.shutdown();
+        await this.waitForWebSocketsToClose();
       });
 
       // Start Fastify server

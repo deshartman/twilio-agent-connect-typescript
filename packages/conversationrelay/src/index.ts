@@ -22,22 +22,12 @@ export type { Logger } from './lib/logger';
 export { SilenceDetector } from './lib/silence-detector';
 export type { SilenceDetectorConfig } from './lib/silence-detector';
 
-// ResponseService interface (optional LLM integration pattern)
-export type {
-  ResponseService,
-  ResponseHandler,
-  ContentResponse,
-  ToolResultEvent,
-} from './lib/response-service';
-
 // Built-in tools
 export {
   playMediaTool,
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
-  setSilenceDetectionTool,
-  setListenModeTool,
 } from './tools/index';
 
 // Tool definition helpers (for user-authored CR tools)

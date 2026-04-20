@@ -14,6 +14,7 @@ import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
+import type { CRTool } from '@twilio/tac-conversationrelay';
 
 /**
  * Messaging webhook event types from Twilio Conversations Service
@@ -88,6 +89,7 @@ export abstract class MessagingChannel implements Channel {
   private readonly memoryRetriever?: MemoryRetriever | undefined;
   private readonly processedTokens = new Set<string>();
   private readonly maxTrackedTokens: number;
+  private readonly tools: Map<string, CRTool> = new Map();
 
   constructor(
     deps: {
@@ -301,6 +303,41 @@ export abstract class MessagingChannel implements Channel {
         this.callbacks.onError = callback;
         break;
     }
+  }
+
+  /**
+   * List tools registered on this channel (for LLM discovery).
+   * MessagingChannel starts with an empty registry; future messaging tools
+   * (e.g., send_mms) can be added via `registerTool`.
+   */
+  public listTools(): CRTool[] {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * Register a tool on this channel. Overwrites any tool with the same name.
+   */
+  public registerTool(tool: CRTool): void {
+    this.tools.set(tool.name, tool);
+  }
+
+  /**
+   * Execute a registered tool by name.
+   *
+   * Messaging tools are plain side-effect functions — unlike VoiceChannel,
+   * there is no `outgoingMessage` auto-shipping. The tool's result is
+   * returned unchanged for the caller to feed back to the LLM loop.
+   */
+  public executeTool(
+    _conversationId: ConversationId,
+    name: string,
+    args: unknown
+  ): Promise<unknown> {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    return Promise.resolve(tool.implementation(args));
   }
 
   /**

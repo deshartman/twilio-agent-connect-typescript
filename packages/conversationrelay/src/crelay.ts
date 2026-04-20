@@ -32,15 +32,23 @@ import {
   type CustomParameters,
   ConversationRelayConfigSchema,
   CustomParametersSchema,
+  OutgoingMessageSchema,
   WebSocketMessageSchema,
 } from './types';
+import { CRTool } from './tools/define-tool';
+import {
+  playMediaTool,
+  sendDigitsTool,
+  switchLanguageTool,
+  endCallTool,
+} from './tools/index';
 
 // =============================================================================
 // Callback Types
 // =============================================================================
 
 type SessionStartedCallback = (callSid: CallSid, session: CRelaySession, data: SetupMessage) => void;
-type MessageCallback = (callSid: CallSid, message: string, data: PromptMessage) => void;
+type PromptCallback = (callSid: CallSid, message: string, data: PromptMessage) => void;
 type InterruptCallback = (callSid: CallSid, data: InterruptMessage) => void;
 type DtmfCallback = (callSid: CallSid, data: DtmfMessage) => void;
 type InfoCallback = (callSid: CallSid, data: InfoMessage) => void;
@@ -57,9 +65,10 @@ export class ConversationRelay {
   private readonly logger: Logger;
   private readonly connections: Map<CallSid, WebSocket>;
   private readonly sessions: Map<CallSid, CRelaySession>;
+  private readonly tools: Map<string, CRTool>;
   private readonly callbacks: {
     onSessionStarted?: SessionStartedCallback;
-    onMessage?: MessageCallback;
+    onPrompt?: PromptCallback;
     onInterrupt?: InterruptCallback;
     onDtmf?: DtmfCallback;
     onInfo?: InfoCallback;
@@ -72,6 +81,13 @@ export class ConversationRelay {
     this.connections = new Map();
     this.sessions = new Map();
     this.callbacks = {};
+
+    // Auto-register built-in CR protocol tools. Users can remove any via unregisterTool().
+    this.tools = new Map();
+    const builtIns = [playMediaTool, sendDigitsTool, switchLanguageTool, endCallTool];
+    for (const tool of builtIns) {
+      this.tools.set(tool.name, tool as unknown as CRTool);
+    }
   }
 
   // ===========================================================================
@@ -83,9 +99,9 @@ export class ConversationRelay {
     this.callbacks.onSessionStarted = callback;
   }
 
-  /** Register callback for user message (prompt transcription) */
-  public onMessage(callback: MessageCallback): void {
-    this.callbacks.onMessage = callback;
+  /** Register callback for user prompt (transcribed speech from the caller) */
+  public onPrompt(callback: PromptCallback): void {
+    this.callbacks.onPrompt = callback;
   }
 
   /** Register callback for user interrupt */
@@ -111,6 +127,65 @@ export class ConversationRelay {
   /** Register callback for errors */
   public onError(callback: ErrorCallback): void {
     this.callbacks.onError = callback;
+  }
+
+  // ===========================================================================
+  // Tool Registry
+  // ===========================================================================
+
+  /** Register an additional tool. Overwrites any tool with the same name. */
+  public registerTool(tool: CRTool): void {
+    this.tools.set(tool.name, tool);
+  }
+
+  /** Unregister a tool by name. */
+  public unregisterTool(name: string): void {
+    this.tools.delete(name);
+  }
+
+  /**
+   * List all registered tools (built-in protocol tools + user-registered).
+   * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+   */
+  public listTools(): CRTool[] {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * Execute a registered tool by name. If the tool returns an object with an
+   * `outgoingMessage` field (the built-in CR protocol tools), CR validates it
+   * against `OutgoingMessageSchema` and ships it via the WebSocket automatically.
+   * The tool result is returned so the caller can feed it back to the LLM loop.
+   *
+   * @throws if the tool is not registered or if an `outgoingMessage` fails schema validation.
+   */
+  public async executeTool(callSid: CallSid, name: string, args: unknown): Promise<unknown> {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+
+    const result = await tool.implementation(args);
+
+    if (
+      result !== null &&
+      typeof result === 'object' &&
+      'outgoingMessage' in result &&
+      (result as { outgoingMessage?: unknown }).outgoingMessage !== undefined
+    ) {
+      const candidate = (result as { outgoingMessage: unknown }).outgoingMessage;
+      const validated = OutgoingMessageSchema.safeParse(candidate);
+      if (!validated.success) {
+        this.logger.error(
+          { tool: name, errors: validated.error.errors, outgoingMessage: candidate },
+          'Tool produced invalid outgoingMessage — not shipping'
+        );
+        throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
+      }
+      this.sendRawMessage(callSid, validated.data);
+    }
+
+    return result;
   }
 
   // ===========================================================================
@@ -175,7 +250,7 @@ export class ConversationRelay {
               from: message.from,
               to: message.to,
               startedAt: new Date(),
-              customParameters: message.customParameters as Record<string, unknown> | undefined,
+              customParameters: message.customParameters,
             };
             this.sessions.set(callSid, session);
 
@@ -185,7 +260,7 @@ export class ConversationRelay {
 
           case 'prompt':
             if (callSid) {
-              this.callbacks.onMessage?.(callSid, message.voicePrompt, message);
+              this.callbacks.onPrompt?.(callSid, message.voicePrompt, message);
             }
             break;
 

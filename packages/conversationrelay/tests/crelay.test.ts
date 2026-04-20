@@ -197,7 +197,7 @@ describe('ConversationRelay', () => {
 
     it('should route prompt message to callback', () => {
       const messageCallback = vi.fn();
-      conversationRelay.onMessage(messageCallback);
+      conversationRelay.onPrompt(messageCallback);
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);

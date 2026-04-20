@@ -6,6 +6,7 @@ import Fastify, {
 } from 'fastify';
 import formbody from '@fastify/formbody';
 import websocket from '@fastify/websocket';
+import gracefulShutdown from 'fastify-graceful-shutdown';
 import type { WebSocket } from 'ws';
 import twilio from 'twilio';
 
@@ -101,6 +102,7 @@ export class CRelayServer {
       // Register plugins
       await this.fastify.register(formbody);
       await this.fastify.register(websocket);
+      await this.fastify.register(gracefulShutdown);
 
       // Register webhook validation if enabled
       if (this.config.validateWebhooks) {
@@ -109,6 +111,13 @@ export class CRelayServer {
 
       // Setup routes
       await this.setupRoutes();
+
+      // Force-close CR WebSockets on SIGINT/SIGTERM so the port releases immediately
+      // instead of Fastify waiting on long-lived Twilio CR connections.
+      this.fastify.gracefulShutdown((signal: string) => {
+        this.fastify.log.info({ signal }, 'Received shutdown signal');
+        this.conversationRelay.shutdown();
+      });
 
       // Start server
       await this.fastify.listen({

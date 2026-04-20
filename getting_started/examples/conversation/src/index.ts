@@ -12,6 +12,7 @@ import {
   TACConfig,
   VoiceChannel,
   SMSChannel,
+  type ConversationId,
   ConversationSession,
   TACMemoryResponse,
   TACServer,
@@ -35,6 +36,11 @@ tac.registerChannel(smsChannel);
 
 // Store conversation history per conversation
 const conversationMessages: Record<string, OpenAI.Chat.ChatCompletionMessageParam[]> = {};
+
+// Per-voice-conversation handle to the in-flight OpenAI stream. Used by the
+// interruption handler to cancel the LLM mid-turn when the caller speaks over
+// the agent's TTS — otherwise tokens keep streaming after they cut in.
+const voiceStreams = new Map<string, AbortController>();
 
 const SYSTEM_MESSAGE: OpenAI.Chat.ChatCompletionSystemMessageParam = {
   role: 'system',
@@ -135,6 +141,104 @@ function buildMemoryMessage(
   };
 }
 
+type ToolCallAccumulator = { id: string; name: string; argumentsJson: string };
+
+function accumulateToolCallFragments(
+  toolCalls: Map<number, ToolCallAccumulator>,
+  fragments: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall[]
+): void {
+  for (const tc of fragments) {
+    const existing = toolCalls.get(tc.index) ?? { id: '', name: '', argumentsJson: '' };
+    if (tc.id) existing.id = tc.id;
+    if (tc.function?.name) existing.name = tc.function.name;
+    if (tc.function?.arguments) existing.argumentsJson += tc.function.arguments;
+    toolCalls.set(tc.index, existing);
+  }
+}
+
+async function dispatchVoiceToolCalls(
+  convId: ConversationId,
+  toolCalls: Map<number, ToolCallAccumulator>
+): Promise<void> {
+  for (const call of toolCalls.values()) {
+    if (!call.name) continue;
+    try {
+      const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
+      await voiceChannel.executeTool(convId, call.name, args);
+    } catch (err) {
+      console.error(`Tool execution failed (${call.name}):`, err);
+    }
+  }
+}
+
+async function handleVoiceMessage(
+  convId: ConversationId,
+  convIdStr: string,
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  signal: AbortSignal
+): Promise<void> {
+  // Discover voice tools via the uniform Channel surface. Includes CR built-ins
+  // (playMedia, sendDigits, switchLanguage, endCall) plus any user-registered tools.
+  // toOpenAIFormat() returns Record<string, unknown>; cast for OpenAI's typed slot.
+  const tools = voiceChannel
+    .listTools()
+    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
+  const stream = await openai.chat.completions.create(
+    {
+      model: 'gpt-5.4-mini',
+      messages,
+      ...(tools.length > 0 && { tools }),
+      stream: true,
+    },
+    { signal }
+  );
+
+  let fullResponse = '';
+  const toolCalls = new Map<number, ToolCallAccumulator>();
+
+  try {
+    for await (const chunk of stream) {
+      // If the caller interrupted, stop pushing tokens to TTS immediately.
+      if (signal.aborted) break;
+      const delta = chunk.choices[0]?.delta;
+      const token = delta?.content || '';
+      if (token) {
+        fullResponse += token;
+        await voiceChannel.sendResponse(convId, token, { last: false });
+      }
+      accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
+    }
+    // Final empty token signals completion to TTS
+    await voiceChannel.sendResponse(convId, '', { last: true });
+  } catch (err) {
+    // OpenAI SDK throws AbortError when the signal fires — that's the
+    // interruption path and is a clean exit, not a failure.
+    if ((err as { name?: string })?.name === 'AbortError') return;
+    throw err;
+  }
+
+  conversationMessages[convIdStr]?.push({ role: 'assistant', content: fullResponse });
+
+  // CR protocol tools are auto-shipped via the WebSocket by executeTool.
+  await dispatchVoiceToolCalls(convId, toolCalls);
+}
+
+async function handleSmsMessage(
+  convId: ConversationId,
+  convIdStr: string,
+  messages: OpenAI.Chat.ChatCompletionMessageParam[]
+): Promise<void> {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-5.4-mini',
+    messages,
+  });
+
+  const llmResponse = response.choices[0]?.message?.content ?? '';
+  conversationMessages[convIdStr]?.push({ role: 'assistant', content: llmResponse });
+  await smsChannel.sendResponse(convId, llmResponse);
+}
+
 /**
  * Handle incoming messages from SMS or Voice channels.
  *
@@ -143,26 +247,43 @@ function buildMemoryMessage(
  * - messageType 'system': context only (setup, interrupt, dtmf — don't respond)
  */
 tac.onMessageReady(async msg => {
-  // Only generate responses for 'user' messages
+  const convIdStr = msg.conversationId as string;
+
+  // Interruption: the caller spoke over the agent's TTS. Cancel the in-flight
+  // LLM stream and rewrite the last assistant turn to what was actually heard.
+  // Without the rewrite, the next prompt carries text the caller never received
+  // and multi-turn accuracy degrades fast.
+  if (
+    msg.channel === 'voice' &&
+    msg.messageType === 'system' &&
+    (msg.metadata as { type?: string } | undefined)?.type === 'interrupt'
+  ) {
+    voiceStreams.get(convIdStr)?.abort();
+    voiceStreams.delete(convIdStr);
+
+    const heard = (msg.metadata as { utteranceUntilInterrupt?: string } | undefined)
+      ?.utteranceUntilInterrupt;
+    const history = conversationMessages[convIdStr];
+    const last = history?.at(-1);
+    if (heard && last?.role === 'assistant') {
+      last.content = heard;
+    } else if (!heard && last?.role === 'assistant') {
+      history?.pop();
+    }
+    return;
+  }
+
   if (msg.messageType !== 'user') return;
 
   const convId = msg.conversationId;
-  const convIdStr = convId as string;
   const memory = msg.conversation?.memory;
 
   try {
-    // Initialize conversation history if needed
     if (!conversationMessages[convIdStr]) {
       conversationMessages[convIdStr] = [];
     }
+    conversationMessages[convIdStr].push({ role: 'user', content: msg.message });
 
-    // Add user message to history
-    conversationMessages[convIdStr].push({
-      role: 'user',
-      content: msg.message,
-    });
-
-    // Build memory context message (uses conversation session data)
     const memorySession: ConversationSession = {
       conversationId: msg.conversationId,
       channel: msg.channel,
@@ -173,51 +294,24 @@ tac.onMessageReady(async msg => {
     };
     const memoryMessage = buildMemoryMessage(memory ?? null, memorySession);
 
-    // Combine system message, memory context, and conversation history
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       SYSTEM_MESSAGE,
       ...(memoryMessage ? [memoryMessage] : []),
       ...conversationMessages[convIdStr],
     ];
 
-    // Voice streams tokens for low latency; SMS uses blocking call (no streaming benefit).
     if (msg.channel === 'voice') {
-      const stream = await openai.chat.completions.create({
-        model: 'gpt-5.4-mini',
-        messages,
-        stream: true,
-      });
-
-      let fullResponse = '';
-      for await (const chunk of stream) {
-        const token = chunk.choices[0]?.delta?.content || '';
-        if (token) {
-          fullResponse += token;
-          await voiceChannel.sendResponse(convId, token, { last: false });
+      const controller = new AbortController();
+      voiceStreams.set(convIdStr, controller);
+      try {
+        await handleVoiceMessage(convId, convIdStr, messages, controller.signal);
+      } finally {
+        if (voiceStreams.get(convIdStr) === controller) {
+          voiceStreams.delete(convIdStr);
         }
       }
-
-      // Final empty token signals completion to TTS
-      await voiceChannel.sendResponse(convId, '', { last: true });
-
-      conversationMessages[convIdStr].push({
-        role: 'assistant',
-        content: fullResponse,
-      });
     } else if (msg.channel === 'sms') {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-5.4-mini',
-        messages,
-      });
-
-      const llmResponse = response.choices[0]?.message?.content ?? '';
-
-      conversationMessages[convIdStr].push({
-        role: 'assistant',
-        content: llmResponse,
-      });
-
-      await smsChannel.sendResponse(convId, llmResponse);
+      await handleSmsMessage(convId, convIdStr, messages);
     }
   } catch (error) {
     console.error(`Error processing message for conversation ${convId}:`, error);

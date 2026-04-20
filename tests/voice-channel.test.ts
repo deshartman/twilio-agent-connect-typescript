@@ -405,4 +405,121 @@ describe('VoiceChannel', () => {
       ).rejects.toThrow('No CallSid found for conversation');
     });
   });
+
+  describe('tool registry passthrough', () => {
+    it('listTools exposes CR built-in protocol tools', () => {
+      const { channel } = createVoiceChannel();
+      const names = channel.listTools().map(t => t.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['play_media', 'send_dtmf', 'switch_language', 'end_call'])
+      );
+    });
+
+    it('registerTool adds a user tool to the underlying CR instance', async () => {
+      const { channel } = createVoiceChannel();
+      const { defineTool } = await import('@twilio/tac-conversationrelay');
+      const userTool = defineTool(
+        'lookup_order',
+        'Fetch order status',
+        { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        async () => ({ status: 'ok' })
+      );
+      channel.registerTool(userTool);
+      expect(channel.listTools().map(t => t.name)).toContain('lookup_order');
+    });
+
+    it('executeTool throws when conversation has no associated CallSid', async () => {
+      const { channel } = createVoiceChannel();
+      await expect(
+        channel.executeTool(
+          'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId,
+          'send_dtmf',
+          { digits: '1' }
+        )
+      ).rejects.toThrow('No CallSid found for conversation');
+    });
+
+    it('sendDigits/sendPlay/endCall throw when conversation has no CallSid', () => {
+      const { channel } = createVoiceChannel();
+      const missing = 'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId;
+      expect(() => channel.sendDigits(missing, '1')).toThrow('No CallSid found for conversation');
+      expect(() => channel.sendPlay(missing, 'https://example.com/a.mp3')).toThrow(
+        'No CallSid found for conversation'
+      );
+      expect(() => channel.endCall(missing)).toThrow('No CallSid found for conversation');
+    });
+
+    describe('happy-path frame shipping', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const createMockWebSocket = (): any => {
+        const handlers: Record<string, ((...args: any[]) => void)[]> = {};
+        return {
+          on(event: string, handler: (...args: any[]) => void) {
+            if (!handlers[event]) handlers[event] = [];
+            handlers[event].push(handler);
+          },
+          send: vi.fn(),
+          close: vi.fn(),
+          readyState: 1,
+          _emit(event: string, ...args: any[]) {
+            for (const h of handlers[event] || []) h(...args);
+          },
+        };
+      };
+
+      const CONV_ID = 'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId;
+      const setupMessage = JSON.stringify({
+        type: 'setup',
+        sessionId: 'sess_happy',
+        callSid: 'CA_happy',
+        from: '+15551234567',
+        to: '+15559876543',
+        direction: 'inbound',
+        callType: 'PSTN',
+        callStatus: 'ringing',
+        accountSid: 'ACtest123',
+        customParameters: { conversation_id: CONV_ID },
+      });
+
+      const primeChannel = () => {
+        const { channel } = createVoiceChannel();
+        const ws = createMockWebSocket();
+        channel.handleWebSocketConnection(ws);
+        ws._emit('message', Buffer.from(setupMessage));
+        ws.send.mockClear();
+        return { channel, ws };
+      };
+
+      it('sendDigits ships a sendDigits frame for the mapped call', () => {
+        const { channel, ws } = primeChannel();
+        channel.sendDigits(CONV_ID, '1234');
+        expect(ws.send).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+          type: 'sendDigits',
+          digits: '1234',
+        });
+      });
+
+      it('sendPlay ships a play frame for the mapped call', () => {
+        const { channel, ws } = primeChannel();
+        channel.sendPlay(CONV_ID, 'https://example.com/a.mp3', { loop: 2 });
+        expect(ws.send).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+          type: 'play',
+          source: 'https://example.com/a.mp3',
+          loop: 2,
+        });
+      });
+
+      it('endCall ships an end frame for the mapped call', () => {
+        const { channel, ws } = primeChannel();
+        channel.endCall(CONV_ID, { reason: 'user_requested' });
+        expect(ws.send).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+          type: 'end',
+          handoffData: JSON.stringify({ reason: 'user_requested' }),
+        });
+      });
+    });
+  });
 });

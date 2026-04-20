@@ -37,63 +37,151 @@ This demo: You're running ON Conversation Relay right now - the user is experien
 // Initialize ConversationRelay voice handler (defaults its own logger when none is passed)
 const conversationRelay = new ConversationRelay();
 
-// Store conversation history per call
-const conversations = new Map<CallSid, Array<{ role: 'user' | 'assistant'; content: string }>>();
+// Per-call state: conversation history + handle to any in-flight OpenAI stream.
+// The AbortController is what lets us cancel the LLM mid-turn when the caller
+// interrupts — without it, tokens keep streaming into TTS after the user cuts in.
+type CallState = {
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  activeStream?: AbortController;
+};
+const calls = new Map<CallSid, CallState>();
 
 // Handle incoming voice messages
 conversationRelay.onSessionStarted(
   (callSid: CallSid, _session: CRelaySession, data: SetupMessage) => {
     logger.info({ callSid, from: data.from, to: data.to }, 'Call started');
-    conversations.set(callSid, []);
+    calls.set(callSid, { history: [] });
   }
 );
 
-conversationRelay.onMessage((callSid: CallSid, message: string, _data: PromptMessage) => {
+type ToolCallAccumulator = { id: string; name: string; argumentsJson: string };
+
+function accumulateToolCallFragments(
+  toolCalls: Map<number, ToolCallAccumulator>,
+  fragments: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall[]
+): void {
+  for (const tc of fragments) {
+    const existing = toolCalls.get(tc.index) ?? { id: '', name: '', argumentsJson: '' };
+    if (tc.id) existing.id = tc.id;
+    if (tc.function?.name) existing.name = tc.function.name;
+    if (tc.function?.arguments) existing.argumentsJson += tc.function.arguments;
+    toolCalls.set(tc.index, existing);
+  }
+}
+
+async function dispatchToolCalls(
+  callSid: CallSid,
+  toolCalls: Map<number, ToolCallAccumulator>
+): Promise<void> {
+  for (const call of toolCalls.values()) {
+    if (!call.name) continue;
+    try {
+      const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
+      await conversationRelay.executeTool(callSid, call.name, args);
+    } catch (error) {
+      logger.error({ err: error, callSid, tool: call.name }, 'Tool execution failed');
+    }
+  }
+}
+
+async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<void> {
+  // Cancel any previous in-flight stream for this call before starting a new one.
+  state.activeStream?.abort();
+  const controller = new AbortController();
+  state.activeStream = controller;
+
+  // Discover tools via the CR registry (built-in protocol tools + any user-registered tools).
+  // toOpenAIFormat() returns Record<string, unknown>; cast for OpenAI's typed slot.
+  const tools = conversationRelay
+    .listTools()
+    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
+  const stream = await openai.chat.completions.create(
+    {
+      model: 'gpt-4',
+      messages: [SYSTEM_MESSAGE, ...state.history],
+      ...(tools.length > 0 && { tools }),
+      stream: true,
+    },
+    { signal: controller.signal }
+  );
+
+  let fullResponse = '';
+  const toolCalls = new Map<number, ToolCallAccumulator>();
+
+  try {
+    for await (const chunk of stream) {
+      // If the caller interrupted, stop pushing tokens to TTS immediately.
+      if (controller.signal.aborted) break;
+      const delta = chunk.choices[0]?.delta;
+      const token = delta?.content || '';
+      if (token) {
+        fullResponse += token;
+        conversationRelay.sendResponse(callSid, token, false);
+      }
+      accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
+    }
+    // Signal completion so TTS can synthesize the final utterance
+    conversationRelay.sendResponse(callSid, '', true);
+  } catch (err) {
+    // OpenAI SDK throws AbortError when controller.abort() fires — that's the
+    // interruption path and is a clean exit, not a failure.
+    if ((err as { name?: string })?.name === 'AbortError') return;
+    throw err;
+  } finally {
+    if (state.activeStream === controller) state.activeStream = undefined;
+  }
+
+  if (fullResponse) {
+    state.history.push({ role: 'assistant', content: fullResponse });
+  }
+
+  // Protocol tools (playMedia/sendDigits/switchLanguage/endCall) are auto-shipped
+  // via the WebSocket by executeTool.
+  await dispatchToolCalls(callSid, toolCalls);
+
+  logger.info({ callSid, response: fullResponse }, 'Assistant responded');
+}
+
+conversationRelay.onPrompt((callSid: CallSid, message: string, _data: PromptMessage) => {
   logger.info({ callSid, message }, 'User spoke');
 
-  const history = conversations.get(callSid) || [];
-  history.push({ role: 'user', content: message });
+  const state = calls.get(callSid);
+  if (!state) return;
+  state.history.push({ role: 'user', content: message });
 
-  // Stream from OpenAI (fire-and-forget to satisfy void return type)
-  void (async () => {
-    try {
-      const stream = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [SYSTEM_MESSAGE, ...history],
-        stream: true,
-      });
+  void streamAssistantTurn(callSid, state).catch((error: unknown) => {
+    logger.error({ err: error, callSid }, 'OpenAI error');
+    conversationRelay.sendResponse(
+      callSid,
+      'Sorry, I encountered an error. Please try again.',
+      true
+    );
+  });
+});
 
-      let fullResponse = '';
-      for await (const chunk of stream) {
-        const token = chunk.choices[0]?.delta?.content || '';
-        if (token) {
-          fullResponse += token;
-          // Send token incrementally with last=false (more coming)
-          conversationRelay.sendResponse(callSid, token, false);
-        }
-      }
+// Interruption handling: the caller spoke over the agent's TTS. We must
+// (1) cancel the in-flight LLM stream, and (2) rewrite the last assistant
+// turn to what was actually heard — otherwise the next prompt will carry
+// text the caller never received, and multi-turn accuracy degrades fast.
+conversationRelay.onInterrupt((callSid, data) => {
+  const state = calls.get(callSid);
+  if (!state) return;
+  state.activeStream?.abort();
 
-      // Signal completion so TTS can synthesize the final utterance
-      conversationRelay.sendResponse(callSid, '', true);
-
-      if (fullResponse) {
-        history.push({ role: 'assistant', content: fullResponse });
-      }
-      logger.info({ callSid, response: fullResponse }, 'Assistant responded');
-    } catch (error) {
-      logger.error({ err: error, callSid }, 'OpenAI error');
-      conversationRelay.sendResponse(
-        callSid,
-        'Sorry, I encountered an error. Please try again.',
-        true
-      );
-    }
-  })();
+  const heard = data.utteranceUntilInterrupt;
+  const last = state.history.at(-1);
+  if (heard && last?.role === 'assistant') {
+    last.content = heard;
+  } else if (!heard && last?.role === 'assistant') {
+    state.history.pop();
+  }
+  logger.info({ callSid, heard, durationMs: data.durationUntilInterruptMs }, 'User interrupted');
 });
 
 conversationRelay.onSessionEnded((callSid: CallSid) => {
   logger.info({ callSid }, 'Call ended');
-  conversations.delete(callSid);
+  calls.delete(callSid);
 });
 
 conversationRelay.onError((callSid: CallSid, error: Error) => {

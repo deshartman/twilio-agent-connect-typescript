@@ -2594,109 +2594,6 @@ declare class TACMemoryResponse {
 }
 
 /**
- * Channel interface definitions
- *
- * Minimal contract that TAC requires from all channel implementations.
- * Channels use composition instead of inheritance.
- */
-
-/**
- * Unified message shape emitted by all channels via the 'message' event.
- *
- * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
- * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
- * - metadata.type identifies the source message type for programmatic handling
- * - conversation bundle is only present in Conversation/Passive modes (Maestro)
- */
-interface ChannelMessage {
-    conversationId: ConversationId;
-    messageType: 'user' | 'system';
-    message: string;
-    channel: ChannelType;
-    metadata?: Record<string, unknown> | undefined;
-    conversation?: {
-        profileId?: ProfileId | undefined;
-        memory?: TACMemoryResponse | undefined;
-        author: string;
-        serviceId?: string | undefined;
-        authorInfo?: {
-            address: string;
-        } | undefined;
-        startedAt: Date;
-    } | undefined;
-}
-/**
- * Function that retrieves memory for a conversation session.
- * Injected into Maestro channels (VoiceChannel, MessagingChannel subclasses)
- * to decouple them from the TAC instance.
- */
-type MemoryRetriever = (session: ConversationSession, query?: string) => Promise<TACMemoryResponse | undefined>;
-/**
- * Base channel event callbacks
- */
-interface ChannelEvents {
-    onMessage?: (message: ChannelMessage) => Promise<void> | void;
-    onConversationStarted?: (data: {
-        session: ConversationSession;
-    }) => void;
-    onConversationEnded?: (data: {
-        session: ConversationSession;
-    }) => Promise<void> | void;
-    onError?: (data: {
-        error: Error;
-        context?: Record<string, unknown>;
-    }) => void;
-}
-/**
- * Base interface for all channel implementations
- *
- * Defines the minimal contract that TAC requires:
- * - Send responses to users
- * - Register event callbacks
- * - Provide session lookup
- * - Lifecycle management
- */
-interface Channel {
-    /**
-     * Channel type identifier
-     */
-    readonly channelType: ChannelType;
-    /**
-     * Send a response message to the user
-     *
-     * @param conversationId - Conversation identifier
-     * @param message - The message text to send
-     * @param metadata - Optional metadata to include
-     */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Register event callback for TAC integration
-     *
-     * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
-     * @param callback - Event handler function
-     */
-    on(event: string, callback: (...args: any[]) => void): void;
-    /**
-     * Get conversation session by identifier
-     *
-     * @param conversationId - Conversation identifier
-     * @returns Session if active, undefined otherwise
-     */
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    /**
-     * Check if conversation is active
-     *
-     * @param conversationId - Conversation identifier
-     * @returns True if conversation is active
-     */
-    isConversationActive(conversationId: ConversationId): boolean;
-    /**
-     * Shutdown channel and cleanup resources
-     */
-    shutdown(): void;
-}
-
-/**
  * ConversationRelay Type Definitions
  *
  * Single source of truth for all ConversationRelay types and Zod schemas.
@@ -2916,6 +2813,175 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
     HandoffData?: string | undefined;
 }>;
 type ConversationRelayCallbackPayload = z.infer<typeof ConversationRelayCallbackPayloadSchema>;
+
+/**
+ * CR Tool definition helpers.
+ *
+ * Vendored locally so the ConversationRelay package stays free of any
+ * dependency on @twilio/tac-tools. CR tools are only invoked by CR itself.
+ */
+
+declare const JSONSchemaSchema$1: z.ZodObject<{
+    type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
+    properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+    required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    items: z.ZodOptional<z.ZodAny>;
+    enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
+    description: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}>;
+type JSONSchema$1 = z.infer<typeof JSONSchemaSchema$1>;
+type ToolFunction$1<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
+/**
+ * ConversationRelay tool with LLM-format conversion helpers.
+ */
+declare class CRTool<TParams = unknown, TResult = unknown> {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: JSONSchema$1;
+    readonly implementation: ToolFunction$1<TParams, TResult>;
+    constructor(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>);
+    toOpenAIFormat(): Record<string, unknown>;
+    toAnthropicFormat(): Record<string, unknown>;
+    toJSON(): string;
+}
+
+/**
+ * Channel interface definitions
+ *
+ * Minimal contract that TAC requires from all channel implementations.
+ * Channels use composition instead of inheritance.
+ */
+
+/**
+ * Unified message shape emitted by all channels via the 'message' event.
+ *
+ * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
+ * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
+ * - metadata.type identifies the source message type for programmatic handling
+ * - conversation bundle is only present in Conversation/Passive modes (Maestro)
+ */
+interface ChannelMessage {
+    conversationId: ConversationId;
+    messageType: 'user' | 'system';
+    message: string;
+    channel: ChannelType;
+    metadata?: Record<string, unknown> | undefined;
+    conversation?: {
+        profileId?: ProfileId | undefined;
+        memory?: TACMemoryResponse | undefined;
+        author: string;
+        serviceId?: string | undefined;
+        authorInfo?: {
+            address: string;
+        } | undefined;
+        startedAt: Date;
+    } | undefined;
+}
+/**
+ * Function that retrieves memory for a conversation session.
+ * Injected into Maestro channels (VoiceChannel, MessagingChannel subclasses)
+ * to decouple them from the TAC instance.
+ */
+type MemoryRetriever = (session: ConversationSession, query?: string) => Promise<TACMemoryResponse | undefined>;
+/**
+ * Base channel event callbacks
+ */
+interface ChannelEvents {
+    onMessage?: (message: ChannelMessage) => Promise<void> | void;
+    onConversationStarted?: (data: {
+        session: ConversationSession;
+    }) => void;
+    onConversationEnded?: (data: {
+        session: ConversationSession;
+    }) => Promise<void> | void;
+    onError?: (data: {
+        error: Error;
+        context?: Record<string, unknown>;
+    }) => void;
+}
+/**
+ * Base interface for all channel implementations
+ *
+ * Defines the minimal contract that TAC requires:
+ * - Send responses to users
+ * - Register event callbacks
+ * - Provide session lookup
+ * - Lifecycle management
+ */
+interface Channel {
+    /**
+     * Channel type identifier
+     */
+    readonly channelType: ChannelType;
+    /**
+     * Send a response message to the user
+     *
+     * @param conversationId - Conversation identifier
+     * @param message - The message text to send
+     * @param metadata - Optional metadata to include
+     */
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Register event callback for TAC integration
+     *
+     * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
+     * @param callback - Event handler function
+     */
+    on(event: string, callback: (...args: any[]) => void): void;
+    /**
+     * Get conversation session by identifier
+     *
+     * @param conversationId - Conversation identifier
+     * @returns Session if active, undefined otherwise
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if conversation is active
+     *
+     * @param conversationId - Conversation identifier
+     * @returns True if conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Shutdown channel and cleanup resources
+     */
+    shutdown(): void;
+    /**
+     * List all tools registered on this channel (for LLM discovery).
+     * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+     */
+    listTools(): CRTool[];
+    /**
+     * Register an additional tool on this channel. Overwrites any tool with the same name.
+     */
+    registerTool(tool: CRTool): void;
+    /**
+     * Execute a registered tool by name.
+     *
+     * VoiceChannel auto-ships any `outgoingMessage` the tool produces via the CR
+     * WebSocket. MessagingChannel subclasses simply invoke the tool's implementation.
+     *
+     * @param conversationId - Conversation identifier to scope the execution
+     * @param name - Registered tool name
+     * @param args - Arguments forwarded to the tool's implementation
+     * @returns The tool's result (to feed back to the LLM loop)
+     */
+    executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+}
 
 /**
  * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
@@ -4121,6 +4187,7 @@ declare abstract class MessagingChannel implements Channel {
     private readonly memoryRetriever?;
     private readonly processedTokens;
     private readonly maxTrackedTokens;
+    private readonly tools;
     constructor(deps: {
         config: TACConfig;
         logger: Logger;
@@ -4179,6 +4246,24 @@ declare abstract class MessagingChannel implements Channel {
      * Register event callbacks (override for messaging-specific events)
      */
     on(event: string, callback: (...args: any[]) => void): void;
+    /**
+     * List tools registered on this channel (for LLM discovery).
+     * MessagingChannel starts with an empty registry; future messaging tools
+     * (e.g., send_mms) can be added via `registerTool`.
+     */
+    listTools(): CRTool[];
+    /**
+     * Register a tool on this channel. Overwrites any tool with the same name.
+     */
+    registerTool(tool: CRTool): void;
+    /**
+     * Execute a registered tool by name.
+     *
+     * Messaging tools are plain side-effect functions — unlike VoiceChannel,
+     * there is no `outgoingMessage` auto-shipping. The tool's result is
+     * returned unchanged for the caller to feed back to the LLM loop.
+     */
+    executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Check if this webhook event belongs to this channel.
      * Returns false if the event is clearly for a different channel type.
@@ -4319,6 +4404,44 @@ declare class VoiceChannel implements Channel {
     isConversationActive(conversationId: ConversationId): boolean;
     shutdown(): void;
     handleWebSocketConnection(ws: WebSocket): void;
+    /**
+     * List tools registered on this channel (for LLM discovery).
+     * Includes CR built-in protocol tools (playMedia, sendDigits, switchLanguage, endCall)
+     * plus any user-registered tools.
+     */
+    listTools(): CRTool[];
+    /**
+     * Register a tool on this channel. Overwrites any tool with the same name.
+     */
+    registerTool(tool: CRTool): void;
+    /**
+     * Execute a registered tool by name.
+     *
+     * If the tool returns an `outgoingMessage` (CR protocol tool), it is validated
+     * and auto-shipped via the ConversationRelay WebSocket. The tool's result is
+     * returned unchanged for the caller to feed back to the LLM loop.
+     */
+    executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    /**
+     * Send DTMF digits to the caller.
+     * @throws if no active CallSid is mapped to the conversationId
+     */
+    sendDigits(conversationId: ConversationId, digits: string): void;
+    /**
+     * Play media from a URL to the caller.
+     * @throws if no active CallSid is mapped to the conversationId
+     */
+    sendPlay(conversationId: ConversationId, source: string, options?: {
+        loop?: number;
+        interruptible?: boolean;
+        preemptible?: boolean;
+    }): void;
+    /**
+     * End the call with optional handoff data.
+     * @throws if no active CallSid is mapped to the conversationId
+     */
+    endCall(conversationId: ConversationId, handoffData?: Record<string, unknown>): void;
+    private findCallSid;
     protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
     protected endConversation(conversationId: ConversationId): Promise<void>;
     protected handleError(error: Error, context?: Record<string, unknown>): void;

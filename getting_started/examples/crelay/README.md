@@ -9,7 +9,8 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 - ✅ Voice-only (no SMS, no Chat)
 - ✅ Uses standalone `CRelayServer` from conversationrelay package
 - ✅ No dependency on TAC framework
-- ✅ OpenAI GPT-4 integration
+- ✅ OpenAI GPT-4 integration with streaming
+- ✅ Built-in CR protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) auto-registered and LLM-dispatchable
 - ✅ Session-based conversation history
 - ✅ Webhook validation enabled
 
@@ -67,16 +68,80 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 
 1. Twilio calls `POST /twiml` when a call arrives
 2. Server responds with TwiML connecting to WebSocket at `/ws`
-3. Voice audio transcribed and sent via WebSocket
-4. OpenAI GPT-4 generates response
-5. Response sent back and spoken to caller
+3. Voice audio transcribed and delivered to `conversationRelay.onPrompt(...)`
+4. OpenAI GPT-4 generates a streamed response, optionally emitting `tool_calls`
+5. For each tool call, `conversationRelay.executeTool(callSid, name, args)` runs the tool and, if it's a CR protocol tool, auto-ships the resulting `outgoingMessage` (play/sendDigits/language/end) over the WebSocket
+6. Text tokens are streamed back via `sendResponse(...)` and spoken to the caller
 
 ## Architecture
 
 ```
 Phone Call → Twilio → POST /twiml → TwiML (connect to WS)
-                   → WS /ws → ConversationRelay → OpenAI GPT-4 → TTS
+                   → WS /ws → ConversationRelay ↔ OpenAI GPT-4
+                                  │
+                                  ├─ listTools()        → pass CR built-ins to OpenAI
+                                  └─ executeTool(...)   → run tool + auto-ship protocol message
 ```
+
+## Tool Flow
+
+The example uses CR's uniform tool surface:
+
+```typescript
+// 1. Discover available tools (built-ins + anything you register)
+const tools = conversationRelay
+  .listTools()
+  .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+
+// 2. Hand them to OpenAI
+const stream = await openai.chat.completions.create({ model, messages, tools, stream: true });
+
+// 3. Dispatch tool calls — protocol tools auto-ship their outgoingMessage
+for (const call of toolCalls.values()) {
+  await conversationRelay.executeTool(callSid, call.name, JSON.parse(call.argumentsJson));
+}
+```
+
+No manual `Map<string, CRTool>` dispatcher, no hand-rolled `ws.send({ type: 'sendDigits', ... })`. Ask the agent "send digits 1234" or "say goodbye and hang up" and the corresponding protocol frame is shipped automatically.
+
+### Registering your own tools
+
+```typescript
+import { defineTool } from '@twilio/tac-conversationrelay';
+
+const lookupOrder = defineTool(
+  'lookup_order',
+  'Look up an order by id',
+  { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  async ({ id }) => ({ id, status: 'shipped' })
+);
+conversationRelay.registerTool(lookupOrder);
+```
+
+User tools participate in the same `listTools()` / `executeTool()` flow. Non-protocol tools (no `outgoingMessage` in the result) return their payload unchanged for the LLM loop to consume on the next turn.
+
+## Handling interruptions
+
+When the caller speaks over the agent's TTS, ConversationRelay sends an `interrupt` frame with two fields that drive correct recovery:
+
+- `utteranceUntilInterrupt` — what the caller actually *heard* before cutting in.
+- `durationUntilInterruptMs` — ms into the TTS turn when the cut-in happened.
+
+This example holds per-call state with an `AbortController`:
+
+```typescript
+type CallState = {
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  activeStream?: AbortController;
+};
+```
+
+The `onInterrupt` handler does two things the framework cannot do for you:
+
+1. **Abort the in-flight OpenAI stream** via `state.activeStream?.abort()`. Without this, tokens keep streaming into TTS after the caller has already moved on.
+2. **Rewrite the last assistant turn** in `state.history` to `utteranceUntilInterrupt`. This is the critical step — if you skip it, the next LLM call will believe the assistant said text the caller never heard, and multi-turn accuracy drops quickly.
+
+See `src/index.ts` for the complete pattern.
 
 ## Key Differences from Full TAC
 

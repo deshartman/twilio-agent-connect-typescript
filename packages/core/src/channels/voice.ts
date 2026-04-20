@@ -17,6 +17,7 @@ import {
   type InterruptMessage,
   type ConversationRelayConfig,
   type ConversationRelayCallbackPayload,
+  type CRTool,
 } from '@twilio/tac-conversationrelay';
 import {
   type ChannelType,
@@ -74,7 +75,7 @@ export class VoiceChannel implements Channel {
       this.handleSetupFromRelay(callSid, data);
     });
 
-    this.conversationRelay.onMessage((callSid, _message, data) => {
+    this.conversationRelay.onPrompt((callSid, _message, data) => {
       this.handlePromptFromRelay(callSid, data);
     });
 
@@ -394,6 +395,94 @@ export class VoiceChannel implements Channel {
 
   public handleWebSocketConnection(ws: WebSocket): void {
     this.conversationRelay.handleConnection(ws);
+  }
+
+  // ===========================================================================
+  // Tool Registry (delegated to embedded ConversationRelay)
+  // ===========================================================================
+
+  /**
+   * List tools registered on this channel (for LLM discovery).
+   * Includes CR built-in protocol tools (playMedia, sendDigits, switchLanguage, endCall)
+   * plus any user-registered tools.
+   */
+  public listTools(): CRTool[] {
+    return this.conversationRelay.listTools();
+  }
+
+  /**
+   * Register a tool on this channel. Overwrites any tool with the same name.
+   */
+  public registerTool(tool: CRTool): void {
+    this.conversationRelay.registerTool(tool);
+  }
+
+  /**
+   * Execute a registered tool by name.
+   *
+   * If the tool returns an `outgoingMessage` (CR protocol tool), it is validated
+   * and auto-shipped via the ConversationRelay WebSocket. The tool's result is
+   * returned unchanged for the caller to feed back to the LLM loop.
+   */
+  public async executeTool(
+    conversationId: ConversationId,
+    name: string,
+    args: unknown
+  ): Promise<unknown> {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    return this.conversationRelay.executeTool(callSid, name, args);
+  }
+
+  /**
+   * Send DTMF digits to the caller.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  public sendDigits(conversationId: ConversationId, digits: string): void {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.sendDigits(callSid, digits);
+  }
+
+  /**
+   * Play media from a URL to the caller.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  public sendPlay(
+    conversationId: ConversationId,
+    source: string,
+    options?: { loop?: number; interruptible?: boolean; preemptible?: boolean }
+  ): void {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.sendPlay(callSid, source, options);
+  }
+
+  /**
+   * End the call with optional handoff data.
+   * @throws if no active CallSid is mapped to the conversationId
+   */
+  public endCall(conversationId: ConversationId, handoffData?: Record<string, unknown>): void {
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    this.conversationRelay.endCall(callSid, handoffData);
+  }
+
+  private findCallSid(conversationId: ConversationId): CallSid | undefined {
+    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
+      if (convId === conversationId) {
+        return callSid;
+      }
+    }
+    return undefined;
   }
 
   // ===========================================================================
