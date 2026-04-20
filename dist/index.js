@@ -2992,7 +2992,7 @@ var SetupMessageSchema = z.object({
   callType: z.string(),
   callStatus: z.string(),
   accountSid: z.string(),
-  customParameters: z.record(z.unknown()).optional()
+  customParameters: z.record(z.string(), z.string()).optional()
 });
 var PromptMessageSchema = z.object({
   type: z.literal("prompt"),
@@ -3135,7 +3135,7 @@ var ConversationRelayConfigSchema = ConversationRelayAttributesSchema2.extend({
   /** Optional language configurations as child <Language> elements */
   languages: z.array(LanguageAttributesSchema2).optional()
 });
-var CustomParametersSchema2 = z.record(z.string(), z.unknown()).refine(
+var CustomParametersSchema2 = z.record(z.string(), z.string()).refine(
   (params) => {
     return Object.keys(params).every((key) => key.trim().length > 0);
   },
@@ -3710,9 +3710,7 @@ var ConversationRelay = class _ConversationRelay {
     }
     if (parameters) {
       for (const [name, value] of Object.entries(parameters)) {
-        if (value !== void 0) {
-          relay.parameter({ name, value: String(value) });
-        }
+        relay.parameter({ name, value });
       }
     }
     return response.toString();
