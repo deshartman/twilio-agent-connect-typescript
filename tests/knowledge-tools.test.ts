@@ -15,7 +15,7 @@ describe('Knowledge Tools', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01testmemorystore000000000',
     conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 

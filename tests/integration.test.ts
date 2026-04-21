@@ -91,7 +91,7 @@ describe('Integration Tests', () => {
         eventType: 'CONVERSATION_CREATED',
         data: {
           conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          profileId: 'profile_123',
+          profileId: 'mem_profile_01testprofile0000000000001',
         },
       });
 

@@ -12,8 +12,8 @@ describe('MemoryClient', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-    conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+    memoryStoreId: 'mem_store_01testmemorystore000000000',
+    conversationServiceId: 'conv_configuration_01testconvservice000000000',
   });
 
   let memoryClient: MemoryClient;
@@ -37,11 +37,11 @@ describe('MemoryClient', () => {
       };
 
       mockAdapter
-        .onPost('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/Lookup')
+        .onPost('/v1/Stores/mem_store_01testmemorystore000000000/Profiles/Lookup')
         .reply(200, mockResponse);
 
       const result = await memoryClient.lookupProfile(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'phone',
         '+1 (317) 555-6789'
       );
@@ -51,11 +51,11 @@ describe('MemoryClient', () => {
 
     it('should handle API errors', async () => {
       mockAdapter
-        .onPost('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/Lookup')
+        .onPost('/v1/Stores/mem_store_01testmemorystore000000000/Profiles/Lookup')
         .reply(500);
 
       await expect(
-        memoryClient.lookupProfile('mem_store_01kbjqhhdpft0tbp21jt4ktbxg', 'phone', '+1234567890')
+        memoryClient.lookupProfile('mem_store_01testmemorystore000000000', 'phone', '+1234567890')
       ).rejects.toThrow(/Failed to lookup profile/);
     });
   });
@@ -69,11 +69,11 @@ describe('MemoryClient', () => {
       };
 
       mockAdapter
-        .onGet('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/mem_profile_00000000000000000000000001')
+        .onGet('/v1/Stores/mem_store_01testmemorystore000000000/Profiles/mem_profile_00000000000000000000000001')
         .reply(200, mockResponse);
 
       const result = await memoryClient.getProfile(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'mem_profile_00000000000000000000000001'
       );
 
@@ -89,13 +89,13 @@ describe('MemoryClient', () => {
 
       mockAdapter
         .onGet(
-          '/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/mem_profile_00000000000000000000000001',
+          '/v1/Stores/mem_store_01testmemorystore000000000/Profiles/mem_profile_00000000000000000000000001',
           { params: { traitGroups: 'group1' } }
         )
         .reply(200, mockResponse);
 
       const result = await memoryClient.getProfile(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'mem_profile_00000000000000000000000001',
         ['group1']
       );
@@ -105,11 +105,11 @@ describe('MemoryClient', () => {
 
     it('should handle API errors', async () => {
       mockAdapter
-        .onGet('/v1/Stores/mem_store_01kbjqhhdpft0tbp21jt4ktbxg/Profiles/mem_profile_00000000000000000000000001')
+        .onGet('/v1/Stores/mem_store_01testmemorystore000000000/Profiles/mem_profile_00000000000000000000000001')
         .reply(404);
 
       await expect(
-        memoryClient.getProfile('mem_store_01kbjqhhdpft0tbp21jt4ktbxg', 'mem_profile_00000000000000000000000001')
+        memoryClient.getProfile('mem_store_01testmemorystore000000000', 'mem_profile_00000000000000000000000001')
       ).rejects.toThrow(/Failed to get profile/);
     });
   });

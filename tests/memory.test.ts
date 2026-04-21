@@ -23,7 +23,7 @@ describe('Memory Functionality', () => {
 
   const getTestConfigWithMemory = () => ({
     ...getTestConfigWithoutMemory(),
-    memoryStoreId: 'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+    memoryStoreId: 'mem_store_01testmemorystore000000000',
   });
 
   describe('isMemoryEnabled()', () => {
@@ -75,7 +75,7 @@ describe('Memory Functionality', () => {
       expect(result.hasMemoryFeatures).toBe(true);
       expect(result.rawData).toEqual(mockMemoryResponse);
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'mem_profile_01ktestghijklmnopqrstuvwxy',
         { query: 'test query' }
       );
@@ -119,7 +119,7 @@ describe('Memory Functionality', () => {
 
       // Verify profile was looked up
       expect(memoryClient!.lookupProfile).toHaveBeenCalledWith(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'phone',
         '+1 (317) 555-6789'
       );
@@ -129,7 +129,7 @@ describe('Memory Functionality', () => {
 
       // Verify memory was retrieved with the looked up profile_id
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'mem_profile_01ktestghijklmnopqrstuvwxy',
         { query: 'test query' }
       );
@@ -178,7 +178,7 @@ describe('Memory Functionality', () => {
       // Verify first profile was used
       expect(session.profileId).toBe('mem_profile_01ktest01ijklmnopqrstuvwxy');
       expect(memoryClient!.retrieveMemories).toHaveBeenCalledWith(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
+        'mem_store_01testmemorystore000000000',
         'mem_profile_01ktest01ijklmnopqrstuvwxy',
         { query: undefined }
       );
@@ -427,7 +427,7 @@ describe('Memory Functionality', () => {
       const tac = new TAC({ config });
 
       const mockProfileResponse: ProfileResponse = {
-        id: 'profile_123',
+        id: 'mem_profile_01testprofile0000000000001',
         createdAt: '2024-01-01T00:00:00Z',
         traits: {
           name: 'John Doe',
@@ -438,12 +438,12 @@ describe('Memory Functionality', () => {
       const memoryClient = tac.getMemoryClient();
       vi.spyOn(memoryClient!, 'getProfile').mockResolvedValue(mockProfileResponse);
 
-      const result = await tac.fetchProfile('profile_123');
+      const result = await tac.fetchProfile('mem_profile_01testprofile0000000000001');
 
       expect(result).toEqual(mockProfileResponse);
       expect(memoryClient!.getProfile).toHaveBeenCalledWith(
-        'mem_store_01kbjqhhdpft0tbp21jt4ktbxg',
-        'profile_123',
+        'mem_store_01testmemorystore000000000',
+        'mem_profile_01testprofile0000000000001',
         undefined
       );
     });
@@ -452,7 +452,7 @@ describe('Memory Functionality', () => {
       const config = new TACConfig(getTestConfigWithoutMemory());
       const tac = new TAC({ config });
 
-      const result = await tac.fetchProfile('profile_123');
+      const result = await tac.fetchProfile('mem_profile_01testprofile0000000000001');
 
       expect(result).toBeUndefined();
     });
@@ -473,7 +473,7 @@ describe('Memory Functionality', () => {
       const memoryClient = tac.getMemoryClient();
       vi.spyOn(memoryClient!, 'getProfile').mockRejectedValue(new Error('API error'));
 
-      const result = await tac.fetchProfile('profile_123');
+      const result = await tac.fetchProfile('mem_profile_01testprofile0000000000001');
 
       expect(result).toBeUndefined();
     });

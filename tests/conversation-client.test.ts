@@ -11,7 +11,7 @@ describe('ConversationClient', () => {
     twilioApiKey: 'test_api_key',
     twilioApiToken: 'test_api_token',
     twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+    conversationServiceId: 'conv_configuration_01testconvservice000000000',
   });
 
   let conversationClient: ConversationClient;
@@ -82,7 +82,7 @@ describe('ConversationClient', () => {
       const mockResponse = {
         id: 'CH123',
         accountId: 'AC123456',
-        configurationId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+        configurationId: 'conv_configuration_01testconvservice000000000',
         name: 'Test Conversation',
         status: 'ACTIVE',
         createdAt: '2019-08-24T14:15:22Z',
@@ -101,7 +101,7 @@ describe('ConversationClient', () => {
       const mockResponse = {
         id: 'CH124',
         accountId: 'AC123456',
-        configurationId: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+        configurationId: 'conv_configuration_01testconvservice000000000',
         status: 'ACTIVE',
         createdAt: '2019-08-24T14:15:22Z',
         updatedAt: '2019-08-24T14:15:22Z',
@@ -166,7 +166,7 @@ describe('ConversationClient', () => {
         accountId: 'ACtest123',
         type: 'CUSTOMER',
         addresses: [{ channel: 'VOICE', address: '+15551234567' }],
-        profileId: 'profile_123',
+        profileId: 'mem_profile_01testprofile0000000000001',
       };
 
       // Mock listParticipants to return existing participant
@@ -291,7 +291,7 @@ describe('ConversationClient', () => {
     });
 
     it('should handle multiple CUSTOMER participants with different addresses', async () => {
-      const conversationId = 'conv_conversation_01kbjqhn79f0fvwfsxqzd5nqhd';
+      const conversationId = 'conv_conversation_01testconversation00000003';
 
       // Mock listParticipants returning SMS CUSTOMER + VOICE CUSTOMER
       mockAdapter.onGet(`/v2/Conversations/${conversationId}/Participants`).reply(200, {
@@ -460,7 +460,7 @@ describe('ConversationClient', () => {
   describe('getConfiguration()', () => {
     it('should get configuration successfully', async () => {
       const mockResponse = {
-        id: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+        id: 'conv_configuration_01testconvservice000000000',
         description: 'Test Config',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
         memoryStoreId: 'mem_store_123',
@@ -468,11 +468,11 @@ describe('ConversationClient', () => {
         updatedAt: '2019-08-24T14:15:22Z',
       };
 
-      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd').reply(200, mockResponse);
+      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01testconvservice000000000').reply(200, mockResponse);
 
-      const result = await conversationClient.getConfiguration('conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd');
+      const result = await conversationClient.getConfiguration('conv_configuration_01testconvservice000000000');
 
-      expect(result.id).toBe('conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd');
+      expect(result.id).toBe('conv_configuration_01testconvservice000000000');
     });
 
     it('should get minimal configuration successfully', async () => {
@@ -493,9 +493,9 @@ describe('ConversationClient', () => {
     });
 
     it('should handle API errors', async () => {
-      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd').reply(404);
+      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01testconvservice000000000').reply(404);
 
-      await expect(conversationClient.getConfiguration('conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd')).rejects.toThrow(/Failed to get configuration/);
+      await expect(conversationClient.getConfiguration('conv_configuration_01testconvservice000000000')).rejects.toThrow(/Failed to get configuration/);
     });
 
     it('should validate response with schema', async () => {
@@ -513,7 +513,7 @@ describe('ConversationClient', () => {
 
     it('should reject invalid URL in statusCallbacks', async () => {
       const mockResponse = {
-        id: 'conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd',
+        id: 'conv_configuration_01testconvservice000000000',
         description: 'Invalid Callback Test',
         conversationGroupingType: 'GROUP_BY_PARTICIPANT_ADDRESSES',
         memoryStoreId: 'mem_store_126',
@@ -522,9 +522,9 @@ describe('ConversationClient', () => {
         updatedAt: '2019-08-24T14:15:22Z',
       };
 
-      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd').reply(200, mockResponse);
+      mockAdapter.onGet('/v2/ControlPlane/Configurations/conv_configuration_01testconvservice000000000').reply(200, mockResponse);
 
-      await expect(conversationClient.getConfiguration('conv_configuration_01kbjqhn79f0fvwfsxqzd5nqhd')).rejects.toThrow();
+      await expect(conversationClient.getConfiguration('conv_configuration_01testconvservice000000000')).rejects.toThrow();
     });
   });
 
