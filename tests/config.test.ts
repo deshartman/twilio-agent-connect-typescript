@@ -261,8 +261,7 @@ describe('TACConfig', () => {
 
     it('should leave twilioRegion undefined when TWILIO_REGION is not set', () => {
       stubRequiredEnvVars();
-      // Don't stub TWILIO_REGION — assumes it's unset in the outer environment.
-      // If you set TWILIO_REGION in your shell, unset it before running tests.
+      vi.stubEnv('TWILIO_REGION', undefined);
 
       const config = TACConfig.fromEnv();
 

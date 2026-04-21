@@ -18,6 +18,12 @@ interface SendMessageResult {
   error?: string;
 }
 
+// The send-message tool only needs sendResponse from a channel. Narrowing to this
+// shape keeps the tool decoupled from the CR tool registry (listTools/registerTool/
+// executeTool) and makes mocking in tests trivial. All real Channel implementations
+// satisfy this structurally.
+type SendResponseChannel = Pick<Channel, 'sendResponse'>;
+
 /**
  * Create send message tool
  *
@@ -25,7 +31,7 @@ interface SendMessageResult {
  * @param conversationId - The conversation ID
  */
 export function createSendMessageTool(
-  channel: Channel,
+  channel: SendResponseChannel,
   conversationId: ConversationId
 ): TACTool<SendMessageParams, SendMessageResult> {
   return defineTool(
@@ -75,7 +81,7 @@ export function createMessagingTools() {
      * @param channel - The channel to send messages through
      * @param conversationId - The conversation ID
      */
-    forSession: (channel: Channel, conversationId: ConversationId) =>
+    forSession: (channel: SendResponseChannel, conversationId: ConversationId) =>
       createSendMessageTool(channel, conversationId),
   };
 }

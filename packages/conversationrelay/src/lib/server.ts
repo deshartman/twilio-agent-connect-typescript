@@ -125,10 +125,15 @@ export class CRelayServer {
         port: this.config.port,
       });
 
+      // Read the actual bound port (port 0 asks the OS for an ephemeral port,
+      // so config.port would log `0` instead of the real port number).
+      const address = this.fastify.server.address();
+      const boundPort = typeof address === 'object' && address ? address.port : this.config.port;
+
       this.fastify.log.info(
         {
           host: this.config.host,
-          port: this.config.port,
+          port: boundPort,
           twiml_webhook: this.config.webhookPaths.twiml,
           ws_websocket: this.config.webhookPaths.ws,
           callback_webhook: this.config.webhookPaths.callback,
@@ -152,9 +157,9 @@ export class CRelayServer {
       return;
     }
 
-    this.fastify.addHook('preHandler', (request, reply, done): void => {
+    this.fastify.addHook('preHandler', async (request, reply) => {
+      // Skip GET requests (WebSocket upgrades)
       if (request.method === 'GET') {
-        done();
         return;
       }
 
@@ -168,12 +173,10 @@ export class CRelayServer {
 
       if (!isValid) {
         this.fastify.log.warn({ url }, 'Invalid Twilio webhook signature');
-        void reply.code(403).send({ error: 'Invalid webhook signature' });
-        done();
-        return;
+        // Returning the reply short-circuits the Fastify lifecycle so the route
+        // handler is not invoked after we send 403.
+        return reply.code(403).send({ error: 'Invalid webhook signature' });
       }
-
-      done();
     });
   }
 

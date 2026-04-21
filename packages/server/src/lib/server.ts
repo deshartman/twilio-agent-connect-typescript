@@ -212,10 +212,9 @@ export class TACServer {
       return;
     }
 
-    this.fastify.addHook('preHandler', (request, reply, done): void => {
+    this.fastify.addHook('preHandler', async (request, reply) => {
       // Skip GET requests (WebSocket upgrades)
       if (request.method === 'GET') {
-        done();
         return;
       }
 
@@ -241,12 +240,10 @@ export class TACServer {
           { url, hasSignature: !!signature },
           'Invalid Twilio webhook signature'
         );
-        void reply.code(403).send({ error: 'Invalid webhook signature' });
-        done();
-        return;
+        // Returning the reply short-circuits the Fastify lifecycle so the route
+        // handler is not invoked after we send 403.
+        return reply.code(403).send({ error: 'Invalid webhook signature' });
       }
-
-      done();
     });
   }
 
@@ -457,10 +454,15 @@ export class TACServer {
         port: voiceConfig.port,
       });
 
+      // Read the actual bound port (port 0 asks the OS for an ephemeral port,
+      // so voiceConfig.port would log `0` instead of the real port number).
+      const address = this.fastify.server.address();
+      const boundPort = typeof address === 'object' && address ? address.port : voiceConfig.port;
+
       this.fastify.log.info(
         {
           host: voiceConfig.host,
-          port: voiceConfig.port,
+          port: boundPort,
           twiml_webhook: this.config.webhookPaths.twiml,
           ws_websocket: this.config.webhookPaths.ws,
           conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,

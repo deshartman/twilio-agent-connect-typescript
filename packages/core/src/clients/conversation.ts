@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {
   Communication,
   ConversationResponse,
@@ -21,6 +22,17 @@ import {
 import { TACConfig } from '../lib/config';
 import { Logger } from '../lib/logger';
 import { BaseClient } from './base';
+
+// Walks the error chain (error and its `cause`) looking for an axios error with
+// the given HTTP status. addParticipant wraps the raw axios error with
+// `new Error(..., { cause: error })`, so the structured status lives on `.cause`.
+function isHttpStatus(err: unknown, status: number): boolean {
+  const chain: unknown[] = [err];
+  if (err instanceof Error && err.cause !== undefined) {
+    chain.push(err.cause);
+  }
+  return chain.some(e => axios.isAxiosError(e) && e.response?.status === status);
+}
 
 /**
  * Conversation client for interacting with Twilio Conversations Service
@@ -203,7 +215,7 @@ export class ConversationClient extends BaseClient {
     } catch (error) {
       // If we get a 409 Conflict, it means Maestro added the participant between our check and our add
       // (TOCTOU race condition). Re-fetch the participant list to get the one Maestro just added.
-      if (error instanceof Error && error.message.includes('409')) {
+      if (isHttpStatus(error, 409)) {
         this.logger.info(
           { conversation_id: conversationId, participant_type: participantType },
           'Caught 409 conflict - participant was added by Maestro between check and add, fetching existing participant'

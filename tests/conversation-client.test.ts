@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TACConfig, Communication } from '@twilio/tac-core';
 import { ConversationClient } from '../packages/core/src/clients/conversation';
 import MockAdapter from 'axios-mock-adapter';
@@ -323,6 +323,37 @@ describe('ConversationClient', () => {
       // Should return VOICE participant, not SMS
       expect(result.id).toBe('conv_participant_01defghijklmnopqrstu');
       expect(result.addresses[0].channel).toBe('VOICE');
+    });
+
+    it('should detect 409 via structured axios status, not via message text', async () => {
+      const conversationId = 'conv_conversation_01testconversation00000009';
+
+      // listParticipants: empty → addParticipant called
+      mockAdapter
+        .onGet(`/v2/Conversations/${conversationId}/Participants`)
+        .replyOnce(200, { participants: [] });
+
+      // addParticipant fails with a 500 whose body text contains "409" —
+      // the old string-match code would wrongly treat this as a conflict.
+      mockAdapter
+        .onPost(`/v2/Conversations/${conversationId}/Participants`)
+        .replyOnce(500, { message: 'Upstream returned 409 during processing' });
+
+      // Spy on listParticipants — if the structured check works, it is NOT
+      // called a second time after the failed add (no re-fetch path).
+      const listSpy = vi.spyOn(conversationClient, 'listParticipants');
+
+      await expect(
+        conversationClient.addOrFetchParticipant(
+          conversationId as any,
+          [{ channel: 'VOICE', address: '+15550001111' }],
+          'CUSTOMER'
+        )
+      ).rejects.toThrow();
+
+      // listParticipants was called exactly once (the initial check), not twice.
+      // Second call would only happen if the error were misclassified as 409.
+      expect(listSpy).toHaveBeenCalledTimes(1);
     });
   });
 
