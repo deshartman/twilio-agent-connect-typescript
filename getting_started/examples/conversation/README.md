@@ -173,7 +173,8 @@ const stream = await openai.chat.completions.create({ model, messages, tools, st
 for (const call of toolCalls.values()) {
   // Protocol tools ship their outgoing frame automatically; non-protocol tools
   // return their result for the next LLM turn to consume.
-  await voiceChannel.executeTool(convId, call.name, JSON.parse(call.argumentsJson));
+  const args: unknown = JSON.parse(call.argumentsJson);
+  await voiceChannel.executeTool(convId, call.name, args);
 }
 ```
 

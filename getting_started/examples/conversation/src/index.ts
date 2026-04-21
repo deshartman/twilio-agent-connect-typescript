@@ -163,7 +163,7 @@ async function dispatchVoiceToolCalls(
   for (const call of toolCalls.values()) {
     if (!call.name) continue;
     try {
-      const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
+      const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
       await voiceChannel.executeTool(convId, call.name, args);
     } catch (err) {
       console.error(`Tool execution failed (${call.name}):`, err);
@@ -279,9 +279,7 @@ tac.onMessageReady(async msg => {
   const memory = msg.conversation?.memory;
 
   try {
-    if (!conversationMessages[convIdStr]) {
-      conversationMessages[convIdStr] = [];
-    }
+    conversationMessages[convIdStr] ??= [];
     conversationMessages[convIdStr].push({ role: 'user', content: msg.message });
 
     const memorySession: ConversationSession = {

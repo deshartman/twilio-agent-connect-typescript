@@ -76,7 +76,7 @@ async function dispatchToolCalls(
   for (const call of toolCalls.values()) {
     if (!call.name) continue;
     try {
-      const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
+      const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
       await conversationRelay.executeTool(callSid, call.name, args);
     } catch (error) {
       logger.error({ err: error, callSid, tool: call.name }, 'Tool execution failed');
@@ -129,7 +129,7 @@ async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<
     if ((err as { name?: string })?.name === 'AbortError') return;
     throw err;
   } finally {
-    if (state.activeStream === controller) state.activeStream = undefined;
+    if (state.activeStream === controller) delete state.activeStream;
   }
 
   if (fullResponse) {
@@ -191,7 +191,7 @@ conversationRelay.onError((callSid: CallSid, error: Error) => {
 // Create and start standalone server
 const server = new CRelayServer(conversationRelay, {
   host: '0.0.0.0',
-  port: parseInt(process.env.PORT || '8000'),
+  port: Number.parseInt(process.env.PORT || '8000', 10),
   conversationRelayConfig: {
     welcomeGreeting: 'Hello! What can I tell you about Conversation Relay today?',
     transcriptionProvider: 'Deepgram',

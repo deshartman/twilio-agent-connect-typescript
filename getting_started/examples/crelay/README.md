@@ -98,7 +98,8 @@ const stream = await openai.chat.completions.create({ model, messages, tools, st
 
 // 3. Dispatch tool calls — protocol tools auto-ship their outgoingMessage
 for (const call of toolCalls.values()) {
-  await conversationRelay.executeTool(callSid, call.name, JSON.parse(call.argumentsJson));
+  const args: unknown = JSON.parse(call.argumentsJson);
+  await conversationRelay.executeTool(callSid, call.name, args);
 }
 ```
 
