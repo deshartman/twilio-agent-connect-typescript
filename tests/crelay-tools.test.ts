@@ -114,7 +114,7 @@ describe('ConversationRelay Tools', () => {
     });
 
     it('should have correct tool metadata', () => {
-      expect(sendDigitsTool.name).toBe('send_dtmf');
+      expect(sendDigitsTool.name).toBe('send_digits');
       expect(sendDigitsTool.description).toBe('Send DTMF digits to caller');
       expect(sendDigitsTool.parameters.type).toBe('object');
       expect(sendDigitsTool.parameters.required).toContain('digits');

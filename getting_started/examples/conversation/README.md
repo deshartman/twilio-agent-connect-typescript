@@ -9,7 +9,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 - **Memory Integration**: Automatically retrieves user profiles and conversation history from Twilio Memory
 - **Profile Personalization**: Incorporates user profile traits into responses for personalized interactions
 - **Conversation History**: Maintains context across multiple message exchanges
-- **Uniform Tool Flow**: Voice channel exposes CR's built-in protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) through the same `listTools()` / `executeTool()` surface used by every channel
+- **Uniform Tool Flow**: Voice channel exposes CR's built-in protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) through the same `listTools()` / `executeTool()` surface used by every channel
 
 ## Prerequisites
 

@@ -10,7 +10,7 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 - ✅ Uses standalone `CRelayServer` from conversationrelay package
 - ✅ No dependency on TAC framework
 - ✅ OpenAI GPT-4 integration with streaming
-- ✅ Built-in CR protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) auto-registered and LLM-dispatchable
+- ✅ Built-in CR protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) auto-registered and LLM-dispatchable
 - ✅ Session-based conversation history
 - ✅ Webhook validation enabled
 

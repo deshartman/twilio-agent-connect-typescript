@@ -3,7 +3,7 @@ export { z } from 'zod';
 import pino from 'pino';
 import { AxiosInstance } from 'axios';
 import { WebSocket } from 'ws';
-import { FastifyServerOptions } from 'fastify';
+import { FastifyInstance, FastifyServerOptions } from 'fastify';
 
 /**
  * Channel types supported by the framework
@@ -26,6 +26,7 @@ declare const TACConfigSchema: z.ZodObject<{
     cintelConfigurationId: z.ZodOptional<z.ZodString>;
     cintelObservationOperatorSid: z.ZodOptional<z.ZodString>;
     cintelSummaryOperatorSid: z.ZodOptional<z.ZodString>;
+    twilioRegion: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     twilioAccountSid: string;
     twilioAuthToken: string;
@@ -39,6 +40,7 @@ declare const TACConfigSchema: z.ZodObject<{
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
+    twilioRegion?: string | undefined;
 }, {
     twilioAccountSid: string;
     twilioAuthToken: string;
@@ -52,6 +54,7 @@ declare const TACConfigSchema: z.ZodObject<{
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
+    twilioRegion?: string | undefined;
 }>;
 type TACConfigData = z.infer<typeof TACConfigSchema>;
 /**
@@ -70,6 +73,7 @@ declare const EnvironmentVariables: {
     readonly TWILIO_TAC_CI_CONFIGURATION_ID: "TWILIO_TAC_CI_CONFIGURATION_ID";
     readonly TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID";
     readonly TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID";
+    readonly TWILIO_REGION: "TWILIO_REGION";
 };
 /**
  * Server configuration for built-in Fastify setup
@@ -3690,6 +3694,8 @@ declare class TACConfig {
     readonly cintelConfigurationId?: string;
     readonly cintelObservationOperatorSid?: string;
     readonly cintelSummaryOperatorSid?: string;
+    /** Optional Twilio region subdomain for API routing (e.g. transforms base URLs to `https://{product}.{region}.twilio.com`) */
+    readonly twilioRegion?: string;
     constructor(data: TACConfigData);
     /**
      * Create TACConfig from environment variables.
@@ -3704,6 +3710,7 @@ declare class TACConfig {
      * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
      * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
      * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
+     * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
      *
      * @throws Error if required environment variables are not set or invalid
      *
@@ -4747,8 +4754,17 @@ declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
  * Server configuration options
  */
 interface TACServerConfig {
-    /** Fastify server options */
+    /** Fastify server options (ignored if `fastifyInstance` is provided) */
     fastify?: FastifyServerOptions;
+    /**
+     * Pre-configured Fastify instance to mount TAC routes onto.
+     *
+     * Use this to control construction-time settings (logger, `trustProxy`,
+     * schema, ...) or to register your own plugins/hooks before TAC's
+     * routes are set up. If provided, the `fastify` options field is
+     * ignored.
+     */
+    fastifyInstance?: FastifyInstance;
     /** Voice server configuration */
     voice?: Partial<VoiceServerConfig>;
     /** Custom webhook paths */
@@ -4778,9 +4794,26 @@ interface TACServerConfig {
  *
  * Provides out-of-the-box setup for SMS and Voice channels with
  * proper webhook handling, WebSocket support, and production-ready defaults.
+ *
+ * Customization:
+ *   - Pass your own Fastify instance via `config.fastifyInstance` to control
+ *     construction-time settings (logger, `trustProxy`, schema, ...) and to
+ *     register plugins/hooks before TAC's routes are set up.
+ *   - Or mutate `server.fastify` after construction to add routes,
+ *     decorators, or hooks — before calling `start()`.
+ *
+ * Example:
+ *   import Fastify from 'fastify';
+ *
+ *   const app = Fastify({ logger: true, trustProxy: true });
+ *   const server = new TACServer(tac, { fastifyInstance: app });
+ *
+ *   server.fastify.get('/health', async () => ({ status: 'ok' }));
+ *
+ *   await server.start();
  */
 declare class TACServer {
-    private readonly fastify;
+    readonly fastify: FastifyInstance;
     private readonly tac;
     private readonly config;
     /** All enabled messaging channels — webhooks are fanned out to each one */

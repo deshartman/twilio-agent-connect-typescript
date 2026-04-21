@@ -86,6 +86,7 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 
 - `MEMORY_STORE_ID`: Memory store ID (for memory integration)
 - `VOICE_PUBLIC_DOMAIN`: Your ngrok domain (required for voice channel)
+- `TWILIO_REGION`: Twilio region subdomain for API routing
 - `OPENAI_API_KEY`: Your OpenAI API key (for OpenAI example)
 
 ## Other Examples
@@ -96,6 +97,6 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 ## Next Steps
 
 - Customize the agent's behavior by modifying the message handler in `examples/conversation/src/index.ts`
-- Register your own tools with `channel.registerTool(defineTool(...))` — they show up in `channel.listTools()` alongside CR's built-in protocol tools (`play_media`, `send_dtmf`, `switch_language`, `end_call`) and dispatch through the same `channel.executeTool(conversationId, name, args)` call
+- Register your own tools with `channel.registerTool(defineTool(...))` — they show up in `channel.listTools()` alongside CR's built-in protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) and dispatch through the same `channel.executeTool(conversationId, name, args)` call
 - Explore the main [README](../README.md) for advanced features
 - Review [CLAUDE.md](../CLAUDE.md) for architecture and development guidelines

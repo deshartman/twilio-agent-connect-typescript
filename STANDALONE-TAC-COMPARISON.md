@@ -21,8 +21,104 @@ This branch extracts ConversationRelay into a standalone package (`@twilio/tac-c
 ### Test Coverage
 
 - **Main branch:** ~250 tests
-- **This branch:** **474 tests** across 30 files (30/30 files passing, 474/474 cases passing)
-- **Net:** +224 tests, largely concentrated in the new CR protocol methods, tool registry, silence detector, and channel tool-interface surfaces.
+- **This branch:** **494 tests** across 30 files (30/30 files passing, 494/494 cases passing)
+- **Net:** +244 tests, largely concentrated in the new CR protocol methods, tool registry, silence detector, channel tool-interface surfaces, `twilioRegion` support, and BYO-Fastify customization.
+
+---
+
+## The Headline: Same Tool Interface, CR-Only or CR-with-TAC
+
+The core design goal of this branch is that a user reaches for **the same two methods** — `listTools()` and `executeTool(...)` — whether they are running ConversationRelay standalone or through `VoiceChannel` inside TAC. Protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) come pre-registered in both cases, and `executeTool` auto-ships the corresponding WebSocket frame. No LLM SDK dependency, no hand-rolled dispatcher, no branch on "tool type" at the call site.
+
+### CR-Only (standalone `@twilio/tac-conversationrelay`)
+
+Diagram from [packages/conversationrelay/README.md](packages/conversationrelay/README.md#architecture):
+
+```
+ +------------+         +-------------------------------------------------+
+ |  Twilio    |         |  ConversationRelay (this package)               |
+ | ConvRelay  |<---WS-->|                                                 |    +---------+
+ |  (voice)   |         |   +-------------------+   +-----------------+   |<-->|  User   |
+ +------------+         |   | tool registry     |   | callbacks       |   |    |  LLM    |
+                        |   |  playMedia        |   |  onPrompt       |   |    |  loop   |
+                        |   |  sendDigits       |   |  onDtmf         |   |    +---------+
+                        |   |  switchLanguage   |   |  onInterrupt    |   |         ^
+                        |   |  endCall          |   |  onSession*     |   |         |
+                        |   |  + user tools     |   |  onError/Info   |   |         |
+                        |   +-------------------+   +-----------------+   |         |
+                        |                                                 |         |
+                        |   public API:                                   |         |
+                        |     sendResponse(callSid, text)                 |         |
+                        |     listTools()                                 |         |
+                        |     executeTool(callSid, name, args)            |         |
+                        |       +-- auto-ships protocol outgoingMessage   |         |
+                        |          via Twilio WS                          |         |
+                        +-------------------------------------------------+         |
+                                                                                    |
+    LLM SDK (OpenAI, Anthropic, Google...) lives in USER code, never in CR. --------+
+    Tool format conversion via CRTool.toOpenAIFormat() / toAnthropicFormat()
+    at call site.
+```
+
+### CR-with-TAC (multi-channel via `@twilio/tac-core`)
+
+Diagram from [README.md](README.md#architecture):
+
+```
+          Twilio WS         +-------------------------+
+          (ConvRelay) <---->| VoiceChannel            |
+                            |   |- embeds CR          | <-- Channel[voice] -----+
+                            |   |- listTools/exec     |                         |
+                            |   +- sendResponse       |                         |
+                            +-------------------------+                         |
+          Twilio SMS        +-------------------------+                         |                +----------+
+        (via Maestro) <---->| SMSChannel              |                         | onMessageReady |  User    |
+                            |   |- listTools/exec     | <-- Channel[sms] -------+---(unified)--->|  LLM     |
+                            |   +- sendResponse       |                         |                |  loop    |
+                            +-------------------------+                         |  executeTool   +----------+
+          Twilio Chat       +-------------------------+                         | <--(by conv id)-----^
+        (via Maestro) <---->| ChatChannel             |                         |                     |
+                            |   |- listTools/exec     | <-- Channel[chat] ------+                     |
+                            |   +- sendResponse       |         ^                                     |
+                            +-------------------------+         |                                     |
+                                                     +----------+------------+                        |
+                                                     |         TAC           |                        |
+                                                     |  - composes channels  |                        |
+                                                     |  - tac.getChannel()   |                        |
+                                                     |  - onMessageReady     |  <- single callback    |
+                                                     |  - onHandoff/         |    for all channels    |
+                                                     |    onConversationEnded|                        |
+                                                     +-----------------------+                        |
+                                                                                                      |
+    LLM SDK lives in USER code. -----------------------------------------------------------------------+
+    Uniform dispatch:
+      channel.listTools().map(t => t.toOpenAIFormat())
+      channel.executeTool(msg.conversationId, name, args)
+    msg.channel discriminator routes to the right channel.
+```
+
+### The symmetry at the call site
+
+```typescript
+// CR-only — scoped by CallSid
+const tools = conversationRelay.listTools().map(t => t.toOpenAIFormat());
+// ... LLM call ...
+await conversationRelay.executeTool(callSid, call.name, JSON.parse(call.argumentsJson));
+
+// CR-with-TAC (via VoiceChannel) — scoped by ConversationId
+const tools = voiceChannel.listTools().map(t => t.toOpenAIFormat());
+// ... LLM call ...
+await voiceChannel.executeTool(conversationId, call.name, JSON.parse(call.argumentsJson));
+```
+
+Same three method calls; same built-ins auto-registered; same auto-shipping of `outgoingMessage` via the CR WebSocket. The only difference is the identifier (`CallSid` vs. `ConversationId`) because TAC-mode conversations can span multiple channels.
+
+Both quickstarts demonstrate this directly:
+
+- **CR-only**: [getting_started/examples/crelay/src/index.ts](getting_started/examples/crelay/src/index.ts)
+- **CR-with-TAC**: [getting_started/examples/conversation/src/index.ts](getting_started/examples/conversation/src/index.ts)
+
+Ask either quickstart "play a hold tone", "send digits 1234", or "end the call with a goodbye" — the corresponding `play` / `sendDigits` / `end` frame is shipped on the Twilio WebSocket without a line of custom code.
 
 ---
 
@@ -436,7 +532,7 @@ Maestro / Memory / Knowledge / CI — runtime identical to main. Channel lifecyc
 v1 extraction carried forward; v2 adds the CR protocol substance + unified tool interface + silence primitive + logger decoupling.
 
 ### 📊 Test Coverage
-Main ~250 → **474 tests on this branch** (+224 net). All 474 pass.
+Main ~250 → **494 tests on this branch** (+244 net). All 494 pass.
 
 ---
 

@@ -289,6 +289,41 @@ describe('ConversationClient', () => {
         )
       ).rejects.toThrow('500');
     });
+
+    it('should handle multiple CUSTOMER participants with different addresses', async () => {
+      const conversationId = 'conv_conversation_01kbjqhn79f0fvwfsxqzd5nqhd';
+
+      // Mock listParticipants returning SMS CUSTOMER + VOICE CUSTOMER
+      mockAdapter.onGet(`/v2/Conversations/${conversationId}/Participants`).reply(200, {
+        participants: [
+          {
+            id: 'conv_participant_01abcdefghijklmnopqrstu',
+            type: 'CUSTOMER',
+            conversationId,
+            accountId: 'ACtest123',
+            addresses: [{ channel: 'SMS', address: '+15551234567' }],
+          },
+          {
+            id: 'conv_participant_01defghijklmnopqrstu',
+            type: 'CUSTOMER',
+            conversationId,
+            accountId: 'ACtest123',
+            addresses: [{ channel: 'VOICE', address: '+15551234567', channelId: 'CA123' }],
+          },
+        ],
+      });
+
+      // Request VOICE participant
+      const result = await conversationClient.addOrFetchParticipant(
+        conversationId as any,
+        [{ channel: 'VOICE', address: '+15551234567', channelId: 'CA123' }],
+        'CUSTOMER'
+      );
+
+      // Should return VOICE participant, not SMS
+      expect(result.id).toBe('conv_participant_01defghijklmnopqrstu');
+      expect(result.addresses[0].channel).toBe('VOICE');
+    });
   });
 
   describe('listConversations()', () => {
@@ -493,40 +528,16 @@ describe('ConversationClient', () => {
     });
   });
 
-  describe('addOrFetchParticipant()', () => {
-    it('should handle multiple CUSTOMER participants with different addresses', async () => {
-      const conversationId = 'conv_conversation_01kbjqhn79f0fvwfsxqzd5nqhd';
+  describe('region support', () => {
+    it('should use region in base URL when configured', () => {
+      const config = new TACConfig({ ...getTestConfig(), twilioRegion: 'test-region' });
+      const regionClient = new ConversationClient(config);
 
-      // Mock listParticipants returning SMS CUSTOMER + VOICE CUSTOMER
-      mockAdapter.onGet(`/v2/Conversations/${conversationId}/Participants`).reply(200, {
-        participants: [
-          {
-            id: 'conv_participant_01abcdefghijklmnopqrstu',
-            type: 'CUSTOMER',
-            conversationId,
-            accountId: 'ACtest123',
-            addresses: [{ channel: 'SMS', address: '+15551234567' }]
-          },
-          {
-            id: 'conv_participant_01defghijklmnopqrstu',
-            type: 'CUSTOMER',
-            conversationId,
-            accountId: 'ACtest123',
-            addresses: [{ channel: 'VOICE', address: '+15551234567', channelId: 'CA123' }]
-          }
-        ]
-      });
+      expect((regionClient as any).baseUrl).toBe('https://conversations.test-region.twilio.com');
+    });
 
-      // Request VOICE participant
-      const result = await conversationClient.addOrFetchParticipant(
-        conversationId as any,
-        [{ channel: 'VOICE', address: '+15551234567', channelId: 'CA123' }],
-        'CUSTOMER'
-      );
-
-      // Should return VOICE participant, not SMS
-      expect(result.id).toBe('conv_participant_01defghijklmnopqrstu');
-      expect(result.addresses[0].channel).toBe('VOICE');
+    it('should use default base URL when region is not configured', () => {
+      expect((conversationClient as any).baseUrl).toBe('https://conversations.twilio.com');
     });
   });
 });

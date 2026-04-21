@@ -25,7 +25,11 @@ var TACConfigSchema = z.object({
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
-  cintelSummaryOperatorSid: z.string().optional()
+  cintelSummaryOperatorSid: z.string().optional(),
+  twilioRegion: z.string().max(63, "Invalid Twilio region format (must be a valid DNS label)").regex(
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+    "Invalid Twilio region format (must be a valid DNS label)"
+  ).optional()
 });
 var EnvironmentVariables = {
   TWILIO_ACCOUNT_SID: "TWILIO_ACCOUNT_SID",
@@ -39,7 +43,8 @@ var EnvironmentVariables = {
   VOICE_PUBLIC_DOMAIN: "VOICE_PUBLIC_DOMAIN",
   TWILIO_TAC_CI_CONFIGURATION_ID: "TWILIO_TAC_CI_CONFIGURATION_ID",
   TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID",
-  TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID"
+  TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID",
+  TWILIO_REGION: "TWILIO_REGION"
 };
 var VoiceServerConfigSchema = z.object({
   host: z.string().default("0.0.0.0"),
@@ -671,6 +676,8 @@ var TACConfig = class _TACConfig {
   cintelConfigurationId;
   cintelObservationOperatorSid;
   cintelSummaryOperatorSid;
+  /** Optional Twilio region subdomain for API routing (e.g. transforms base URLs to `https://{product}.{region}.twilio.com`) */
+  twilioRegion;
   constructor(data) {
     const validatedConfig = TACConfigSchema.parse(data);
     this.twilioAccountSid = validatedConfig.twilioAccountSid;
@@ -697,6 +704,9 @@ var TACConfig = class _TACConfig {
     if (validatedConfig.cintelSummaryOperatorSid) {
       this.cintelSummaryOperatorSid = validatedConfig.cintelSummaryOperatorSid;
     }
+    if (validatedConfig.twilioRegion) {
+      this.twilioRegion = validatedConfig.twilioRegion;
+    }
   }
   /**
    * Create TACConfig from environment variables.
@@ -711,6 +721,7 @@ var TACConfig = class _TACConfig {
    * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
+   * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
    *
    * @throws Error if required environment variables are not set or invalid
    *
@@ -749,7 +760,8 @@ var TACConfig = class _TACConfig {
       voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],
       cintelObservationOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID],
-      cintelSummaryOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_SUMMARY_OPERATOR_SID]
+      cintelSummaryOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_SUMMARY_OPERATOR_SID],
+      twilioRegion: process.env[EnvironmentVariables.TWILIO_REGION]
     };
     return new _TACConfig(rawConfig);
   }
@@ -859,7 +871,8 @@ var BaseClient = class {
 // packages/core/src/clients/memory.ts
 var MemoryClient = class extends BaseClient {
   constructor(config, logger2) {
-    super("https://memory.twilio.com", config, logger2);
+    const baseUrl = config.twilioRegion ? `https://memory.${config.twilioRegion}.twilio.com` : "https://memory.twilio.com";
+    super(baseUrl, config, logger2);
   }
   /**
    * Retrieve memories for a specific profile
@@ -1057,7 +1070,8 @@ var MemoryClient = class extends BaseClient {
 var ConversationClient = class extends BaseClient {
   conversationServiceId;
   constructor(config, logger2) {
-    super("https://conversations.twilio.com", config, logger2);
+    const baseUrl = config.twilioRegion ? `https://conversations.${config.twilioRegion}.twilio.com` : "https://conversations.twilio.com";
+    super(baseUrl, config, logger2);
     this.conversationServiceId = config.conversationServiceId;
   }
   /**
@@ -1314,7 +1328,8 @@ var ConversationClient = class extends BaseClient {
 // packages/core/src/clients/knowledge.ts
 var KnowledgeClient = class extends BaseClient {
   constructor(config, logger2) {
-    super("https://knowledge.twilio.com", config, logger2);
+    const baseUrl = config.twilioRegion ? `https://knowledge.${config.twilioRegion}.twilio.com` : "https://knowledge.twilio.com";
+    super(baseUrl, config, logger2);
   }
   /**
    * Get knowledge base metadata
@@ -3277,7 +3292,7 @@ var playMediaTool = defineTool(
 
 // packages/conversationrelay/src/tools/send-digits.ts
 var sendDigitsTool = defineTool(
-  "send_dtmf",
+  "send_digits",
   "Send DTMF digits to caller",
   {
     type: "object",
@@ -4764,20 +4779,29 @@ var TACServer = class {
     };
     this.voiceChannel = config.voiceChannel ?? tac.getChannel("voice");
     this.messagingChannels = config.messagingChannels ?? [tac.getChannel("sms"), tac.getChannel("chat")].filter((ch) => ch != null);
-    this.fastify = Fastify2({
-      logger: this.config.development ? {
-        level: process.env.LOG_LEVEL || "info",
-        transport: {
-          target: "pino-pretty",
-          options: {
-            colorize: true
+    if (this.messagingChannels.length === 0) {
+      this.tac.logger.warn(
+        "TACServer: No messaging channels (SMS/Chat) configured. Messaging webhooks will not be registered. Register a MessagingChannel with tac.registerChannel() before creating TACServer to enable SMS/Chat."
+      );
+    }
+    if (config.fastifyInstance) {
+      this.fastify = config.fastifyInstance;
+    } else {
+      this.fastify = Fastify2({
+        logger: this.config.development ? {
+          level: process.env.LOG_LEVEL || "info",
+          transport: {
+            target: "pino-pretty",
+            options: {
+              colorize: true
+            }
           }
-        }
-      } : {
-        level: process.env.LOG_LEVEL || "info"
-      },
-      ...config.fastify
-    });
+        } : {
+          level: process.env.LOG_LEVEL || "info"
+        },
+        ...config.fastify
+      });
+    }
   }
   /**
    * Get the full URL for webhook validation
@@ -4926,10 +4950,6 @@ var TACServer = class {
           await reply.code(200).send({ status: "ok" });
         }
       );
-    } else {
-      this.tac.logger.warn(
-        "No messaging channels (SMS/Chat) are registered. Webhook route will not be registered. If you expect to handle SMS or Chat messages, register channels with tac.registerChannel() before creating TACServer."
-      );
     }
     if (this.config.webhookPaths.cintel) {
       this.fastify.post(
@@ -4976,9 +4996,15 @@ var TACServer = class {
    */
   async start() {
     try {
-      await this.fastify.register(formbody2);
-      await this.fastify.register(websocket2);
-      await this.fastify.register(gracefulShutdown2);
+      if (!this.fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
+        await this.fastify.register(formbody2);
+      }
+      if (!this.fastify.hasDecorator("websocketServer")) {
+        await this.fastify.register(websocket2);
+      }
+      if (!this.fastify.hasDecorator("gracefulShutdown")) {
+        await this.fastify.register(gracefulShutdown2);
+      }
       this.registerWebhookValidation();
       await this.setupRoutes();
       this.fastify.gracefulShutdown(async (signal) => {

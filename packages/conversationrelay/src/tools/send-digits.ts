@@ -36,7 +36,7 @@ interface SendDigitsResult {
  * ```
  */
 export const sendDigitsTool = defineTool<SendDigitsParams, SendDigitsResult>(
-  'send_dtmf',
+  'send_digits',
   'Send DTMF digits to caller',
   {
     type: 'object',

@@ -100,6 +100,45 @@ describe('TACConfig', () => {
       expect(config.memoryStoreId).toBeUndefined();
       expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
     });
+
+    it('should store twilioRegion when provided', () => {
+      const config = new TACConfig({
+        ...getTestConfigData(),
+        twilioRegion: 'test-region',
+      });
+
+      expect(config.twilioRegion).toBe('test-region');
+    });
+
+    it('should leave twilioRegion undefined when not provided', () => {
+      const config = new TACConfig(getTestConfigData());
+
+      expect(config.twilioRegion).toBeUndefined();
+    });
+
+    it('should accept single-character twilioRegion', () => {
+      const config = new TACConfig({ ...getTestConfigData(), twilioRegion: 'a' });
+
+      expect(config.twilioRegion).toBe('a');
+    });
+
+    it('should reject invalid twilioRegion values', () => {
+      const invalidRegions = [
+        'has spaces',
+        'has/slash',
+        'has:colon',
+        'UPPERCASE',
+        '-leading-dash',
+        'trailing-dash-',
+        'a'.repeat(64),
+      ];
+
+      for (const region of invalidRegions) {
+        expect(() => {
+          new TACConfig({ ...getTestConfigData(), twilioRegion: region });
+        }).toThrow('Invalid Twilio region format');
+      }
+    });
   });
 
   describe('fromEnv', () => {
@@ -209,6 +248,25 @@ describe('TACConfig', () => {
       expect(() => {
         TACConfig.fromEnv();
       }).toThrow('Missing required environment variable');
+    });
+
+    it('should read TWILIO_REGION from environment', () => {
+      stubRequiredEnvVars();
+      vi.stubEnv('TWILIO_REGION', 'test-region');
+
+      const config = TACConfig.fromEnv();
+
+      expect(config.twilioRegion).toBe('test-region');
+    });
+
+    it('should leave twilioRegion undefined when TWILIO_REGION is not set', () => {
+      stubRequiredEnvVars();
+      // Don't stub TWILIO_REGION — assumes it's unset in the outer environment.
+      // If you set TWILIO_REGION in your shell, unset it before running tests.
+
+      const config = TACConfig.fromEnv();
+
+      expect(config.twilioRegion).toBeUndefined();
     });
   });
 

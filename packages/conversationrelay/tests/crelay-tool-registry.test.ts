@@ -58,7 +58,7 @@ describe('ConversationRelay tool registry', () => {
     it('auto-registers the four built-in protocol tools', () => {
       const names = conversationRelay.listTools().map(t => t.name);
       expect(names).toEqual(
-        expect.arrayContaining(['play_media', 'send_dtmf', 'switch_language', 'end_call'])
+        expect.arrayContaining(['play_media', 'send_digits', 'switch_language', 'end_call'])
       );
       expect(names).toHaveLength(4);
     });
@@ -114,7 +114,7 @@ describe('ConversationRelay tool registry', () => {
       conversationRelay.handleConnection(ws);
       emitSetup(ws, 'CA_auto_ship');
 
-      const result = (await conversationRelay.executeTool('CA_auto_ship' as CallSid, 'send_dtmf', {
+      const result = (await conversationRelay.executeTool('CA_auto_ship' as CallSid, 'send_digits', {
         digits: '1234',
       })) as { success: boolean; outgoingMessage: { type: string; digits: string } };
 

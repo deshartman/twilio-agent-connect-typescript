@@ -411,7 +411,7 @@ describe('VoiceChannel', () => {
       const { channel } = createVoiceChannel();
       const names = channel.listTools().map(t => t.name);
       expect(names).toEqual(
-        expect.arrayContaining(['play_media', 'send_dtmf', 'switch_language', 'end_call'])
+        expect.arrayContaining(['play_media', 'send_digits', 'switch_language', 'end_call'])
       );
     });
 
@@ -433,7 +433,7 @@ describe('VoiceChannel', () => {
       await expect(
         channel.executeTool(
           'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId,
-          'send_dtmf',
+          'send_digits',
           { digits: '1' }
         )
       ).rejects.toThrow('No CallSid found for conversation');
