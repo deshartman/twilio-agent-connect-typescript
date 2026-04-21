@@ -14,19 +14,19 @@ import twilio2 from 'twilio';
 // packages/core/src/types/config.ts
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
 var TACConfigSchema = z.object({
-  twilioAccountSid: z.string().min(1, "Twilio Account SID is required"),
-  twilioAuthToken: z.string().min(1, "Twilio Auth Token is required"),
-  twilioApiKey: z.string().min(1, "Twilio API Key is required"),
-  twilioApiToken: z.string().min(1, "Twilio API Token is required"),
-  twilioPhoneNumber: z.string().min(1, "Twilio Phone Number is required"),
+  accountSid: z.string().min(1, "Twilio Account SID is required"),
+  authToken: z.string().min(1, "Twilio Auth Token is required"),
+  apiKey: z.string().min(1, "Twilio API Key is required"),
+  apiSecret: z.string().min(1, "Twilio API Secret is required"),
+  phoneNumber: z.string().min(1, "Twilio Phone Number is required"),
   memoryStoreId: z.string().regex(/^mem_store_[0-9a-z]{26}$/, "Invalid Memory Store ID format").optional(),
   traitGroups: z.array(z.string()).optional(),
-  conversationServiceId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format"),
+  conversationConfigurationId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format"),
   voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
   cintelSummaryOperatorSid: z.string().optional(),
-  twilioRegion: z.string().max(63, "Invalid Twilio region format (must be a valid DNS label)").regex(
+  region: z.string().max(63, "Invalid Twilio region format (must be a valid DNS label)").regex(
     /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
     "Invalid Twilio region format (must be a valid DNS label)"
   ).optional()
@@ -35,11 +35,11 @@ var EnvironmentVariables = {
   TWILIO_ACCOUNT_SID: "TWILIO_ACCOUNT_SID",
   TWILIO_AUTH_TOKEN: "TWILIO_AUTH_TOKEN",
   TWILIO_API_KEY: "TWILIO_API_KEY",
-  TWILIO_API_TOKEN: "TWILIO_API_TOKEN",
+  TWILIO_API_SECRET: "TWILIO_API_SECRET",
   TWILIO_PHONE_NUMBER: "TWILIO_PHONE_NUMBER",
   MEMORY_STORE_ID: "MEMORY_STORE_ID",
   TRAIT_GROUPS: "TRAIT_GROUPS",
-  CONVERSATION_SERVICE_ID: "CONVERSATION_SERVICE_ID",
+  TWILIO_CONVERSATION_CONFIGURATION_ID: "TWILIO_CONVERSATION_CONFIGURATION_ID",
   VOICE_PUBLIC_DOMAIN: "VOICE_PUBLIC_DOMAIN",
   TWILIO_TAC_CI_CONFIGURATION_ID: "TWILIO_TAC_CI_CONFIGURATION_ID",
   TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID",
@@ -48,6 +48,9 @@ var EnvironmentVariables = {
 };
 var VoiceServerConfigSchema = z.object({
   host: z.string().default("0.0.0.0"),
+  // Port 0 asks the OS to assign an ephemeral port (used by parallel test workers
+  // to avoid EADDRINUSE collisions). Server startup logs read the actual bound
+  // port from `fastify.server.address()`, not this configured value.
   port: z.number().int().nonnegative().default(3e3)
 });
 var MessageDirectionSchema = z.enum(["inbound", "outbound"]);
@@ -664,28 +667,28 @@ var TACMemoryResponse = class {
 
 // packages/core/src/lib/config.ts
 var TACConfig = class _TACConfig {
-  twilioAccountSid;
-  twilioAuthToken;
-  twilioApiKey;
-  twilioApiToken;
-  twilioPhoneNumber;
+  accountSid;
+  authToken;
+  apiKey;
+  apiSecret;
+  phoneNumber;
   memoryStoreId;
   traitGroups;
-  conversationServiceId;
+  conversationConfigurationId;
   voicePublicDomain;
   cintelConfigurationId;
   cintelObservationOperatorSid;
   cintelSummaryOperatorSid;
   /** Optional Twilio region subdomain for API routing (e.g. transforms base URLs to `https://{product}.{region}.twilio.com`) */
-  twilioRegion;
+  region;
   constructor(data) {
     const validatedConfig = TACConfigSchema.parse(data);
-    this.twilioAccountSid = validatedConfig.twilioAccountSid;
-    this.twilioAuthToken = validatedConfig.twilioAuthToken;
-    this.twilioApiKey = validatedConfig.twilioApiKey;
-    this.twilioApiToken = validatedConfig.twilioApiToken;
-    this.twilioPhoneNumber = validatedConfig.twilioPhoneNumber;
-    this.conversationServiceId = validatedConfig.conversationServiceId;
+    this.accountSid = validatedConfig.accountSid;
+    this.authToken = validatedConfig.authToken;
+    this.apiKey = validatedConfig.apiKey;
+    this.apiSecret = validatedConfig.apiSecret;
+    this.phoneNumber = validatedConfig.phoneNumber;
+    this.conversationConfigurationId = validatedConfig.conversationConfigurationId;
     if (validatedConfig.memoryStoreId) {
       this.memoryStoreId = validatedConfig.memoryStoreId;
     }
@@ -704,8 +707,8 @@ var TACConfig = class _TACConfig {
     if (validatedConfig.cintelSummaryOperatorSid) {
       this.cintelSummaryOperatorSid = validatedConfig.cintelSummaryOperatorSid;
     }
-    if (validatedConfig.twilioRegion) {
-      this.twilioRegion = validatedConfig.twilioRegion;
+    if (validatedConfig.region) {
+      this.region = validatedConfig.region;
     }
   }
   /**
@@ -715,9 +718,9 @@ var TACConfig = class _TACConfig {
    * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
    * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
    * - TWILIO_API_KEY: Twilio API Key (required)
-   * - TWILIO_API_TOKEN: Twilio API Token (required)
+   * - TWILIO_API_SECRET: Twilio API Secret (required)
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
-   * - CONVERSATION_SERVICE_ID: Twilio Conversation Configuration ID (required)
+   * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
    * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
@@ -739,9 +742,12 @@ var TACConfig = class _TACConfig {
       { key: EnvironmentVariables.TWILIO_ACCOUNT_SID, name: "TWILIO_ACCOUNT_SID" },
       { key: EnvironmentVariables.TWILIO_AUTH_TOKEN, name: "TWILIO_AUTH_TOKEN" },
       { key: EnvironmentVariables.TWILIO_API_KEY, name: "TWILIO_API_KEY" },
-      { key: EnvironmentVariables.TWILIO_API_TOKEN, name: "TWILIO_API_TOKEN" },
+      { key: EnvironmentVariables.TWILIO_API_SECRET, name: "TWILIO_API_SECRET" },
       { key: EnvironmentVariables.TWILIO_PHONE_NUMBER, name: "TWILIO_PHONE_NUMBER" },
-      { key: EnvironmentVariables.CONVERSATION_SERVICE_ID, name: "CONVERSATION_SERVICE_ID" }
+      {
+        key: EnvironmentVariables.TWILIO_CONVERSATION_CONFIGURATION_ID,
+        name: "TWILIO_CONVERSATION_CONFIGURATION_ID"
+      }
     ];
     for (const { key, name } of requiredVars) {
       if (!process.env[key]) {
@@ -749,19 +755,19 @@ var TACConfig = class _TACConfig {
       }
     }
     const rawConfig = {
-      twilioAccountSid: process.env[EnvironmentVariables.TWILIO_ACCOUNT_SID],
-      twilioAuthToken: process.env[EnvironmentVariables.TWILIO_AUTH_TOKEN],
-      twilioApiKey: process.env[EnvironmentVariables.TWILIO_API_KEY],
-      twilioApiToken: process.env[EnvironmentVariables.TWILIO_API_TOKEN],
-      twilioPhoneNumber: process.env[EnvironmentVariables.TWILIO_PHONE_NUMBER],
-      conversationServiceId: process.env[EnvironmentVariables.CONVERSATION_SERVICE_ID],
+      accountSid: process.env[EnvironmentVariables.TWILIO_ACCOUNT_SID],
+      authToken: process.env[EnvironmentVariables.TWILIO_AUTH_TOKEN],
+      apiKey: process.env[EnvironmentVariables.TWILIO_API_KEY],
+      apiSecret: process.env[EnvironmentVariables.TWILIO_API_SECRET],
+      phoneNumber: process.env[EnvironmentVariables.TWILIO_PHONE_NUMBER],
+      conversationConfigurationId: process.env[EnvironmentVariables.TWILIO_CONVERSATION_CONFIGURATION_ID],
       memoryStoreId: process.env[EnvironmentVariables.MEMORY_STORE_ID],
       traitGroups: process.env[EnvironmentVariables.TRAIT_GROUPS]?.split(","),
       voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],
       cintelObservationOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID],
       cintelSummaryOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_SUMMARY_OPERATOR_SID],
-      twilioRegion: process.env[EnvironmentVariables.TWILIO_REGION]
+      region: process.env[EnvironmentVariables.TWILIO_REGION]
     };
     return new _TACConfig(rawConfig);
   }
@@ -770,13 +776,13 @@ var TACConfig = class _TACConfig {
    */
   getBasicAuthCredentials() {
     return {
-      username: this.twilioAccountSid,
-      password: this.twilioAuthToken
+      username: this.accountSid,
+      password: this.authToken
     };
   }
 };
 function createLogger(options) {
-  const level = options?.level || process.env.LOG_LEVEL || "info";
+  const level = options?.level || process.env.TWILIO_LOG_LEVEL || "info";
   const isDevelopment = process.env.NODE_ENV !== "production";
   const usePretty = options?.pretty !== void 0 ? options.pretty : isDevelopment;
   const pinoOptions = {
@@ -812,8 +818,8 @@ var BaseClient = class {
       baseURL: baseUrl,
       timeout: 3e4,
       auth: {
-        username: config.twilioApiKey,
-        password: config.twilioApiToken
+        username: config.apiKey,
+        password: config.apiSecret
       },
       headers: {
         "User-Agent": buildUserAgent()
@@ -871,7 +877,7 @@ var BaseClient = class {
 // packages/core/src/clients/memory.ts
 var MemoryClient = class extends BaseClient {
   constructor(config, logger2) {
-    const baseUrl = config.twilioRegion ? `https://memory.${config.twilioRegion}.twilio.com` : "https://memory.twilio.com";
+    const baseUrl = config.region ? `https://memory.${config.region}.twilio.com` : "https://memory.twilio.com";
     super(baseUrl, config, logger2);
   }
   /**
@@ -1065,14 +1071,19 @@ var MemoryClient = class extends BaseClient {
     }
   }
 };
-
-// packages/core/src/clients/conversation.ts
+function isHttpStatus(err, status) {
+  const chain = [err];
+  if (err instanceof Error && err.cause !== void 0) {
+    chain.push(err.cause);
+  }
+  return chain.some((e) => axios.isAxiosError(e) && e.response?.status === status);
+}
 var ConversationClient = class extends BaseClient {
-  conversationServiceId;
+  conversationConfigurationId;
   constructor(config, logger2) {
-    const baseUrl = config.twilioRegion ? `https://conversations.${config.twilioRegion}.twilio.com` : "https://conversations.twilio.com";
+    const baseUrl = config.region ? `https://conversations.${config.region}.twilio.com` : "https://conversations.twilio.com";
     super(baseUrl, config, logger2);
-    this.conversationServiceId = config.conversationServiceId;
+    this.conversationConfigurationId = config.conversationConfigurationId;
   }
   /**
    * Send a communication using the Conversation Orchestrator Send API
@@ -1125,7 +1136,7 @@ var ConversationClient = class extends BaseClient {
   async createConversation(name) {
     const url = `/v2/Conversations`;
     const requestBody = {
-      configurationId: this.conversationServiceId
+      configurationId: this.conversationConfigurationId
     };
     if (name) {
       requestBody.name = name;
@@ -1207,7 +1218,7 @@ var ConversationClient = class extends BaseClient {
     try {
       return await this.addParticipant(conversationId, addresses, participantType);
     } catch (error) {
-      if (error instanceof Error && error.message.includes("409")) {
+      if (isHttpStatus(error, 409)) {
         this.logger.info(
           { conversation_id: conversationId, participant_type: participantType },
           "Caught 409 conflict - participant was added by Maestro between check and add, fetching existing participant"
@@ -1328,7 +1339,7 @@ var ConversationClient = class extends BaseClient {
 // packages/core/src/clients/knowledge.ts
 var KnowledgeClient = class extends BaseClient {
   constructor(config, logger2) {
-    const baseUrl = config.twilioRegion ? `https://knowledge.${config.twilioRegion}.twilio.com` : "https://knowledge.twilio.com";
+    const baseUrl = config.region ? `https://knowledge.${config.region}.twilio.com` : "https://knowledge.twilio.com";
     super(baseUrl, config, logger2);
   }
   /**
@@ -2131,7 +2142,7 @@ var TAC = class {
     } else {
       if (!this.conversationClient) {
         throw new Error(
-          "Cannot retrieve memory: Memory API not configured and ConversationClient not available. Ensure either MEMORY_STORE_ID is configured or CONVERSATION_SERVICE_ID is set."
+          "Cannot retrieve memory: Memory API not configured and ConversationClient not available. Ensure either MEMORY_STORE_ID is configured or TWILIO_CONVERSATION_CONFIGURATION_ID is set."
         );
       }
       this.logger.info("Twilio Memory not configured, falling back to Conversations API");
@@ -2760,7 +2771,7 @@ var SMSChannel = class extends MessagingChannel {
    * Check if a message is from the bot itself (by phone number)
    */
   isOwnMessage(authorAddress) {
-    return authorAddress === this.config.twilioPhoneNumber;
+    return authorAddress === this.config.phoneNumber;
   }
   /**
    * Send SMS response using Conversation Orchestrator Send API
@@ -2788,7 +2799,7 @@ var SMSChannel = class extends MessagingChannel {
       const participants = await this.conversationClient.listParticipants(conversationId);
       const smsParticipants = participants.filter(
         (p) => Array.isArray(p.addresses) && p.addresses.some(
-          (addr) => addr.channel === "SMS" && addr.address === this.config.twilioPhoneNumber
+          (addr) => addr.channel === "SMS" && addr.address === this.config.phoneNumber
         )
       );
       const agentParticipant = smsParticipants.find(
@@ -2796,7 +2807,7 @@ var SMSChannel = class extends MessagingChannel {
       ) ?? smsParticipants[0];
       if (!agentParticipant) {
         throw new Error(
-          `Agent participant not found for conversation ${conversationId} with phone ${this.config.twilioPhoneNumber}`
+          `Agent participant not found for conversation ${conversationId} with phone ${this.config.phoneNumber}`
         );
       }
       this.logger.debug(
@@ -2805,13 +2816,13 @@ var SMSChannel = class extends MessagingChannel {
           recipient_address: recipientAddress,
           recipient_participant_id: session.authorInfo.participantId,
           agent_participant_id: agentParticipant.id,
-          from_number: this.config.twilioPhoneNumber
+          from_number: this.config.phoneNumber
         },
         "Sending SMS via Send API"
       );
       await this.conversationClient.sendCommunication(conversationId, {
         author: {
-          address: this.config.twilioPhoneNumber,
+          address: this.config.phoneNumber,
           channel: "SMS",
           participantId: agentParticipant.id
         },
@@ -2976,7 +2987,7 @@ var ChatChannel = class extends MessagingChannel {
   }
 };
 function createLogger2(options) {
-  const level = options?.level || process.env.LOG_LEVEL || "info";
+  const level = options?.level || process.env.TWILIO_LOG_LEVEL || "info";
   const isDevelopment = process.env.NODE_ENV !== "production";
   const usePretty = options?.pretty !== void 0 ? options.pretty : isDevelopment;
   const pinoOptions = {
@@ -4268,7 +4279,7 @@ var VoiceWebhookChannel = class extends MessagingChannel {
   agentAddress;
   constructor(deps, config) {
     super(deps, config);
-    this.agentAddress = config?.agentAddress ?? this.config.twilioPhoneNumber;
+    this.agentAddress = config?.agentAddress ?? this.config.phoneNumber;
   }
   get channelType() {
     return "voice";
@@ -4789,7 +4800,7 @@ var TACServer = class {
     } else {
       this.fastify = Fastify2({
         logger: this.config.development ? {
-          level: process.env.LOG_LEVEL || "info",
+          level: process.env.TWILIO_LOG_LEVEL || "info",
           transport: {
             target: "pino-pretty",
             options: {
@@ -4797,7 +4808,7 @@ var TACServer = class {
             }
           }
         } : {
-          level: process.env.LOG_LEVEL || "info"
+          level: process.env.TWILIO_LOG_LEVEL || "info"
         },
         ...config.fastify
       });
@@ -4819,14 +4830,13 @@ var TACServer = class {
     if (!this.config.validateWebhooks) {
       return;
     }
-    this.fastify.addHook("preHandler", (request, reply, done) => {
+    this.fastify.addHook("preHandler", async (request, reply) => {
       if (request.method === "GET") {
-        done();
         return;
       }
       const signature = request.headers["x-twilio-signature"];
       const url = this.getWebhookUrl(request);
-      const authToken = this.tac.getConfig().twilioAuthToken;
+      const authToken = this.tac.getConfig().authToken;
       let isValid;
       if (request.url.includes("bodySHA256=")) {
         const body = typeof request.body === "string" ? request.body : JSON.stringify(request.body);
@@ -4840,11 +4850,8 @@ var TACServer = class {
           { url, hasSignature: !!signature },
           "Invalid Twilio webhook signature"
         );
-        void reply.code(403).send({ error: "Invalid webhook signature" });
-        done();
-        return;
+        return reply.code(403).send({ error: "Invalid webhook signature" });
       }
-      done();
     });
   }
   /**
@@ -5017,10 +5024,12 @@ var TACServer = class {
         host: voiceConfig.host,
         port: voiceConfig.port
       });
+      const address = this.fastify.server.address();
+      const boundPort = typeof address === "object" && address ? address.port : voiceConfig.port;
       this.fastify.log.info(
         {
           host: voiceConfig.host,
-          port: voiceConfig.port,
+          port: boundPort,
           twiml_webhook: this.config.webhookPaths.twiml,
           ws_websocket: this.config.webhookPaths.ws,
           conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,

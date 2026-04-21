@@ -82,7 +82,7 @@ const server = new CRelayServer(conversationRelay, {
     transcriptionProvider: 'Deepgram',
     ttsProvider: 'Google',
   },
-  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN, // For webhook validation
+  authToken: process.env.TWILIO_AUTH_TOKEN, // For webhook validation
 });
 
 await server.start();
@@ -172,7 +172,7 @@ new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConf
 - `conversationRelayConfig` - CR configuration
 - `development` - Enable pretty logging
 - `validateWebhooks` - Enable signature validation
-- `twilioAuthToken` - Auth token for validation
+- `authToken` - Auth token for validation
 
 ## Tools
 

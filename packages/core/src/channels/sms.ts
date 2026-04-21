@@ -16,7 +16,7 @@ export class SMSChannel extends MessagingChannel {
    * Check if a message is from the bot itself (by phone number)
    */
   protected isOwnMessage(authorAddress: string): boolean {
-    return authorAddress === this.config.twilioPhoneNumber;
+    return authorAddress === this.config.phoneNumber;
   }
 
   /**
@@ -60,7 +60,7 @@ export class SMSChannel extends MessagingChannel {
         p =>
           Array.isArray(p.addresses) &&
           p.addresses.some(
-            addr => addr.channel === 'SMS' && addr.address === this.config.twilioPhoneNumber
+            addr => addr.channel === 'SMS' && addr.address === this.config.phoneNumber
           )
       );
 
@@ -72,7 +72,7 @@ export class SMSChannel extends MessagingChannel {
 
       if (!agentParticipant) {
         throw new Error(
-          `Agent participant not found for conversation ${conversationId} with phone ${this.config.twilioPhoneNumber}`
+          `Agent participant not found for conversation ${conversationId} with phone ${this.config.phoneNumber}`
         );
       }
 
@@ -82,7 +82,7 @@ export class SMSChannel extends MessagingChannel {
           recipient_address: recipientAddress,
           recipient_participant_id: session.authorInfo.participantId,
           agent_participant_id: agentParticipant.id,
-          from_number: this.config.twilioPhoneNumber,
+          from_number: this.config.phoneNumber,
         },
         'Sending SMS via Send API'
       );
@@ -90,7 +90,7 @@ export class SMSChannel extends MessagingChannel {
       // Safe to assert: MessagingChannel constructor ensures conversationClient exists
       await this.conversationClient.sendCommunication(conversationId, {
         author: {
-          address: this.config.twilioPhoneNumber,
+          address: this.config.phoneNumber,
           channel: 'SMS',
           participantId: agentParticipant.id,
         },

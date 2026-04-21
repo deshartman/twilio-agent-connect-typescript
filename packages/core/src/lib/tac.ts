@@ -113,7 +113,7 @@ export class TAC {
       this.logger.info('Conversation Intelligence processor initialized');
     }
 
-    // Initialize ConversationClient (always required - CONVERSATION_SERVICE_ID is mandatory)
+    // Initialize ConversationClient (always required - TWILIO_CONVERSATION_CONFIGURATION_ID is mandatory)
     this.conversationClient = new ConversationClient(
       this.config,
       this.logger.child({ component: 'conversation' })
@@ -508,7 +508,7 @@ export class TAC {
       if (!this.conversationClient) {
         throw new Error(
           'Cannot retrieve memory: Memory API not configured and ConversationClient not available. ' +
-            'Ensure either MEMORY_STORE_ID is configured or CONVERSATION_SERVICE_ID is set.'
+            'Ensure either MEMORY_STORE_ID is configured or TWILIO_CONVERSATION_CONFIGURATION_ID is set.'
         );
       }
 

@@ -15,12 +15,12 @@ describe('Diagnostic: Callback Wiring', () => {
 
   beforeEach(() => {
     const config = new TACConfig({
-      twilioAccountSid: 'ACtest123',
-      twilioAuthToken: 'test_token',
-      twilioApiKey: 'SKtest123',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'conv_configuration_01kdiagtest123456789012345',
+      accountSid: 'ACtest123',
+      authToken: 'test_token',
+      apiKey: 'SKtest123',
+      apiSecret: 'test_api_token',
+      phoneNumber: '+15551234567',
+      conversationConfigurationId: 'conv_configuration_01kdiagtest123456789012345',
     });
 
     tac = new TAC({ config });

@@ -3,13 +3,13 @@ import { TACConfig } from '@twilio/tac-core';
 
 describe('TACConfig', () => {
   const getTestConfigData = () => ({
-    twilioAccountSid: 'ACtest123456789',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'SKtest123456789',
-    twilioApiToken: 'test_api_token_123',
-    twilioPhoneNumber: '+15551234567',
+    accountSid: 'ACtest123456789',
+    authToken: 'test_token_123',
+    apiKey: 'SKtest123456789',
+    apiSecret: 'test_api_token_123',
+    phoneNumber: '+15551234567',
     memoryStoreId: 'mem_store_01testmemorystore000000000',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
   afterEach(() => {
@@ -21,11 +21,13 @@ describe('TACConfig', () => {
       const configData = getTestConfigData();
       const config = new TACConfig(configData);
 
-      expect(config.twilioAccountSid).toBe('ACtest123456789');
-      expect(config.twilioAuthToken).toBe('test_token_123');
-      expect(config.twilioPhoneNumber).toBe('+15551234567');
+      expect(config.accountSid).toBe('ACtest123456789');
+      expect(config.authToken).toBe('test_token_123');
+      expect(config.phoneNumber).toBe('+15551234567');
       expect(config.memoryStoreId).toBe('mem_store_01testmemorystore000000000');
-      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
+      expect(config.conversationConfigurationId).toBe(
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
     });
 
     it('should validate required fields', () => {
@@ -37,8 +39,8 @@ describe('TACConfig', () => {
     it('should validate Twilio SID formats', () => {
       const invalidConfig = {
         ...getTestConfigData(),
-        twilioAccountSid: 'invalid_sid',
-        conversationServiceId: 'invalid_conv_sid',
+        accountSid: 'invalid_sid',
+        conversationConfigurationId: 'invalid_conv_sid',
       };
 
       expect(() => {
@@ -49,7 +51,7 @@ describe('TACConfig', () => {
     it('should reject legacy comms_service format', () => {
       const legacyConfig = {
         ...getTestConfigData(),
-        conversationServiceId: 'comms_service_01testcommsservice00000000',
+        conversationConfigurationId: 'comms_service_01testcommsservice00000000',
       };
 
       expect(() => {
@@ -98,31 +100,33 @@ describe('TACConfig', () => {
       const config = new TACConfig(configWithoutMemory);
 
       expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
+      expect(config.conversationConfigurationId).toBe(
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
     });
 
-    it('should store twilioRegion when provided', () => {
+    it('should store region when provided', () => {
       const config = new TACConfig({
         ...getTestConfigData(),
-        twilioRegion: 'test-region',
+        region: 'test-region',
       });
 
-      expect(config.twilioRegion).toBe('test-region');
+      expect(config.region).toBe('test-region');
     });
 
-    it('should leave twilioRegion undefined when not provided', () => {
+    it('should leave region undefined when not provided', () => {
       const config = new TACConfig(getTestConfigData());
 
-      expect(config.twilioRegion).toBeUndefined();
+      expect(config.region).toBeUndefined();
     });
 
-    it('should accept single-character twilioRegion', () => {
-      const config = new TACConfig({ ...getTestConfigData(), twilioRegion: 'a' });
+    it('should accept single-character region', () => {
+      const config = new TACConfig({ ...getTestConfigData(), region: 'a' });
 
-      expect(config.twilioRegion).toBe('a');
+      expect(config.region).toBe('a');
     });
 
-    it('should reject invalid twilioRegion values', () => {
+    it('should reject invalid region values', () => {
       const invalidRegions = [
         'has spaces',
         'has/slash',
@@ -135,7 +139,7 @@ describe('TACConfig', () => {
 
       for (const region of invalidRegions) {
         expect(() => {
-          new TACConfig({ ...getTestConfigData(), twilioRegion: region });
+          new TACConfig({ ...getTestConfigData(), region: region });
         }).toThrow('Invalid Twilio region format');
       }
     });
@@ -146,10 +150,13 @@ describe('TACConfig', () => {
       vi.stubEnv('TWILIO_ACCOUNT_SID', 'ACtest123');
       vi.stubEnv('TWILIO_AUTH_TOKEN', 'test_auth_token');
       vi.stubEnv('TWILIO_API_KEY', 'SKtest123');
-      vi.stubEnv('TWILIO_API_TOKEN', 'test_api_token');
+      vi.stubEnv('TWILIO_API_SECRET', 'test_api_token');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '+1234567890');
       vi.stubEnv('MEMORY_STORE_ID', 'mem_store_01testmemorystore000000000');
-      vi.stubEnv('CONVERSATION_SERVICE_ID', 'conv_configuration_01testconfigabc123xyzabcde');
+      vi.stubEnv(
+        'TWILIO_CONVERSATION_CONFIGURATION_ID',
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
     };
 
     it('should create config when all required env vars are set', () => {
@@ -157,11 +164,13 @@ describe('TACConfig', () => {
 
       const config = TACConfig.fromEnv();
 
-      expect(config.twilioAccountSid).toBe('ACtest123');
-      expect(config.twilioAuthToken).toBe('test_auth_token');
-      expect(config.twilioPhoneNumber).toBe('+1234567890');
+      expect(config.accountSid).toBe('ACtest123');
+      expect(config.authToken).toBe('test_auth_token');
+      expect(config.phoneNumber).toBe('+1234567890');
       expect(config.memoryStoreId).toBe('mem_store_01testmemorystore000000000');
-      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
+      expect(config.conversationConfigurationId).toBe(
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
     });
 
     it('should include optional voicePublicDomain when set', () => {
@@ -200,13 +209,13 @@ describe('TACConfig', () => {
       }).toThrow('Missing required environment variable: TWILIO_API_KEY');
     });
 
-    it('should throw error when TWILIO_API_TOKEN is missing', () => {
+    it('should throw error when TWILIO_API_SECRET is missing', () => {
       stubRequiredEnvVars();
-      vi.stubEnv('TWILIO_API_TOKEN', undefined);
+      vi.stubEnv('TWILIO_API_SECRET', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
-      }).toThrow('Missing required environment variable: TWILIO_API_TOKEN');
+      }).toThrow('Missing required environment variable: TWILIO_API_SECRET');
     });
 
     it('should throw error when TWILIO_PHONE_NUMBER is missing', () => {
@@ -225,16 +234,18 @@ describe('TACConfig', () => {
       const config = TACConfig.fromEnv();
 
       expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationServiceId).toBe('conv_configuration_01testconfigabc123xyzabcde');
+      expect(config.conversationConfigurationId).toBe(
+        'conv_configuration_01testconfigabc123xyzabcde'
+      );
     });
 
-    it('should throw error when CONVERSATION_SERVICE_ID is missing', () => {
+    it('should throw error when TWILIO_CONVERSATION_CONFIGURATION_ID is missing', () => {
       stubRequiredEnvVars();
-      vi.stubEnv('CONVERSATION_SERVICE_ID', undefined);
+      vi.stubEnv('TWILIO_CONVERSATION_CONFIGURATION_ID', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
-      }).toThrow('Missing required environment variable: CONVERSATION_SERVICE_ID');
+      }).toThrow('Missing required environment variable: TWILIO_CONVERSATION_CONFIGURATION_ID');
     });
 
     it('should throw error when no environment variables are set', () => {
@@ -242,7 +253,7 @@ describe('TACConfig', () => {
       vi.stubEnv('TWILIO_ACCOUNT_SID', '');
       vi.stubEnv('TWILIO_AUTH_TOKEN', '');
       vi.stubEnv('TWILIO_API_KEY', '');
-      vi.stubEnv('TWILIO_API_TOKEN', '');
+      vi.stubEnv('TWILIO_API_SECRET', '');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '');
 
       expect(() => {
@@ -256,16 +267,16 @@ describe('TACConfig', () => {
 
       const config = TACConfig.fromEnv();
 
-      expect(config.twilioRegion).toBe('test-region');
+      expect(config.region).toBe('test-region');
     });
 
-    it('should leave twilioRegion undefined when TWILIO_REGION is not set', () => {
+    it('should leave region undefined when TWILIO_REGION is not set', () => {
       stubRequiredEnvVars();
       vi.stubEnv('TWILIO_REGION', undefined);
 
       const config = TACConfig.fromEnv();
 
-      expect(config.twilioRegion).toBeUndefined();
+      expect(config.region).toBeUndefined();
     });
   });
 

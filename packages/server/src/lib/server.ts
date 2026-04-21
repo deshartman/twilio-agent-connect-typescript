@@ -178,7 +178,7 @@ export class TACServer {
       this.fastify = Fastify({
         logger: this.config.development
           ? {
-              level: process.env.LOG_LEVEL || 'info',
+              level: process.env.TWILIO_LOG_LEVEL || 'info',
               transport: {
                 target: 'pino-pretty',
                 options: {
@@ -187,7 +187,7 @@ export class TACServer {
               },
             }
           : {
-              level: process.env.LOG_LEVEL || 'info',
+              level: process.env.TWILIO_LOG_LEVEL || 'info',
             },
         ...config.fastify,
       });
@@ -220,7 +220,7 @@ export class TACServer {
 
       const signature = request.headers['x-twilio-signature'] as string;
       const url = this.getWebhookUrl(request);
-      const authToken = this.tac.getConfig().twilioAuthToken;
+      const authToken = this.tac.getConfig().authToken;
 
       let isValid: boolean;
 

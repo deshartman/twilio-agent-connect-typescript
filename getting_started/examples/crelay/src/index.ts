@@ -198,7 +198,7 @@ const server = new CRelayServer(conversationRelay, {
     ttsProvider: 'ElevenLabs',
     voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
-  ...(process.env.TWILIO_AUTH_TOKEN && { twilioAuthToken: process.env.TWILIO_AUTH_TOKEN }),
+  ...(process.env.TWILIO_AUTH_TOKEN && { authToken: process.env.TWILIO_AUTH_TOKEN }),
   validateWebhooks: true,
   development: true,
 });

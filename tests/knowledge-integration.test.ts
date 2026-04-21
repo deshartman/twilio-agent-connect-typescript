@@ -24,12 +24,12 @@ describe('Knowledge Integration', () => {
 
   beforeEach(() => {
     const config = new TACConfig({
-      twilioAccountSid: 'ACtest123',
-      twilioAuthToken: 'test_token',
-      twilioApiKey: 'SKtest123',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'conv_configuration_01kknowintegtest1234567890',
+      accountSid: 'ACtest123',
+      authToken: 'test_token',
+      apiKey: 'SKtest123',
+      apiSecret: 'test_api_token',
+      phoneNumber: '+15551234567',
+      conversationConfigurationId: 'conv_configuration_01kknowintegtest1234567890',
       memoryStoreId: 'mem_store_01kknowintegtestabcdefgh12',
     });
 

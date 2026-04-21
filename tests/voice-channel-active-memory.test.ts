@@ -14,12 +14,12 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   let tac: TAC;
 
   const getTestConfig = () => ({
-    twilioAccountSid: 'ACtest123456789',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'SKtest_api_key',
-    twilioApiToken: 'test_api_token',
-    twilioPhoneNumber: '+15555555555',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    accountSid: 'ACtest123456789',
+    authToken: 'test_token_123',
+    apiKey: 'SKtest_api_key',
+    apiSecret: 'test_api_token',
+    phoneNumber: '+15555555555',
+    conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
     memoryStoreId: 'mem_store_01234567890123456789abcdef', // Enable memory
   });
 
@@ -35,12 +35,12 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     }) as unknown as ConversationClient;
 
   const getTestConfigWithoutMemory = () => ({
-    twilioAccountSid: 'ACtest123456789',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'SKtest_api_key',
-    twilioApiToken: 'test_api_token',
-    twilioPhoneNumber: '+15555555555',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    accountSid: 'ACtest123456789',
+    authToken: 'test_token_123',
+    apiKey: 'SKtest_api_key',
+    apiSecret: 'test_api_token',
+    phoneNumber: '+15555555555',
+    conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
     // No memoryStoreId - memory disabled
   });
 

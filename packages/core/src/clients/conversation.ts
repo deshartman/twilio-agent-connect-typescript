@@ -38,14 +38,14 @@ function isHttpStatus(err: unknown, status: number): boolean {
  * Conversation client for interacting with Twilio Conversations Service
  */
 export class ConversationClient extends BaseClient {
-  private readonly conversationServiceId: string;
+  private readonly conversationConfigurationId: string;
 
   constructor(config: TACConfig, logger?: Logger) {
-    const baseUrl = config.twilioRegion
-      ? `https://conversations.${config.twilioRegion}.twilio.com`
+    const baseUrl = config.region
+      ? `https://conversations.${config.region}.twilio.com`
       : 'https://conversations.twilio.com';
     super(baseUrl, config, logger);
-    this.conversationServiceId = config.conversationServiceId;
+    this.conversationConfigurationId = config.conversationConfigurationId;
   }
 
   /**
@@ -108,7 +108,7 @@ export class ConversationClient extends BaseClient {
     const url = `/v2/Conversations`;
 
     const requestBody: Record<string, string> = {
-      configurationId: this.conversationServiceId,
+      configurationId: this.conversationConfigurationId,
     };
 
     if (name) {

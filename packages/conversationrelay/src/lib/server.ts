@@ -44,7 +44,7 @@ export interface CRelayServerConfig {
   validateWebhooks?: boolean;
 
   /** Twilio auth token (required for webhook validation) */
-  twilioAuthToken?: string;
+  authToken?: string;
 }
 
 /**
@@ -57,10 +57,10 @@ export class CRelayServer {
   private readonly fastify: FastifyInstance;
   private readonly conversationRelay: ConversationRelay;
   private readonly config: Required<
-    Omit<CRelayServerConfig, 'fastify' | 'twilioAuthToken' | 'conversationRelayConfig'>
+    Omit<CRelayServerConfig, 'fastify' | 'authToken' | 'conversationRelayConfig'>
   > & {
     conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
-    twilioAuthToken: string | undefined;
+    authToken: string | undefined;
   };
 
   constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig = {}) {
@@ -80,16 +80,16 @@ export class CRelayServer {
       },
       development: config.development ?? false,
       validateWebhooks: config.validateWebhooks ?? true,
-      twilioAuthToken: config.twilioAuthToken,
+      authToken: config.authToken,
     };
 
     this.fastify = Fastify({
       logger: this.config.development
         ? {
-            level: process.env.LOG_LEVEL || 'info',
+            level: process.env.TWILIO_LOG_LEVEL || 'info',
             transport: { target: 'pino-pretty', options: { colorize: true } },
           }
-        : { level: process.env.LOG_LEVEL || 'info' },
+        : { level: process.env.TWILIO_LOG_LEVEL || 'info' },
       ...config.fastify,
     });
   }
@@ -152,8 +152,8 @@ export class CRelayServer {
    * Register webhook signature validation
    */
   private registerWebhookValidation(): void {
-    if (!this.config.twilioAuthToken) {
-      this.fastify.log.warn('Webhook validation enabled but no twilioAuthToken provided');
+    if (!this.config.authToken) {
+      this.fastify.log.warn('Webhook validation enabled but no authToken provided');
       return;
     }
 
@@ -169,7 +169,7 @@ export class CRelayServer {
       const url = `${proto}://${host}${request.url}`;
 
       const params = (request.body as Record<string, string>) || {};
-      const isValid = twilio.validateRequest(this.config.twilioAuthToken!, signature, url, params);
+      const isValid = twilio.validateRequest(this.config.authToken!, signature, url, params);
 
       if (!isValid) {
         this.fastify.log.warn({ url }, 'Invalid Twilio webhook signature');

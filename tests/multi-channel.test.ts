@@ -19,12 +19,12 @@ describe('Multi-Channel Orchestration', () => {
 
   beforeEach(() => {
     const config = new TACConfig({
-      twilioAccountSid: 'ACtest123',
-      twilioAuthToken: 'test_token',
-      twilioApiKey: 'SKtest123',
-      twilioApiToken: 'test_api_token',
-      twilioPhoneNumber: '+15551234567',
-      conversationServiceId: 'conv_configuration_01kmultitest12345678901234',
+      accountSid: 'ACtest123',
+      authToken: 'test_token',
+      apiKey: 'SKtest123',
+      apiSecret: 'test_api_token',
+      phoneNumber: '+15551234567',
+      conversationConfigurationId: 'conv_configuration_01kmultitest12345678901234',
     });
 
     tac = new TAC({ config });
@@ -389,12 +389,12 @@ describe('Multi-Channel Orchestration', () => {
 
     it('should return undefined for unregistered channel', () => {
       const config = new TACConfig({
-        twilioAccountSid: 'ACtest123',
-        twilioAuthToken: 'test_token',
-        twilioApiKey: 'SKtest123',
-        twilioApiToken: 'test_api_token',
-        twilioPhoneNumber: '+15551234567',
-        conversationServiceId: 'conv_configuration_01kmultitest12345678901234',
+        accountSid: 'ACtest123',
+        authToken: 'test_token',
+        apiKey: 'SKtest123',
+        apiSecret: 'test_api_token',
+        phoneNumber: '+15551234567',
+        conversationConfigurationId: 'conv_configuration_01kmultitest12345678901234',
       });
 
       const emptyTac = new TAC({ config });

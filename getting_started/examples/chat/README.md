@@ -18,9 +18,9 @@ Example demonstrating ChatChannel integration with Twilio Agent Connect. Uses th
 
    Required credentials:
    - Standard TAC credentials (Account SID, Auth Token, API credentials)
-   - `CONVERSATION_SERVICE_ID` - Conversation Orchestrator configuration ID (starts with `conv_configuration_`) - required for ChatChannel
+   - `TWILIO_CONVERSATION_CONFIGURATION_ID` - Conversation Orchestrator configuration ID (starts with `conv_configuration_`) - required for ChatChannel
    - `TWILIO_API_KEY` - API Key SID (starts with SK) for SDK token generation
-   - `TWILIO_API_TOKEN` - API Token for SDK token generation
+   - `TWILIO_API_SECRET` - API Secret for SDK token generation
    - `TWILIO_CONVERSATION_SERVICE_SID` - Conversations API v1 Service SID (starts with IS, **not** the same as Conversation Orchestrator)
    - `OPENAI_API_KEY` - OpenAI API key
 

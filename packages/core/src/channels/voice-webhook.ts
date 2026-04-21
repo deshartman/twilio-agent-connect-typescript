@@ -44,7 +44,7 @@ export class VoiceWebhookChannel extends MessagingChannel {
     config?: VoiceWebhookChannelConfig
   ) {
     super(deps, config);
-    this.agentAddress = config?.agentAddress ?? this.config.twilioPhoneNumber;
+    this.agentAddress = config?.agentAddress ?? this.config.phoneNumber;
   }
 
   public get channelType(): ChannelType {

@@ -66,7 +66,7 @@ Update `VOICE_PUBLIC_DOMAIN` in your `.env` file with the full ngrok URL (includ
 
 ## Environment Variables
 
-> **Important**: TAC uses Conversation Orchestrator (Maestro) via `CONVERSATION_SERVICE_ID` (format: `conv_configuration_*`). The chat example separately requires Conversations API v1 via `TWILIO_CONVERSATION_SERVICE_SID` (format: `IS*`) for SDK token generation. These are different Twilio services - do not confuse them.
+> **Important**: TAC uses Conversation Orchestrator (Maestro) via `TWILIO_CONVERSATION_CONFIGURATION_ID` (format: `conv_configuration_*`). The chat example separately requires Conversations API v1 via `TWILIO_CONVERSATION_SERVICE_SID` (format: `IS*`) for SDK token generation. These are different Twilio services - do not confuse them.
 
 See [`examples/.env.example`](examples/.env.example) for all available configuration options. Key variables:
 
@@ -75,12 +75,12 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 - `TWILIO_ACCOUNT_SID`: Twilio account SID
 - `TWILIO_AUTH_TOKEN`: Twilio auth token
 - `TWILIO_API_KEY`: Twilio API key
-- `TWILIO_API_TOKEN`: Twilio API token
+- `TWILIO_API_SECRET`: Twilio API secret
 - `TWILIO_PHONE_NUMBER`: Your Twilio phone number
 
 ### Conversation Orchestrator - Maestro (Required)
 
-- `CONVERSATION_SERVICE_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`)
+- `TWILIO_CONVERSATION_CONFIGURATION_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`)
 
 ### Optional
 

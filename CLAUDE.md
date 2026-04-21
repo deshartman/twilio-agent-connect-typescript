@@ -69,7 +69,7 @@ getting_started/  # Example apps (OpenAI integration)
   - **Validation**: Zod schemas validate all responses at runtime
   - **Error logging**: Logs 4xx client errors as warnings, 5xx/network failures as errors via interceptors
   - **Branded types**: Compile-time type safety for domain identifiers (`ConversationId`, `MemoryStoreId`, `ProfileId`, `KnowledgeBaseId`, `KnowledgeId`, `ParticipantId`)
-  - Credentials consolidated at `TACConfig` level (twilioApiKey/twilioApiToken shared across clients)
+  - Credentials consolidated at `TACConfig` level (apiKey/apiSecret shared across clients)
 - **TACServer** (`packages/server/src/lib/server.ts`): Fastify-based server with mode-conditional route registration — no dead routes in any mode
 
 ## Channel Architecture
@@ -85,7 +85,7 @@ TAC provides multi-channel conversation orchestration using Maestro Conversation
 ### Session Identity
 - Session ID is always `ConversationId` (Maestro conversation identifier)
 - Single conversation thread across all channels (voice, SMS, chat)
-- Session identity provided via `CONVERSATION_SERVICE_ID` (required)
+- Session identity provided via `TWILIO_CONVERSATION_CONFIGURATION_ID` (required)
 
 ### Unified ChannelMessage
 
@@ -112,7 +112,7 @@ const channel = new VoiceChannel(tac.getChannelDeps());
 The `getChannelDeps()` method returns:
 - `config`: TACConfig instance
 - `logger`: Pino logger
-- `conversationClient`: ConversationClient (always available - CONVERSATION_SERVICE_ID is required)
+- `conversationClient`: ConversationClient (always available - TWILIO_CONVERSATION_CONFIGURATION_ID is required)
 - `memoryRetriever`: MemoryRetriever function (if Memory is configured)
 
 ## Participant Management: Race Condition Handling

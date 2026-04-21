@@ -22,7 +22,7 @@ This branch extracts ConversationRelay into a standalone package (`@twilio/tac-c
 
 - **Main branch:** ~250 tests
 - **This branch:** **494 tests** across 30 files (30/30 files passing, 494/494 cases passing)
-- **Net:** +244 tests, largely concentrated in the new CR protocol methods, tool registry, silence detector, channel tool-interface surfaces, `twilioRegion` support, and BYO-Fastify customization.
+- **Net:** +244 tests, largely concentrated in the new CR protocol methods, tool registry, silence detector, channel tool-interface surfaces, `region` support, and BYO-Fastify customization.
 
 ---
 
@@ -400,7 +400,7 @@ export type Logger = pino.Logger;
 export function createLogger(options?: { level?: string; pretty?: boolean; name?: string }): Logger;
 ```
 
-`createLogger` honours `LOG_LEVEL`, auto-enables `pino-pretty` in development, and reads `NODE_ENV` for defaults.
+`createLogger` honours `TWILIO_LOG_LEVEL`, auto-enables `pino-pretty` in development, and reads `NODE_ENV` for defaults.
 
 ---
 

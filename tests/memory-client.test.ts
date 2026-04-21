@@ -7,13 +7,13 @@ import MockAdapter from 'axios-mock-adapter';
 describe('MemoryClient', () => {
   const getTestConfig = () => ({
 
-    twilioAccountSid: 'ACtest123',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'test_api_key',
-    twilioApiToken: 'test_api_token',
-    twilioPhoneNumber: '+15551234567',
+    accountSid: 'ACtest123',
+    authToken: 'test_token_123',
+    apiKey: 'test_api_key',
+    apiSecret: 'test_api_token',
+    phoneNumber: '+15551234567',
     memoryStoreId: 'mem_store_01testmemorystore000000000',
-    conversationServiceId: 'conv_configuration_01testconvservice000000000',
+    conversationConfigurationId: 'conv_configuration_01testconvservice000000000',
   });
 
   let memoryClient: MemoryClient;
@@ -116,7 +116,7 @@ describe('MemoryClient', () => {
 
   describe('region support', () => {
     it('should use region in base URL when configured', () => {
-      const config = new TACConfig({ ...getTestConfig(), twilioRegion: 'test-region' });
+      const config = new TACConfig({ ...getTestConfig(), region: 'test-region' });
       const regionClient = new MemoryClient(config);
 
       expect((regionClient as any).baseUrl).toBe('https://memory.test-region.twilio.com');

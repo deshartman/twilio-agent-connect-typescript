@@ -8,12 +8,12 @@ describe('VoiceWebhookChannel', () => {
   });
 
   const config = new TACConfig({
-    twilioAccountSid: 'ACtest123456789',
-    twilioAuthToken: 'test_token_123',
-    twilioApiKey: 'test_api_key',
-    twilioApiToken: 'test_api_token',
-    twilioPhoneNumber: '+15551234567',
-    conversationServiceId: 'conv_configuration_01testconfigabc123xyzabcde',
+    accountSid: 'ACtest123456789',
+    authToken: 'test_token_123',
+    apiKey: 'test_api_key',
+    apiSecret: 'test_api_token',
+    phoneNumber: '+15551234567',
+    conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
   const logger = createLogger({ name: 'test', level: 'silent' });
   const conversationClient = {
@@ -38,7 +38,7 @@ describe('VoiceWebhookChannel', () => {
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(false);
     });
 
-    it('should default agentAddress to twilioPhoneNumber', async () => {
+    it('should default agentAddress to phoneNumber', async () => {
       // Send a message from the configured phone number — should be filtered as own message
       const messageCallback = vi.fn();
       channel.on('message', messageCallback);
@@ -48,7 +48,7 @@ describe('VoiceWebhookChannel', () => {
         data: {
           conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           author: {
-            address: '+15551234567', // same as twilioPhoneNumber
+            address: '+15551234567', // same as phoneNumber
             channel: 'VOICE',
           },
           content: { type: 'TEXT', text: 'Bot response' },
@@ -283,7 +283,7 @@ describe('VoiceWebhookChannel', () => {
         data: {
           conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           content: { type: 'TEXT', text: 'Agent echo' },
-          author: { address: '+15551234567', channel: 'VOICE' }, // same as twilioPhoneNumber
+          author: { address: '+15551234567', channel: 'VOICE' }, // same as phoneNumber
         },
       });
 

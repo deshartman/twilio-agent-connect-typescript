@@ -57,7 +57,7 @@ TAC uses **Maestro Conversations Service** for unified conversation orchestratio
 - **SMS**: Maestro webhook ingestion and response delivery
 - **Chat**: Maestro webhook ingestion and response delivery
 
-All channels require `CONVERSATION_SERVICE_ID` to be configured in your environment.
+All channels require `TWILIO_CONVERSATION_CONFIGURATION_ID` to be configured in your environment.
 
 For advanced use cases, `VoiceWebhookChannel` is available for bring-your-own ConversationRelay server setups (webhook-only, no WebSocket management).
 
