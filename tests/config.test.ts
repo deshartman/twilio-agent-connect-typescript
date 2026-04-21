@@ -175,7 +175,7 @@ describe('TACConfig', () => {
 
     it('should throw error when TWILIO_ACCOUNT_SID is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.TWILIO_ACCOUNT_SID;
+      vi.stubEnv('TWILIO_ACCOUNT_SID', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
@@ -184,7 +184,7 @@ describe('TACConfig', () => {
 
     it('should throw error when TWILIO_AUTH_TOKEN is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.TWILIO_AUTH_TOKEN;
+      vi.stubEnv('TWILIO_AUTH_TOKEN', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
@@ -193,7 +193,7 @@ describe('TACConfig', () => {
 
     it('should throw error when TWILIO_API_KEY is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.TWILIO_API_KEY;
+      vi.stubEnv('TWILIO_API_KEY', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
@@ -202,7 +202,7 @@ describe('TACConfig', () => {
 
     it('should throw error when TWILIO_API_TOKEN is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.TWILIO_API_TOKEN;
+      vi.stubEnv('TWILIO_API_TOKEN', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
@@ -211,7 +211,7 @@ describe('TACConfig', () => {
 
     it('should throw error when TWILIO_PHONE_NUMBER is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.TWILIO_PHONE_NUMBER;
+      vi.stubEnv('TWILIO_PHONE_NUMBER', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
@@ -220,7 +220,7 @@ describe('TACConfig', () => {
 
     it('should work when MEMORY_STORE_ID is not provided', () => {
       stubRequiredEnvVars();
-      delete process.env.MEMORY_STORE_ID;
+      vi.stubEnv('MEMORY_STORE_ID', undefined);
 
       const config = TACConfig.fromEnv();
 
@@ -230,7 +230,7 @@ describe('TACConfig', () => {
 
     it('should throw error when CONVERSATION_SERVICE_ID is missing', () => {
       stubRequiredEnvVars();
-      delete process.env.CONVERSATION_SERVICE_ID;
+      vi.stubEnv('CONVERSATION_SERVICE_ID', undefined);
 
       expect(() => {
         TACConfig.fromEnv();
