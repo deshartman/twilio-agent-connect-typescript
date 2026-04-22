@@ -74,6 +74,9 @@ conversationRelay.onSessionEnded((callSid) => {
 });
 
 // Create and start server
+if (!process.env.TWILIO_AUTH_TOKEN) {
+  throw new Error('TWILIO_AUTH_TOKEN is required');
+}
 const server = new CRelayServer(conversationRelay, {
   host: '0.0.0.0',
   port: 3000,
@@ -82,7 +85,7 @@ const server = new CRelayServer(conversationRelay, {
     transcriptionProvider: 'Deepgram',
     ttsProvider: 'Google',
   },
-  authToken: process.env.TWILIO_AUTH_TOKEN, // For webhook validation
+  authToken: process.env.TWILIO_AUTH_TOKEN, // required — always-on signature validation
 });
 
 await server.start();
@@ -171,8 +174,7 @@ new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConf
 - `webhookPaths` - Custom paths for endpoints
 - `conversationRelayConfig` - CR configuration
 - `development` - Enable pretty logging
-- `validateWebhooks` - Enable signature validation
-- `authToken` - Auth token for validation
+- `authToken` - **Required.** Twilio auth token used to validate every incoming webhook and WebSocket upgrade. Signature validation is always on (see PR #69).
 
 ## Tools
 

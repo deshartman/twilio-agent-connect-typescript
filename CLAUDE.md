@@ -144,7 +144,6 @@ The `TACServer` class (`packages/server/src/lib/server.ts`) provides a productio
     welcomeGreeting: 'Hello! Set up your welcome greeting in the server config.',
   },
   development: false,
-  validateWebhooks: true,
 }
 ```
 

@@ -40,11 +40,12 @@ export interface CRelayServerConfig {
   /** Enable development logging (pino-pretty) */
   development?: boolean;
 
-  /** Enable Twilio webhook signature validation (default: true) */
-  validateWebhooks?: boolean;
-
-  /** Twilio auth token (required for webhook validation) */
-  authToken?: string;
+  /**
+   * Twilio auth token used to validate every incoming webhook and WebSocket
+   * upgrade. Required — there is no opt-out. Matches the always-on posture
+   * of TACServer (see PR #69).
+   */
+  authToken: string;
 }
 
 /**
@@ -57,13 +58,12 @@ export class CRelayServer {
   private readonly fastify: FastifyInstance;
   private readonly conversationRelay: ConversationRelay;
   private readonly config: Required<
-    Omit<CRelayServerConfig, 'fastify' | 'authToken' | 'conversationRelayConfig'>
+    Omit<CRelayServerConfig, 'fastify' | 'conversationRelayConfig'>
   > & {
     conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
-    authToken: string | undefined;
   };
 
-  constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig = {}) {
+  constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig) {
     this.conversationRelay = conversationRelay;
 
     this.config = {
@@ -79,7 +79,6 @@ export class CRelayServer {
         welcomeGreeting: 'Hello! How can I help you?',
       },
       development: config.development ?? false,
-      validateWebhooks: config.validateWebhooks ?? true,
       authToken: config.authToken,
     };
 
@@ -104,10 +103,8 @@ export class CRelayServer {
       await this.fastify.register(websocket);
       await this.fastify.register(gracefulShutdown);
 
-      // Register webhook validation if enabled
-      if (this.config.validateWebhooks) {
-        this.registerWebhookValidation();
-      }
+      // Webhook signature validation is always on — see PR #69
+      this.registerWebhookValidation();
 
       // Setup routes
       await this.setupRoutes();
@@ -138,7 +135,6 @@ export class CRelayServer {
           ws_websocket: this.config.webhookPaths.ws,
           callback_webhook: this.config.webhookPaths.callback,
           maestro_sink: this.config.webhookPaths.webhook,
-          webhook_validation: this.config.validateWebhooks ? 'enabled' : 'disabled',
         },
         'CRelayServer started (standalone ConversationRelay)'
       );
@@ -149,27 +145,20 @@ export class CRelayServer {
   }
 
   /**
-   * Register webhook signature validation
+   * Register webhook signature validation on POST routes. The WebSocket
+   * `/ws` route is validated in its own handler (see setupRoutes).
    */
   private registerWebhookValidation(): void {
-    if (!this.config.authToken) {
-      this.fastify.log.warn('Webhook validation enabled but no authToken provided');
-      return;
-    }
-
     this.fastify.addHook('preHandler', async (request, reply) => {
-      // Skip GET requests (WebSocket upgrades)
+      // Skip GET requests — WebSocket upgrades are validated in the route handler
       if (request.method === 'GET') {
         return;
       }
 
       const signature = request.headers['x-twilio-signature'] as string;
-      const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
-      const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
-      const url = `${proto}://${host}${request.url}`;
-
+      const url = this.getWebhookUrl(request);
       const params = (request.body as Record<string, string>) || {};
-      const isValid = twilio.validateRequest(this.config.authToken!, signature, url, params);
+      const isValid = twilio.validateRequest(this.config.authToken, signature, url, params);
 
       if (!isValid) {
         this.fastify.log.warn({ url }, 'Invalid Twilio webhook signature');
@@ -178,6 +167,16 @@ export class CRelayServer {
         return reply.code(403).send({ error: 'Invalid webhook signature' });
       }
     });
+  }
+
+  /**
+   * Build the full URL the way Twilio signed it. Honours X-Forwarded-*
+   * headers for proxy/ngrok scenarios.
+   */
+  private getWebhookUrl(request: FastifyRequest): string {
+    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+    const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
+    return `${proto}://${host}${request.url}`;
   }
 
   /**
@@ -212,11 +211,28 @@ export class CRelayServer {
       }
     );
 
-    // WebSocket endpoint
+    // WebSocket endpoint — validate Twilio signature on upgrade (see PR #69)
     await this.fastify.register(fastify => {
-      fastify.get(this.config.webhookPaths.ws!, { websocket: true }, (socket: WebSocket) => {
-        this.conversationRelay.handleConnection(socket);
-      });
+      fastify.get(
+        this.config.webhookPaths.ws!,
+        { websocket: true },
+        (socket: WebSocket, request: FastifyRequest) => {
+          const signature = request.headers['x-twilio-signature'] as string;
+          const url = this.getWebhookUrl(request);
+          const isValid = twilio.validateRequest(this.config.authToken, signature, url, {});
+
+          if (!isValid) {
+            this.fastify.log.warn(
+              { url, hasSignature: !!signature },
+              'WebSocket connection rejected: invalid Twilio signature'
+            );
+            socket.close(1008, 'Invalid signature');
+            return;
+          }
+
+          this.conversationRelay.handleConnection(socket);
+        }
+      );
     });
 
     // Callback endpoint (call ended)

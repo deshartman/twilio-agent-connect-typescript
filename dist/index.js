@@ -4737,8 +4737,7 @@ var DEFAULT_CONFIG = {
   conversationRelayConfig: {
     welcomeGreeting: "Hello! Set up your welcome greeting in the server config."
   },
-  development: false,
-  validateWebhooks: true
+  development: false
 };
 var TACServer = class {
   fastify;
@@ -4803,11 +4802,9 @@ var TACServer = class {
    * Register global Twilio webhook signature validation hook
    */
   registerWebhookValidation() {
-    if (!this.config.validateWebhooks) {
-      return;
-    }
-    this.fastify.addHook("preHandler", async (request, reply) => {
+    this.fastify.addHook("preHandler", (request, reply, done) => {
       if (request.method === "GET") {
+        done();
         return;
       }
       const signature = request.headers["x-twilio-signature"];
@@ -4826,8 +4823,11 @@ var TACServer = class {
           { url, hasSignature: !!signature },
           "Invalid Twilio webhook signature"
         );
-        return reply.code(403).send({ error: "Invalid webhook signature" });
+        void reply.code(403).send({ error: "Invalid webhook signature" });
+        done();
+        return;
       }
+      done();
     });
   }
   /**
@@ -4907,12 +4907,24 @@ var TACServer = class {
       fastify.get(
         this.config.webhookPaths.ws || "/ws",
         { websocket: true },
-        (socket) => {
-          if (this.voiceChannel) {
-            this.voiceChannel.handleWebSocketConnection(socket);
-          } else {
-            socket.terminate();
+        (socket, request) => {
+          const signature = request.headers["x-twilio-signature"];
+          const url = this.getWebhookUrl(request);
+          const authToken = this.tac.getConfig().authToken;
+          const isValid = twilio2.validateRequest(authToken, signature, url, {});
+          if (!isValid) {
+            this.fastify.log.warn(
+              { url, hasSignature: !!signature },
+              "WebSocket connection rejected: invalid Twilio signature"
+            );
+            socket.close(1008, "Invalid signature");
+            return;
           }
+          if (!this.voiceChannel) {
+            socket.terminate();
+            return;
+          }
+          this.voiceChannel.handleWebSocketConnection(socket);
         }
       );
     });
@@ -5012,16 +5024,10 @@ var TACServer = class {
           messaging_webhook: this.config.webhookPaths.messaging,
           ...this.config.webhookPaths.cintel && {
             cintel_webhook: this.config.webhookPaths.cintel
-          },
-          webhook_validation: this.config.validateWebhooks ? "enabled" : "disabled"
+          }
         },
         "TAC Server started"
       );
-      if (!this.config.validateWebhooks) {
-        this.fastify.log.warn(
-          "Webhook signature validation is DISABLED. Enable in production for security."
-        );
-      }
     } catch (error) {
       this.fastify.log.error({ err: error }, "Failed to start TAC Server");
       throw error;

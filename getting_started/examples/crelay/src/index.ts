@@ -189,6 +189,10 @@ conversationRelay.onError((callSid: CallSid, error: Error) => {
 });
 
 // Create and start standalone server
+if (!process.env.TWILIO_AUTH_TOKEN) {
+  throw new Error('TWILIO_AUTH_TOKEN is required for webhook signature validation');
+}
+
 const server = new CRelayServer(conversationRelay, {
   host: '0.0.0.0',
   port: Number.parseInt(process.env.PORT || '8000', 10),
@@ -198,8 +202,7 @@ const server = new CRelayServer(conversationRelay, {
     ttsProvider: 'ElevenLabs',
     voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
-  ...(process.env.TWILIO_AUTH_TOKEN && { authToken: process.env.TWILIO_AUTH_TOKEN }),
-  validateWebhooks: true,
+  authToken: process.env.TWILIO_AUTH_TOKEN,
   development: true,
 });
 
