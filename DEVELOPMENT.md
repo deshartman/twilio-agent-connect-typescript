@@ -134,7 +134,7 @@ npm run example:chat             # Chat example
        "dev": "tsc --watch"
      },
      "dependencies": {
-       "@twilio/tac-types": "*"
+       "@twilio/tac-core": "*"
      }
    }
    ```
@@ -148,7 +148,7 @@ npm run example:chat             # Chat example
        "rootDir": "./src"
      },
      "references": [
-       { "path": "../types" }
+       { "path": "../core" }
      ]
    }
    ```

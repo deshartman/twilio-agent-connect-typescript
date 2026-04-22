@@ -27,7 +27,7 @@ export abstract class BaseClient {
 
   constructor(baseUrl: string, config: TACConfig, logger?: Logger) {
     this.baseUrl = baseUrl;
-    this.logger = logger || createLogger({ name: this.constructor.name });
+    this.logger = logger ?? createLogger({ name: this.constructor.name });
 
     // Create Authorization header for Basic Auth
     const authHeader =

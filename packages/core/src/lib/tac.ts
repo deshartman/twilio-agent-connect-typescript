@@ -418,7 +418,7 @@ export class TAC {
       // If profileId is missing, try to lookup profile using address
       if (!session.profileId) {
         // Check if authorInfo and address are available
-        if (!session.authorInfo || !session.authorInfo.address) {
+        if (!session.authorInfo?.address) {
           throw new Error(
             'profileId is required for memory retrieval but was not found in ' +
               'conversation context. Additionally, authorInfo.address is not available ' +

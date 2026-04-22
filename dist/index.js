@@ -805,7 +805,7 @@ var BaseClient = class {
   axiosInstance;
   constructor(baseUrl, config, logger2) {
     this.baseUrl = baseUrl;
-    this.logger = logger2 || createLogger({ name: this.constructor.name });
+    this.logger = logger2 ?? createLogger({ name: this.constructor.name });
     const authHeader = "Basic " + Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString("base64");
     const baseOrigin = new URL(baseUrl).origin;
     this.axiosInstance = axios.create({
@@ -2078,7 +2078,7 @@ var TAC = class _TAC {
   async retrieveMemory(session, query) {
     try {
       if (!session.profileId) {
-        if (!session.authorInfo || !session.authorInfo.address) {
+        if (!session.authorInfo?.address) {
           throw new Error(
             "profileId is required for memory retrieval but was not found in conversation context. Additionally, authorInfo.address is not available for profile lookup. Ensure either profileId or authorInfo.address is provided when creating the ConversationSession."
           );
