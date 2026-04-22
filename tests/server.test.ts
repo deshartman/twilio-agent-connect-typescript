@@ -1030,8 +1030,41 @@ describe('TACServer WebSocket signature validation', () => {
     expect(mockValidateRequest).toHaveBeenCalledWith(
       'test_token_123',
       'test-ws-sig',
-      expect.stringContaining('/ws'),
+      expect.stringMatching(/^wss?:\/\/.*\/ws$/),
       {}
+    );
+
+    ws.close();
+  });
+
+  it('should extract query params from WebSocket URL for signature validation', async () => {
+    mockValidateRequest.mockReturnValue(true);
+
+    server = new TACServer(tac, {
+      development: true,
+      voice: { port: currentPort },
+    });
+
+    await server.start();
+    const actualPort = getActualPort(server);
+
+    const ws = new WebSocket(
+      `ws://localhost:${actualPort}/ws?AccountSid=AC123&CallSid=CA456`,
+      {
+        headers: { 'X-Twilio-Signature': 'test-ws-sig' },
+      }
+    );
+
+    await new Promise<void>(resolve => {
+      ws.on('open', () => resolve());
+      ws.on('error', () => resolve());
+    });
+
+    expect(mockValidateRequest).toHaveBeenCalledWith(
+      'test_token_123',
+      'test-ws-sig',
+      expect.stringMatching(/^wss?:\/\/.*\/ws$/),
+      { AccountSid: 'AC123', CallSid: 'CA456' }
     );
 
     ws.close();

@@ -228,8 +228,7 @@ export class TACServer {
 
       // Check if this is a JSON body webhook (has bodySHA256 in query string)
       if (request.url.includes('bodySHA256=')) {
-        // JSON body validation - use raw body string
-        const body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+        const body = (request as FastifyRequest & { rawBody?: string }).rawBody ?? '';
         isValid = twilio.validateRequestWithBody(authToken, signature, url, body);
       } else {
         // Form-encoded validation - use parsed params
@@ -352,9 +351,20 @@ export class TACServer {
         { websocket: true },
         (socket: WebSocket, request: FastifyRequest) => {
           const signature = request.headers['x-twilio-signature'] as string;
-          const url = this.getWebhookUrl(request);
           const authToken = this.tac.getConfig().authToken;
-          const isValid = twilio.validateRequest(authToken, signature, url, {});
+
+          const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+          const host =
+            (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
+          const wsProto = proto === 'https' ? 'wss' : 'ws';
+          const fullUrl = new URL(`${wsProto}://${host}${request.url}`);
+          const params: Record<string, string> = {};
+          fullUrl.searchParams.forEach((value, key) => {
+            params[key] = value;
+          });
+          const url = fullUrl.origin + fullUrl.pathname;
+
+          const isValid = twilio.validateRequest(authToken, signature, url, params);
 
           if (!isValid) {
             this.fastify.log.warn(
@@ -456,6 +466,22 @@ export class TACServer {
       if (!this.fastify.hasDecorator('gracefulShutdown')) {
         await this.fastify.register(gracefulShutdown);
       }
+
+      // Replace the default JSON parser with one that stores the raw body string,
+      // needed by validateRequestWithBody for bodySHA256 signature validation.
+      this.fastify.removeContentTypeParser('application/json');
+      this.fastify.addContentTypeParser(
+        'application/json',
+        { parseAs: 'string' },
+        (request, body: string, done) => {
+          (request as FastifyRequest & { rawBody?: string }).rawBody = body;
+          try {
+            done(null, JSON.parse(body));
+          } catch (err) {
+            done(err as Error, undefined);
+          }
+        }
+      );
 
       // Register webhook signature validation (must be after formbody for body access)
       this.registerWebhookValidation();
