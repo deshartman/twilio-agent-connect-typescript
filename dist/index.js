@@ -312,6 +312,7 @@ var StatusCallbackSchema = z.object({
   method: z.enum(["POST", "GET", "PUT", "DELETE", "PATCH"]).optional().default("POST")
 });
 var ConversationGroupingTypeSchema = z.enum([
+  "GROUP_BY_PROFILE",
   "GROUP_BY_PARTICIPANT_ADDRESSES",
   "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"
 ]);
