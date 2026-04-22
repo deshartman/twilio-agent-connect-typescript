@@ -250,16 +250,16 @@ var ConversationSessionSchema = z.object({
   profile: z.custom().optional()
 });
 function isConversationId(value) {
-  return /^conv_conversation_[0-9a-z]{26}$/.test(value);
+  return /^conv_conversation_[0-7][0-9a-z]{25}$/.test(value);
 }
 function isProfileId(value) {
-  return /^mem_profile_[0-9a-z]{26}$/.test(value);
+  return /^mem_profile_[0-7][0-9a-z]{25}$/.test(value);
 }
 function isParticipantId(value) {
-  return /^conv_participant_[0-9a-z]{26}$/.test(value);
+  return /^conv_participant_[0-7][0-9a-z]{25}$/.test(value);
 }
 function isMemoryStoreId(value) {
-  return /^mem_store_[0-9a-z]{26}$/.test(value);
+  return /^mem_store_[0-7][0-9a-z]{25}$/.test(value);
 }
 var ConversationResponseSchema = z.object({
   id: z.string(),
@@ -320,7 +320,7 @@ var ConversationConfigurationSchema = z.object({
   displayName: z.string().max(32).regex(/^[a-zA-Z0-9-_ ]+$/).nullable().optional(),
   description: z.string(),
   conversationGroupingType: ConversationGroupingTypeSchema,
-  memoryStoreId: z.string().regex(/^mem_(store|service)_[0-7][0-9a-z]{25}$/, "Invalid Memory Store ID format"),
+  memoryStoreId: z.string().regex(/^mem_store_[0-7][0-9a-z]{25}$/, "Invalid Memory Store ID format"),
   channelSettings: z.record(ChannelSettingsSchema).nullable().optional(),
   statusCallbacks: z.array(StatusCallbackSchema).max(20).nullable().optional(),
   intelligenceConfigurationIds: z.array(z.string()).max(5).nullable().optional(),

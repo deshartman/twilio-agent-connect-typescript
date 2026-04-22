@@ -1720,7 +1720,9 @@ type ConversationSession = Omit<z.infer<typeof ConversationSessionSchema>, 'conv
 };
 /**
  * Type guards for branded types with format validation
- * All Twilio Type IDs (TTID) follow: prefix + 26 character ULID ([0-9a-z]{26})
+ * All Twilio Type IDs (TTID) follow: prefix + 26-char ULID body:
+ *   [0-7] (timestamp high-bits) + 25 × [0-9a-z]
+ * Source: twilio_memory_v1 / twilio_intelligence_v3 OpenAPI specs.
  */
 declare function isConversationId(value: string): value is ConversationId;
 declare function isProfileId(value: string): value is ProfileId;

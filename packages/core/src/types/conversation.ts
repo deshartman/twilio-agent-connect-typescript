@@ -231,22 +231,24 @@ export type ConversationSession = Omit<
 
 /**
  * Type guards for branded types with format validation
- * All Twilio Type IDs (TTID) follow: prefix + 26 character ULID ([0-9a-z]{26})
+ * All Twilio Type IDs (TTID) follow: prefix + 26-char ULID body:
+ *   [0-7] (timestamp high-bits) + 25 × [0-9a-z]
+ * Source: twilio_memory_v1 / twilio_intelligence_v3 OpenAPI specs.
  */
 export function isConversationId(value: string): value is ConversationId {
-  return /^conv_conversation_[0-9a-z]{26}$/.test(value);
+  return /^conv_conversation_[0-7][0-9a-z]{25}$/.test(value);
 }
 
 export function isProfileId(value: string): value is ProfileId {
-  return /^mem_profile_[0-9a-z]{26}$/.test(value);
+  return /^mem_profile_[0-7][0-9a-z]{25}$/.test(value);
 }
 
 export function isParticipantId(value: string): value is ParticipantId {
-  return /^conv_participant_[0-9a-z]{26}$/.test(value);
+  return /^conv_participant_[0-7][0-9a-z]{25}$/.test(value);
 }
 
 export function isMemoryStoreId(value: string): value is MemoryStoreId {
-  return /^mem_store_[0-9a-z]{26}$/.test(value);
+  return /^mem_store_[0-7][0-9a-z]{25}$/.test(value);
 }
 
 /**
@@ -380,7 +382,7 @@ export const ConversationConfigurationSchema = z.object({
   conversationGroupingType: ConversationGroupingTypeSchema,
   memoryStoreId: z
     .string()
-    .regex(/^mem_(store|service)_[0-7][0-9a-z]{25}$/, 'Invalid Memory Store ID format'),
+    .regex(/^mem_store_[0-7][0-9a-z]{25}$/, 'Invalid Memory Store ID format'),
   channelSettings: z.record(ChannelSettingsSchema).nullable().optional(),
   statusCallbacks: z.array(StatusCallbackSchema).max(20).nullable().optional(),
   intelligenceConfigurationIds: z.array(z.string()).max(5).nullable().optional(),
