@@ -3716,7 +3716,7 @@ declare class TACConfig {
      * const config = TACConfig.fromEnv();
      *
      * // Use in TAC initialization
-     * const tac = new TAC({ config });
+     * const tac = await TAC.create({ config });
      * ```
      */
     static fromEnv(): TACConfig;
