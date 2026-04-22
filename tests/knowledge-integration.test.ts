@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   TAC,
-  TACConfig,
   SMSChannel,
   ChannelMessage,
   KnowledgeClient,
@@ -10,6 +9,7 @@ import {
 } from '../src/index';
 import { createKnowledgeSearchTool } from '@twilio/tac-tools';
 import MockAdapter from 'axios-mock-adapter';
+import { createTestTAC } from './helpers/tac';
 
 describe('Knowledge Integration', () => {
   let tac: TAC;
@@ -22,19 +22,21 @@ describe('Knowledge Integration', () => {
   const testProfileId = 'mem_profile_01kknowintegtestabcdefgh12';
   const testKnowledgeBaseId = 'know_knowledgebase_01kknowintegtestabcde' as KnowledgeBaseId;
 
-  beforeEach(() => {
-    const config = new TACConfig({
+  beforeEach(async () => {
+    tac = await createTestTAC({
       accountSid: 'ACtest123',
       authToken: 'test_token',
       apiKey: 'SKtest123',
       apiSecret: 'test_api_token',
       phoneNumber: '+15551234567',
       conversationConfigurationId: 'conv_configuration_01kknowintegtest1234567890',
-      memoryStoreId: 'mem_store_01kknowintegtestabcdefgh12',
     });
 
-    tac = new TAC({ config });
-    knowledgeClient = new KnowledgeClient(config);
+    // Isolate channel tests from live memory HTTP calls.
+    // Memory flow is covered by memory.test.ts.
+    vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(undefined as never);
+
+    knowledgeClient = new KnowledgeClient(tac.getConfig());
     mockAdapter = new MockAdapter((knowledgeClient as any).axiosInstance);
 
     const channelDeps = tac.getChannelDeps();

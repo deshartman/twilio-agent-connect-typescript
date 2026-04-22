@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { defineTool, createSendMessageTool, createHandoffTool } from '@twilio/tac-tools';
-import { TAC, TACConfig, ConversationId } from '@twilio/tac-core';
+import { ConversationId } from '@twilio/tac-core';
+import { createTestTAC } from './helpers/tac';
 
 describe('Tool System', () => {
   describe('defineTool', () => {
@@ -366,8 +367,7 @@ describe('Tool System', () => {
 
     describe('createHandoffTool', () => {
       it('should accept ConversationId (Maestro-backed)', async () => {
-        const config = new TACConfig(getTestConfig());
-        const tac = new TAC({ config });
+        const tac = await createTestTAC(getTestConfig());
         const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
 
         const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
@@ -383,8 +383,7 @@ describe('Tool System', () => {
       });
 
       it('should include urgency and context in handoff reason', async () => {
-        const config = new TACConfig(getTestConfig());
-        const tac = new TAC({ config });
+        const tac = await createTestTAC(getTestConfig());
         const triggerHandoffSpy = vi.spyOn(tac, 'triggerHandoff').mockResolvedValue();
 
         const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;
@@ -411,8 +410,7 @@ describe('Tool System', () => {
       });
 
       it('should handle triggerHandoff failures gracefully', async () => {
-        const config = new TACConfig(getTestConfig());
-        const tac = new TAC({ config });
+        const tac = await createTestTAC(getTestConfig());
         vi.spyOn(tac, 'triggerHandoff').mockRejectedValue(new Error('Handoff failed'));
 
         const conversationId = 'conv_conversation_01ktest1abcdefghijklmnopqr' as ConversationId;

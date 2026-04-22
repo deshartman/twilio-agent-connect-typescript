@@ -29,7 +29,7 @@ export class ChatChannel extends MessagingChannel {
       config: TACConfig;
       logger: Logger;
       conversationClient: ConversationClient;
-      memoryRetriever?: MemoryRetriever | undefined;
+      memoryRetriever: MemoryRetriever;
     },
     config?: ChatChannelConfig
   ) {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createTestTAC } from './helpers/tac';
 import { TAC, TACConfig, SMSChannel, VoiceChannel } from '@twilio/tac-core';
 import { TACServer } from '@twilio/tac-server';
 
@@ -46,7 +47,7 @@ describe('TACServer Webhook Validation', () => {
     return typeof address === 'string' ? 0 : address.port;
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Reset mock
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
@@ -56,7 +57,7 @@ describe('TACServer Webhook Validation', () => {
 
     // Create TAC instance
     const config = new TACConfig(getTestConfig());
-    tac = new TAC({ config });
+    tac = await createTestTAC(config);
 
     // Register channels (required for route handlers)
     const smsChannel = new SMSChannel(tac.getChannelDeps());
@@ -324,7 +325,7 @@ describe('TACServer idempotency token', () => {
     return typeof address === 'string' ? 0 : address.port;
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
     mockValidateRequest.mockReturnValue(true);
@@ -332,7 +333,7 @@ describe('TACServer idempotency token', () => {
     currentPort = getNextPort();
 
     const config = new TACConfig(getTestConfig());
-    tac = new TAC({ config });
+    tac = await createTestTAC(config);
 
     smsChannel = new SMSChannel(tac.getChannelDeps());
     const voiceChannel = new VoiceChannel(tac.getChannelDeps());
@@ -437,7 +438,7 @@ describe('TACServer with conversationRelayConfig', () => {
     return typeof address === 'string' ? 0 : address.port;
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
     mockValidateRequest.mockReturnValue(true); // Default to valid
@@ -445,7 +446,7 @@ describe('TACServer with conversationRelayConfig', () => {
     currentPort = getNextPort();
 
     const config = new TACConfig(getTestConfig());
-    tac = new TAC({ config });
+    tac = await createTestTAC(config);
 
     const smsChannel = new SMSChannel(tac.getChannelDeps());
     voiceChannel = new VoiceChannel(tac.getChannelDeps());
@@ -756,7 +757,7 @@ describe('TACServer customization', () => {
     return typeof address === 'string' ? 0 : address.port;
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockValidateRequest.mockReset();
     mockValidateRequestWithBody.mockReset();
     mockValidateRequest.mockReturnValue(true);
@@ -765,12 +766,29 @@ describe('TACServer customization', () => {
     currentPort = getNextPort();
 
     const config = new TACConfig(getTestConfig());
-    tac = new TAC({ config });
+    tac = await createTestTAC(config);
 
     const smsChannel = new SMSChannel(tac.getChannelDeps());
     const voiceChannel = new VoiceChannel(tac.getChannelDeps());
     tac.registerChannel(smsChannel);
     tac.registerChannel(voiceChannel);
+
+    // Scope: these tests verify Fastify routing, hooks, and plugin composition.
+    // Stub only the HTTP boundary (ConversationClient) so real channel logic and
+    // real ConversationRelay TwiML generation still run. This keeps CR / channel
+    // internals out of the test file while eliminating 401 noise from test creds.
+    const conversationClient = tac.getConversationClient();
+    vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
+      id: 'conv_conversation_01testserverabcdefghijklmn',
+      accountId: 'ACtest123456789',
+    });
+    vi.spyOn(conversationClient, 'listParticipants').mockResolvedValue([]);
+    vi.spyOn(conversationClient, 'addParticipant').mockResolvedValue({
+      id: 'conv_participant_01testserverabcdefghijkl',
+      conversationId: 'conv_conversation_01testserverabcdefghijklmn',
+      accountId: 'ACtest123456789',
+      addresses: [],
+    });
   });
 
   afterEach(async () => {

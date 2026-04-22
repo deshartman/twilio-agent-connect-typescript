@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   TAC,
-  TACConfig,
   SMSChannel,
   ChannelMessage,
 } from '../src/index';
+import { createTestTAC } from './helpers/tac';
 
 describe('Diagnostic: Callback Wiring', () => {
   let tac: TAC;
@@ -13,8 +13,8 @@ describe('Diagnostic: Callback Wiring', () => {
   const testConversationId = 'conv_conversation_01kdiagnostictest123456789';
   const testProfileId = 'mem_profile_01kdiagnostictest123456789';
 
-  beforeEach(() => {
-    const config = new TACConfig({
+  beforeEach(async () => {
+    tac = await createTestTAC({
       accountSid: 'ACtest123',
       authToken: 'test_token',
       apiKey: 'SKtest123',
@@ -22,8 +22,6 @@ describe('Diagnostic: Callback Wiring', () => {
       phoneNumber: '+15551234567',
       conversationConfigurationId: 'conv_configuration_01kdiagtest123456789012345',
     });
-
-    tac = new TAC({ config });
 
     const channelDeps = tac.getChannelDeps();
     smsChannel = new SMSChannel(channelDeps);

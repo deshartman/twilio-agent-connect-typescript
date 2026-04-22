@@ -39,7 +39,7 @@ export class VoiceWebhookChannel extends MessagingChannel {
       config: TACConfig;
       logger: Logger;
       conversationClient: ConversationClient;
-      memoryRetriever?: MemoryRetriever | undefined;
+      memoryRetriever: MemoryRetriever;
     },
     config?: VoiceWebhookChannelConfig
   ) {

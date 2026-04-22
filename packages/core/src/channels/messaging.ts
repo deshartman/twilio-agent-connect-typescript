@@ -86,7 +86,7 @@ export abstract class MessagingChannel implements Channel {
   protected readonly conversationClient: ConversationClient;
   protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
-  private readonly memoryRetriever?: MemoryRetriever | undefined;
+  private readonly memoryRetriever: MemoryRetriever;
   private readonly processedTokens = new Set<string>();
   private readonly maxTrackedTokens: number;
   private readonly tools: Map<string, CRTool> = new Map();
@@ -96,7 +96,7 @@ export abstract class MessagingChannel implements Channel {
       config: TACConfig;
       logger: Logger;
       conversationClient: ConversationClient;
-      memoryRetriever?: MemoryRetriever | undefined;
+      memoryRetriever: MemoryRetriever;
     },
     channelConfig?: MessagingChannelConfig
   ) {
@@ -623,7 +623,7 @@ export abstract class MessagingChannel implements Channel {
 
     // Retrieve user memory via injected retriever
     let userMemory: TACMemoryResponse | undefined;
-    if (session && this.memoryRetriever) {
+    if (session) {
       this.logger.debug({ conversation_id: conversationId, author }, 'Retrieving user memory');
       try {
         userMemory = await this.memoryRetriever(session, message);

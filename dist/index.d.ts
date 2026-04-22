@@ -19,7 +19,6 @@ declare const TACConfigSchema: z.ZodObject<{
     apiKey: z.ZodString;
     apiSecret: z.ZodString;
     phoneNumber: z.ZodString;
-    memoryStoreId: z.ZodOptional<z.ZodString>;
     traitGroups: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     conversationConfigurationId: z.ZodString;
     voicePublicDomain: z.ZodOptional<z.ZodString>;
@@ -34,7 +33,6 @@ declare const TACConfigSchema: z.ZodObject<{
     apiSecret: string;
     phoneNumber: string;
     conversationConfigurationId: string;
-    memoryStoreId?: string | undefined;
     traitGroups?: string[] | undefined;
     voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
@@ -48,7 +46,6 @@ declare const TACConfigSchema: z.ZodObject<{
     apiSecret: string;
     phoneNumber: string;
     conversationConfigurationId: string;
-    memoryStoreId?: string | undefined;
     traitGroups?: string[] | undefined;
     voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
@@ -66,7 +63,6 @@ declare const EnvironmentVariables: {
     readonly TWILIO_API_KEY: "TWILIO_API_KEY";
     readonly TWILIO_API_SECRET: "TWILIO_API_SECRET";
     readonly TWILIO_PHONE_NUMBER: "TWILIO_PHONE_NUMBER";
-    readonly MEMORY_STORE_ID: "MEMORY_STORE_ID";
     readonly TRAIT_GROUPS: "TRAIT_GROUPS";
     readonly TWILIO_CONVERSATION_CONFIGURATION_ID: "TWILIO_CONVERSATION_CONFIGURATION_ID";
     readonly VOICE_PUBLIC_DOMAIN: "VOICE_PUBLIC_DOMAIN";
@@ -2143,10 +2139,10 @@ declare const ConversationConfigurationSchema: z.ZodObject<{
     updatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     version: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
 }, "strip", z.ZodTypeAny, {
-    memoryStoreId: string;
     id: string;
     description: string;
     conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
+    memoryStoreId: string;
     createdAt?: string | null | undefined;
     updatedAt?: string | null | undefined;
     displayName?: string | null | undefined;
@@ -2168,10 +2164,10 @@ declare const ConversationConfigurationSchema: z.ZodObject<{
     intelligenceConfigurationIds?: string[] | null | undefined;
     version?: number | null | undefined;
 }, {
-    memoryStoreId: string;
     id: string;
     description: string;
     conversationGroupingType: "GROUP_BY_PARTICIPANT_ADDRESSES" | "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE";
+    memoryStoreId: string;
     createdAt?: string | null | undefined;
     updatedAt?: string | null | undefined;
     displayName?: string | null | undefined;
@@ -3687,7 +3683,6 @@ declare class TACConfig {
     readonly apiKey: string;
     readonly apiSecret: string;
     readonly phoneNumber: string;
-    readonly memoryStoreId?: MemoryStoreId;
     readonly traitGroups?: string[];
     readonly conversationConfigurationId: string;
     readonly voicePublicDomain?: string;
@@ -3707,7 +3702,6 @@ declare class TACConfig {
      * - TWILIO_API_SECRET: Twilio API Secret (required)
      * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
      * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
-     * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
      * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
      * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
      * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
@@ -3976,18 +3970,21 @@ type ConversationEndedCallback = (params: {
  * and coordinates between memory, conversations, and LLM integrations.
  */
 declare class TAC {
+    private static readonly FACTORY_TOKEN;
     private readonly config;
     readonly logger: Logger;
-    private readonly memoryClient?;
-    private readonly knowledgeClient?;
+    private memoryClient;
+    private knowledgeClient;
     private readonly conversationClient;
     private readonly channels;
-    private readonly cintelProcessor?;
+    private cintelProcessor?;
+    private memoryStoreId;
     private messageReadyCallback?;
     private handoffCallback?;
     private conversationEndedCallback?;
     private errorCallback?;
-    constructor(options?: TACOptions);
+    private constructor();
+    static create(options?: TACOptions): Promise<TAC>;
     /**
      * Register a channel with the framework
      */
@@ -4044,23 +4041,20 @@ declare class TAC {
     getConfig(): TACConfig;
     /**
      * Get memory client for advanced memory operations
-     * Returns undefined if memory credentials are not configured
      */
-    getMemoryClient(): MemoryClient | undefined;
+    getMemoryClient(): MemoryClient;
     /**
      * Get knowledge client for knowledge base operations
-     * Returns undefined if memory credentials are not configured
      */
-    getKnowledgeClient(): KnowledgeClient | undefined;
+    getKnowledgeClient(): KnowledgeClient;
     /**
      * Get conversation client for advanced conversation operations
      */
     getConversationClient(): ConversationClient;
     /**
      * Create a MemoryRetriever function for channel dependency injection.
-     * Returns undefined if memory is not configured.
      */
-    createMemoryRetriever(): MemoryRetriever | undefined;
+    createMemoryRetriever(): MemoryRetriever;
     /**
      * Get channel dependencies for creating channels (VoiceChannel, MessagingChannel subclasses).
      * Returns all dependencies needed to construct a channel.
@@ -4069,20 +4063,8 @@ declare class TAC {
         config: TACConfig;
         logger: Logger;
         conversationClient: ConversationClient;
-        memoryRetriever: MemoryRetriever | undefined;
+        memoryRetriever: MemoryRetriever;
     };
-    /**
-     * Check if Twilio Memory functionality is enabled
-     *
-     * @returns true if memory client is initialized, false otherwise
-     */
-    isMemoryEnabled(): boolean;
-    /**
-     * Check if Knowledge functionality is enabled
-     *
-     * @returns true if knowledge client is initialized, false otherwise
-     */
-    isKnowledgeEnabled(): boolean;
     /**
      * Check if Conversation Intelligence processing is enabled
      *
@@ -4098,17 +4080,17 @@ declare class TAC {
      */
     processCintelEvent(payload: unknown): Promise<OperatorProcessingResult>;
     /**
-     * Retrieve memories from Memory API or fallback to Conversations API
+     * Retrieve memories from Memory API with automatic fallback to Conversations API
      *
      * @param session - Conversation session context
      * @param query - Optional semantic search query
      * @returns Promise containing TACMemoryResponse wrapper providing unified access to memory data.
      *
-     * When Memory is configured:
+     * Attempts to retrieve from Memory API first:
      * - observations, summaries, and communications available
      * - communications include author name and type
      *
-     * When using Maestro fallback:
+     * Falls back to Conversations API on error:
      * - observations and summaries are empty arrays
      * - communications have basic fields only (no author name/type)
      */
@@ -4192,7 +4174,7 @@ declare abstract class MessagingChannel implements Channel {
     protected readonly conversationClient: ConversationClient;
     protected readonly activeConversations: Map<ConversationId, ConversationSession>;
     protected readonly callbacks: ChannelEvents;
-    private readonly memoryRetriever?;
+    private readonly memoryRetriever;
     private readonly processedTokens;
     private readonly maxTrackedTokens;
     private readonly tools;
@@ -4200,7 +4182,7 @@ declare abstract class MessagingChannel implements Channel {
         config: TACConfig;
         logger: Logger;
         conversationClient: ConversationClient;
-        memoryRetriever?: MemoryRetriever | undefined;
+        memoryRetriever: MemoryRetriever;
     }, channelConfig?: MessagingChannelConfig);
     /**
      * Check if a webhook has already been processed, and if not, record the token immediately.
@@ -4351,7 +4333,7 @@ declare class ChatChannel extends MessagingChannel {
         config: TACConfig;
         logger: Logger;
         conversationClient: ConversationClient;
-        memoryRetriever?: MemoryRetriever | undefined;
+        memoryRetriever: MemoryRetriever;
     }, config?: ChatChannelConfig);
     get channelType(): ChannelType;
     /**
@@ -4389,12 +4371,12 @@ declare class VoiceChannel implements Channel {
     protected readonly callbacks: ChannelEvents;
     private readonly conversationRelay;
     private readonly callSidToConversationId;
-    private readonly memoryRetriever?;
+    private readonly memoryRetriever;
     constructor(deps: {
         config: TACConfig;
         logger: Logger;
         conversationClient: ConversationClient;
-        memoryRetriever?: MemoryRetriever | undefined;
+        memoryRetriever: MemoryRetriever;
     });
     get channelType(): ChannelType;
     private emitMessage;
@@ -4500,7 +4482,7 @@ declare class VoiceWebhookChannel extends MessagingChannel {
         config: TACConfig;
         logger: Logger;
         conversationClient: ConversationClient;
-        memoryRetriever?: MemoryRetriever | undefined;
+        memoryRetriever: MemoryRetriever;
     }, config?: VoiceWebhookChannelConfig);
     get channelType(): ChannelType;
     /**

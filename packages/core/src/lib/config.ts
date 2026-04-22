@@ -1,5 +1,4 @@
 import { TACConfigData, TACConfigSchema, EnvironmentVariables } from '../types/index';
-import { MemoryStoreId } from '../types/conversation';
 
 /**
  * TAC Configuration class with Python-like static factory methods
@@ -22,7 +21,6 @@ export class TACConfig {
   public readonly apiKey: string;
   public readonly apiSecret: string;
   public readonly phoneNumber: string;
-  public readonly memoryStoreId?: MemoryStoreId;
   public readonly traitGroups?: string[];
   public readonly conversationConfigurationId: string;
   public readonly voicePublicDomain?: string;
@@ -42,9 +40,6 @@ export class TACConfig {
     this.apiSecret = validatedConfig.apiSecret;
     this.phoneNumber = validatedConfig.phoneNumber;
     this.conversationConfigurationId = validatedConfig.conversationConfigurationId;
-    if (validatedConfig.memoryStoreId) {
-      this.memoryStoreId = validatedConfig.memoryStoreId as MemoryStoreId;
-    }
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;
     }
@@ -75,7 +70,6 @@ export class TACConfig {
    * - TWILIO_API_SECRET: Twilio API Secret (required)
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
-   * - MEMORY_STORE_ID: Memory Store ID (optional, for Twilio Memory)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
    * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
@@ -120,7 +114,6 @@ export class TACConfig {
       phoneNumber: process.env[EnvironmentVariables.TWILIO_PHONE_NUMBER]!,
       conversationConfigurationId:
         process.env[EnvironmentVariables.TWILIO_CONVERSATION_CONFIGURATION_ID]!,
-      memoryStoreId: process.env[EnvironmentVariables.MEMORY_STORE_ID],
       traitGroups: process.env[EnvironmentVariables.TRAIT_GROUPS]?.split(','),
       voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],

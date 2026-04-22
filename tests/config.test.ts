@@ -8,7 +8,6 @@ describe('TACConfig', () => {
     apiKey: 'SKtest123456789',
     apiSecret: 'test_api_token_123',
     phoneNumber: '+15551234567',
-    memoryStoreId: 'mem_store_01testmemorystore000000000',
     conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
@@ -24,7 +23,6 @@ describe('TACConfig', () => {
       expect(config.accountSid).toBe('ACtest123456789');
       expect(config.authToken).toBe('test_token_123');
       expect(config.phoneNumber).toBe('+15551234567');
-      expect(config.memoryStoreId).toBe('mem_store_01testmemorystore000000000');
       expect(config.conversationConfigurationId).toBe(
         'conv_configuration_01testconfigabc123xyzabcde'
       );
@@ -57,52 +55,6 @@ describe('TACConfig', () => {
       expect(() => {
         new TACConfig(legacyConfig);
       }).toThrow('Invalid Conversation Configuration ID format');
-    });
-
-    it('should validate memory store ID format when provided', () => {
-      const invalidConfig = {
-        ...getTestConfigData(),
-        memoryStoreId: 'invalid_memory_sid',
-      };
-
-      expect(() => {
-        new TACConfig(invalidConfig);
-      }).toThrow();
-    });
-
-    it('should reject legacy mem_service_ format', () => {
-      const legacyConfig = {
-        ...getTestConfigData(),
-        memoryStoreId: 'mem_service_01testmemorystore000000000',
-      };
-
-      expect(() => {
-        new TACConfig(legacyConfig);
-      }).toThrow('Invalid Memory Store ID format');
-    });
-
-    it('should accept mem_store_ format', () => {
-      const validConfig = {
-        ...getTestConfigData(),
-        memoryStoreId: 'mem_store_01testmemorystore000000000',
-      };
-
-      const config = new TACConfig(validConfig);
-      expect(config.memoryStoreId).toBe('mem_store_01testmemorystore000000000');
-    });
-
-    it('should work without memoryStoreId', () => {
-      const configWithoutMemory = {
-        ...getTestConfigData(),
-        memoryStoreId: undefined,
-      };
-
-      const config = new TACConfig(configWithoutMemory);
-
-      expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationConfigurationId).toBe(
-        'conv_configuration_01testconfigabc123xyzabcde'
-      );
     });
 
     it('should store region when provided', () => {
@@ -152,7 +104,6 @@ describe('TACConfig', () => {
       vi.stubEnv('TWILIO_API_KEY', 'SKtest123');
       vi.stubEnv('TWILIO_API_SECRET', 'test_api_token');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '+1234567890');
-      vi.stubEnv('MEMORY_STORE_ID', 'mem_store_01testmemorystore000000000');
       vi.stubEnv(
         'TWILIO_CONVERSATION_CONFIGURATION_ID',
         'conv_configuration_01testconfigabc123xyzabcde'
@@ -167,7 +118,6 @@ describe('TACConfig', () => {
       expect(config.accountSid).toBe('ACtest123');
       expect(config.authToken).toBe('test_auth_token');
       expect(config.phoneNumber).toBe('+1234567890');
-      expect(config.memoryStoreId).toBe('mem_store_01testmemorystore000000000');
       expect(config.conversationConfigurationId).toBe(
         'conv_configuration_01testconfigabc123xyzabcde'
       );
@@ -225,18 +175,6 @@ describe('TACConfig', () => {
       expect(() => {
         TACConfig.fromEnv();
       }).toThrow('Missing required environment variable: TWILIO_PHONE_NUMBER');
-    });
-
-    it('should work when MEMORY_STORE_ID is not provided', () => {
-      stubRequiredEnvVars();
-      vi.stubEnv('MEMORY_STORE_ID', undefined);
-
-      const config = TACConfig.fromEnv();
-
-      expect(config.memoryStoreId).toBeUndefined();
-      expect(config.conversationConfigurationId).toBe(
-        'conv_configuration_01testconfigabc123xyzabcde'
-      );
     });
 
     it('should throw error when TWILIO_CONVERSATION_CONFIGURATION_ID is missing', () => {

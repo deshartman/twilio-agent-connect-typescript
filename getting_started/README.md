@@ -80,11 +80,10 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 
 ### Conversation Orchestrator - Maestro (Required)
 
-- `TWILIO_CONVERSATION_CONFIGURATION_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`)
+- `TWILIO_CONVERSATION_CONFIGURATION_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`). The memory store linked to this configuration is auto-fetched by `TAC.create()` — no separate `MEMORY_STORE_ID` env var is needed.
 
 ### Optional
 
-- `MEMORY_STORE_ID`: Memory store ID (for memory integration)
 - `VOICE_PUBLIC_DOMAIN`: Your ngrok domain (required for voice channel)
 - `TWILIO_REGION`: Twilio region subdomain for API routing
 - `OPENAI_API_KEY`: Your OpenAI API key (for OpenAI example)

@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   TAC,
-  TACConfig,
   VoiceWebhookChannel,
   SMSChannel,
   ChatChannel,
   ChannelMessage,
 } from '../src/index';
+import { createTestTAC } from './helpers/tac';
 
 describe('Multi-Channel Orchestration', () => {
   let tac: TAC;
@@ -17,8 +17,8 @@ describe('Multi-Channel Orchestration', () => {
   const testConversationId = 'conv_conversation_01kmultichantestabcdefgh12';
   const testProfileId = 'mem_profile_01kmultitestabcdefghijklmn';
 
-  beforeEach(() => {
-    const config = new TACConfig({
+  beforeEach(async () => {
+    tac = await createTestTAC({
       accountSid: 'ACtest123',
       authToken: 'test_token',
       apiKey: 'SKtest123',
@@ -27,7 +27,9 @@ describe('Multi-Channel Orchestration', () => {
       conversationConfigurationId: 'conv_configuration_01kmultitest12345678901234',
     });
 
-    tac = new TAC({ config });
+    // Isolate channel tests from live memory HTTP calls.
+    // Memory flow is covered by memory.test.ts.
+    vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(undefined as never);
 
     // Initialize all three channel types (Voice, SMS, Chat)
     const channelDeps = tac.getChannelDeps();
@@ -387,8 +389,8 @@ describe('Multi-Channel Orchestration', () => {
       expect(retrievedChat).toBe(chatChannel);
     });
 
-    it('should return undefined for unregistered channel', () => {
-      const config = new TACConfig({
+    it('should return undefined for unregistered channel', async () => {
+      const emptyTac = await createTestTAC({
         accountSid: 'ACtest123',
         authToken: 'test_token',
         apiKey: 'SKtest123',
@@ -396,8 +398,6 @@ describe('Multi-Channel Orchestration', () => {
         phoneNumber: '+15551234567',
         conversationConfigurationId: 'conv_configuration_01kmultitest12345678901234',
       });
-
-      const emptyTac = new TAC({ config });
       expect(emptyTac.getChannel('voice')).toBeUndefined();
     });
   });

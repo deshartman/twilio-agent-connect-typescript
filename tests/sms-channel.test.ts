@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SMSChannel, TAC, ConversationSession, ConversationId, ProfileId } from '@twilio/tac-core';
 import MockAdapter from 'axios-mock-adapter';
+import { createTestTAC } from './helpers/tac';
 
 describe('SMS Channel', () => {
   let mockAdapter: MockAdapter;
@@ -27,8 +28,11 @@ describe('SMS Channel', () => {
   let channel: SMSChannel;
   let tac: TAC;
 
-  beforeEach(() => {
-    tac = new TAC({ config: getTestConfig() });
+  beforeEach(async () => {
+    tac = await createTestTAC(getTestConfig());
+    // Isolate channel tests from live memory HTTP calls.
+    // Memory flow is covered by memory.test.ts.
+    vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(undefined as never);
     channel = new SMSChannel(tac.getChannelDeps());
   });
 
@@ -522,6 +526,11 @@ describe('SMS Channel', () => {
       // Access the conversation client's axios instance through TAC
       const conversationClient = (tac as any).conversationClient;
       mockAdapter = new MockAdapter(conversationClient.axiosInstance);
+      // Reset history to clear the getConfiguration call from TAC initialization
+      mockAdapter.resetHistory();
+
+      // Stub retrieveMemory to avoid HTTP calls during webhook processing
+      vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(undefined as any);
 
       // Mock listParticipants call
       mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
@@ -578,9 +587,9 @@ describe('SMS Channel', () => {
 
       await channel.sendResponse(TEST_CONVERSATION_ID, 'Hello back!');
 
-      // Verify that the correct requests were made
+      // Verify that the correct requests were made (listParticipants + sendCommunication)
       const history = mockAdapter.history;
-      expect(history.get.length).toBe(1);
+      expect(history.get.length).toBe(1); // listParticipants
       expect(history.get[0].url).toBe(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`);
 
       expect(history.post.length).toBe(1);

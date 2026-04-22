@@ -8,6 +8,7 @@ import {
   TACMemoryResponse,
   ChannelMessage,
 } from '@twilio/tac-core';
+import { createTestTAC } from './helpers/tac';
 
 describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   let voiceChannel: VoiceChannel;
@@ -20,7 +21,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     apiSecret: 'test_api_token',
     phoneNumber: '+15555555555',
     conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
-    memoryStoreId: 'mem_store_01234567890123456789abcdef', // Enable memory
   });
 
   const createMockConversationClient = () =>
@@ -33,16 +33,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       sendCommunication: vi.fn(),
       listCommunications: vi.fn(),
     }) as unknown as ConversationClient;
-
-  const getTestConfigWithoutMemory = () => ({
-    accountSid: 'ACtest123456789',
-    authToken: 'test_token_123',
-    apiKey: 'SKtest_api_key',
-    apiSecret: 'test_api_token',
-    phoneNumber: '+15555555555',
-    conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
-    // No memoryStoreId - memory disabled
-  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createMockWebSocket = (): any => {
@@ -234,16 +224,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
     });
   });
 
-  describe('Memory Retrieval via Config (Memory API)', () => {
-    it('should not enable memory when memoryStoreId not configured', () => {
-      const config = new TACConfig(getTestConfigWithoutMemory());
-      tac = new TAC({ config });
-
-      // Memory should not be enabled when memoryStoreId is not configured
-      expect(tac.isMemoryEnabled()).toBe(false);
-    });
-  });
-
   describe('ChannelMessage Shape', () => {
     it('should emit a well-formed ChannelMessage with all expected fields', async () => {
       const mockMemory = createMockMemory();
@@ -334,13 +314,17 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const mockMemory = createMockMemory();
       const memoryRetriever = vi.fn().mockResolvedValue(mockMemory);
 
-      const config = new TACConfig(getTestConfig());
+      tac = await createTestTAC(getTestConfig());
       const logger = createLogger({ name: 'test-tac', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+      voiceChannel = new VoiceChannel({
+        config: tac.getConfig(),
+        logger,
+        conversationClient,
+        memoryRetriever,
+      });
 
-      const tac = new TAC({ config });
       const captured: ChannelMessage[] = [];
       const messageReady = new Promise<void>(resolve => {
         tac.onMessageReady((msg: ChannelMessage) => {
@@ -377,53 +361,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       );
     });
 
-    it('should work without memory when no memoryRetriever is provided', async () => {
-      const config = new TACConfig(getTestConfig());
-      const logger = createLogger({ name: 'test-tac', level: 'silent' });
-      const conversationClient = createMockConversationClient();
-
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
-
-      const tac = new TAC({ config });
-      const captured: ChannelMessage[] = [];
-      const messageReady = new Promise<void>(resolve => {
-        tac.onMessageReady((msg: ChannelMessage) => {
-          if (msg.messageType === 'user') {
-            captured.push(msg);
-            resolve();
-          }
-        });
-      });
-      tac.registerChannel(voiceChannel);
-
-      const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
-
-      mockWs._emit('message', Buffer.from(setupMessage));
-      mockWs._emit('message', Buffer.from(promptMessage));
-
-      await messageReady;
-
-      expect(captured).toHaveLength(1);
-      expect(captured[0]).toEqual(
-        expect.objectContaining({
-          conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-          messageType: 'user',
-          message: 'Hello, I need help with my order',
-          channel: 'voice',
-        })
-      );
-      expect(captured[0].conversation?.memory).toBeUndefined();
-    });
-
-    it('should work without memory when memoryStoreId not configured', () => {
-      const config = new TACConfig(getTestConfigWithoutMemory());
-      const tac = new TAC({ config });
-
-      // Should be able to instantiate TAC without memory configured
-      expect(tac).toBeInstanceOf(TAC);
-      expect(tac.isMemoryEnabled()).toBe(false);
-    });
   });
 
   describe('Multiple Prompts', () => {
@@ -497,5 +434,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(captured[1].message).toBe('Can you check my subscription?');
       expect(captured[1].conversation?.memory).toBe(mockMemory2);
     });
+
   });
 });

@@ -51,13 +51,13 @@ export class VoiceChannel implements Channel {
   protected readonly callbacks: ChannelEvents;
   private readonly conversationRelay: ConversationRelay;
   private readonly callSidToConversationId: Map<CallSid, ConversationId>;
-  private readonly memoryRetriever?: MemoryRetriever | undefined;
+  private readonly memoryRetriever: MemoryRetriever;
 
   constructor(deps: {
     config: TACConfig;
     logger: Logger;
     conversationClient: ConversationClient;
-    memoryRetriever?: MemoryRetriever | undefined;
+    memoryRetriever: MemoryRetriever;
   }) {
     this.config = deps.config;
     this.logger = deps.logger.child({ component: 'channel' });
@@ -281,7 +281,7 @@ export class VoiceChannel implements Channel {
 
     // Automatic memory retrieval via injected retriever
     let userMemory: TACMemoryResponse | undefined;
-    if (session && this.memoryRetriever) {
+    if (session) {
       try {
         userMemory = await this.memoryRetriever(session, transcript);
         this.logger.debug({ conversation_id: conversationId }, 'Retrieved memory for voice prompt');

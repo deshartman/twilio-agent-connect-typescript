@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   VoiceChannel,
-  TAC,
   TACConfig,
   ConversationSession,
   createLogger,
   ConversationClient,
   ConversationId,
+  TACMemoryResponse,
 } from '@twilio/tac-core';
+import { createTestTAC } from './helpers/tac';
 
 describe('VoiceChannel', () => {
   const getTestConfig = () => ({
@@ -33,9 +34,12 @@ describe('VoiceChannel', () => {
       listCommunications: vi.fn(),
       ...overrides?.conversationClient,
     } as unknown as ConversationClient;
+    const memoryRetriever = vi.fn().mockResolvedValue(
+      new TACMemoryResponse({ observations: [], summaries: [], communications: [] })
+    );
 
-    const channel = new VoiceChannel({ config, logger, conversationClient });
-    return { channel, config, logger, conversationClient };
+    const channel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+    return { channel, config, logger, conversationClient, memoryRetriever };
   };
 
   describe('getWebsocket()', () => {
@@ -193,8 +197,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should fire onConversationEnded on WebSocket disconnect', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
+      const tac = await createTestTAC(getTestConfig());
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -222,8 +225,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should still clean up session if callback throws', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
+      const tac = await createTestTAC(getTestConfig());
 
       const ended = new Promise<void>(resolve => {
         tac.onConversationEnded(() => {
@@ -248,8 +250,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should support async callback', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
+      const tac = await createTestTAC(getTestConfig());
       const captured: ConversationSession[] = [];
 
       const ended = new Promise<void>(resolve => {
@@ -274,8 +275,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should clean up silently when no callback is registered', async () => {
-      const config = new TACConfig(getTestConfig());
-      const tac = new TAC({ config });
+      const tac = await createTestTAC(getTestConfig());
       const channel = new VoiceChannel(tac.getChannelDeps());
       tac.registerChannel(channel);
 
