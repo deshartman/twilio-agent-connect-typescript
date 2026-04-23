@@ -492,5 +492,62 @@ describe('Chat Channel', () => {
         'No author info found'
       );
     });
+
+    it('forwards conversationsV1ServiceSid as channelSettings.chatService when set', async () => {
+      // Fresh channel with the V1 bridge SID wired via ChatChannelConfig.
+      const chatWithBridge = new ChatChannel(tac.getChannelDeps(), {
+        conversationsV1ServiceSid: 'IS01testv1bridgeaabbccddeeff',
+      });
+
+      // Seed session via inbound webhook so metadata.channelId is populated.
+      await chatWithBridge.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          author: {
+            address: 'customer@example.com',
+            participantId: 'PA_customer_bridge',
+            channel: 'CHAT',
+          },
+          content: { type: 'TEXT', text: 'Hi' },
+          channelId: 'CH00000000000000000000000000000000',
+        },
+      });
+
+      mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
+        participants: [
+          {
+            id: 'PA_agent_bridge',
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'AI_AGENT',
+            addresses: [{ channel: 'CHAT', address: 'ai-assistant' }],
+          },
+          {
+            id: 'PA_customer_bridge',
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+          },
+        ],
+      });
+      mockAdapter.onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Actions`).reply(202, {
+        id: 'AC_action_01test00000000000000000000',
+        type: 'SEND_MESSAGE',
+        status: 'PENDING',
+        conversationId: TEST_CONVERSATION_ID,
+      });
+
+      await chatWithBridge.sendResponse(TEST_CONVERSATION_ID, 'Hello back');
+
+      const actionCall = mockAdapter.history.post.find(
+        c => c.url === `/v2/Conversations/${TEST_CONVERSATION_ID}/Actions`
+      );
+      expect(actionCall).toBeDefined();
+      const body = JSON.parse(actionCall!.data);
+      expect(body.payload.channelSettings.chatService).toBe('IS01testv1bridgeaabbccddeeff');
+      expect(body.payload.channelSettings.channelId).toBe('CH00000000000000000000000000000000');
+    });
   });
 });

@@ -59,7 +59,7 @@ TAC uses **Maestro Conversations Service** for unified conversation orchestratio
 
 All channels require `TWILIO_CONVERSATION_CONFIGURATION_ID` to be configured in your environment.
 
-For advanced use cases, `VoiceWebhookChannel` is available for bring-your-own ConversationRelay server setups (webhook-only, no WebSocket management).
+For advanced use cases, `VoiceChannel` also supports **passive mode** — construct it without a `conversationRelay` option and it consumes Maestro webhooks only (no WebSocket, no outbound). Useful for BYO-CR setups, inbound-only transcript analysis, or anywhere you don't want `TACServer` to manage the CR WebSocket.
 
 ```
           Twilio WS         +-------------------------+
