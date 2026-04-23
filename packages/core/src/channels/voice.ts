@@ -35,6 +35,7 @@ import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
+import { ConversationSessionStore } from './utility';
 
 /**
  * Voice Channel — Maestro-backed voice (CR WebSocket + Maestro Conversations)
@@ -47,11 +48,11 @@ export class VoiceChannel implements Channel {
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
-  protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
   private readonly conversationRelay: ConversationRelay;
   private readonly callSidToConversationId: Map<CallSid, ConversationId>;
   private readonly memoryRetriever: MemoryRetriever;
+  private readonly sessionStore: ConversationSessionStore;
 
   constructor(deps: {
     config: TACConfig;
@@ -63,9 +64,20 @@ export class VoiceChannel implements Channel {
     this.logger = deps.logger.child({ component: 'channel' });
     this.conversationClient = deps.conversationClient;
     this.memoryRetriever = deps.memoryRetriever;
-    this.activeConversations = new Map();
     this.callbacks = {};
     this.callSidToConversationId = new Map();
+
+    this.sessionStore = new ConversationSessionStore({
+      logger: this.logger,
+      channelType: 'voice',
+      callbacks: {
+        onConversationStarted: (data): void => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data): Promise<void> | void =>
+          this.callbacks.onConversationEnded?.(data),
+      },
+    });
 
     // Initialize ConversationRelay for WebSocket protocol handling
     this.conversationRelay = new ConversationRelay(deps.logger.child({ component: 'crelay' }));
@@ -376,17 +388,17 @@ export class VoiceChannel implements Channel {
   }
 
   public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
-    return this.activeConversations.get(conversationId);
+    return this.sessionStore.get(conversationId);
   }
 
   public isConversationActive(conversationId: ConversationId): boolean {
-    return this.activeConversations.has(conversationId);
+    return this.sessionStore.isActive(conversationId);
   }
 
   public shutdown(): void {
     this.conversationRelay.shutdown();
     this.callSidToConversationId.clear();
-    this.activeConversations.clear();
+    this.sessionStore.clear();
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
@@ -494,47 +506,11 @@ export class VoiceChannel implements Channel {
     profileId?: ProfileId,
     serviceId?: string
   ): ConversationSession {
-    if (this.activeConversations.has(conversationId)) {
-      this.logger.debug({ conversation_id: conversationId }, 'Conversation already active');
-      return this.activeConversations.get(conversationId)!;
-    }
-
-    const session: ConversationSession = {
-      conversationId: conversationId,
-      channel: this.channelType,
-      startedAt: new Date(),
-      metadata: {},
-      profileId: profileId,
-      serviceId: serviceId,
-    };
-
-    this.activeConversations.set(conversationId, session);
-    this.logger.debug(
-      { conversation_id: conversationId, profile_id: profileId },
-      'Conversation started'
-    );
-
-    this.callbacks.onConversationStarted?.({ session });
-    return session;
+    return this.sessionStore.start(conversationId, profileId, serviceId);
   }
 
   protected async endConversation(conversationId: ConversationId): Promise<void> {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            'Error in conversation ended callback'
-          );
-        }
-      }
-
-      this.activeConversations.delete(conversationId);
-      this.logger.debug({ conversation_id: conversationId }, 'Conversation ended');
-    }
+    await this.sessionStore.end(conversationId);
   }
 
   protected handleError(error: Error, context?: Record<string, unknown>): void {
