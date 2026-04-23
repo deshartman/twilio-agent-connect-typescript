@@ -221,6 +221,98 @@ describe('TACServer Webhook Validation', () => {
         expect.any(Object)
       );
     });
+
+    it('should use first value from comma-separated X-Forwarded-Proto', async () => {
+      mockValidateRequest.mockReturnValue(true);
+
+      server = new TACServer(tac, {
+        development: true,
+        voice: { port: currentPort },
+      });
+
+      await server.start();
+      const actualPort = getActualPort(server);
+
+      await fetch(`http://localhost:${actualPort}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Twilio-Signature': 'sig',
+          'X-Forwarded-Proto': 'https, http',
+        },
+        body: 'From=test',
+      });
+
+      expect(mockValidateRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.stringMatching(/^https:\/\//),
+        expect.any(Object)
+      );
+    });
+
+    it('should use first value from comma-separated X-Forwarded-Host', async () => {
+      mockValidateRequest.mockReturnValue(true);
+
+      server = new TACServer(tac, {
+        development: true,
+        voice: { port: currentPort },
+      });
+
+      await server.start();
+      const actualPort = getActualPort(server);
+
+      await fetch(`http://localhost:${actualPort}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Twilio-Signature': 'sig',
+          'X-Forwarded-Host': 'app.ngrok.io, proxy.internal',
+        },
+        body: 'From=test',
+      });
+
+      expect(mockValidateRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.stringContaining('app.ngrok.io'),
+        expect.any(Object)
+      );
+      expect(mockValidateRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.not.stringContaining('proxy.internal'),
+        expect.any(Object)
+      );
+    });
+
+    it('should default to https:// when X-Forwarded-Proto is absent', async () => {
+      mockValidateRequest.mockReturnValue(true);
+
+      server = new TACServer(tac, {
+        development: true,
+        voice: { port: currentPort },
+      });
+
+      await server.start();
+      const actualPort = getActualPort(server);
+
+      await fetch(`http://localhost:${actualPort}/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Twilio-Signature': 'sig',
+        },
+        body: 'From=test',
+      });
+
+      expect(mockValidateRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.stringMatching(/^https:\/\//),
+        expect.any(Object)
+      );
+    });
   });
 
   describe('validation on different endpoints', () => {
@@ -266,6 +358,36 @@ describe('TACServer Webhook Validation', () => {
 
       expect(response.status).toBe(403);
     });
+  });
+
+  it('should pass raw JSON body to validateRequestWithBody for bodySHA256 validation', async () => {
+    mockValidateRequestWithBody.mockReturnValue(true);
+
+    server = new TACServer(tac, {
+      development: true,
+      voice: { port: currentPort },
+    });
+
+    await server.start();
+    const actualPort = getActualPort(server);
+
+    const jsonBody = '{"key":"value","number":42}';
+
+    await fetch(`http://localhost:${actualPort}/webhook?bodySHA256=abc123`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Twilio-Signature': 'test-sig',
+      },
+      body: jsonBody,
+    });
+
+    expect(mockValidateRequestWithBody).toHaveBeenCalledWith(
+      'test_token_123',
+      'test-sig',
+      expect.stringContaining('/webhook?bodySHA256=abc123'),
+      jsonBody
+    );
   });
 });
 
@@ -1068,6 +1190,30 @@ describe('TACServer WebSocket signature validation', () => {
     );
 
     ws.close();
+  });
+
+  it('should reject WebSocket when host header is missing', async () => {
+    server = new TACServer(tac, {
+      development: true,
+      voice: { port: currentPort },
+    });
+
+    await server.start();
+    const actualPort = getActualPort(server);
+
+    const ws = new WebSocket(`ws://localhost:${actualPort}/ws`, {
+      headers: {
+        'X-Twilio-Signature': 'test-sig',
+        Host: '',
+      },
+    });
+
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      ws.on('close', (code: number) => resolve(code));
+      ws.on('error', (err: Error) => reject(err));
+    });
+
+    expect(closeCode).toBe(1008);
   });
 });
 

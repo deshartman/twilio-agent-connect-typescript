@@ -199,13 +199,23 @@ export class TACServer {
     }
   }
 
+  private getForwardedProto(request: FastifyRequest): string {
+    const raw = request.headers['x-forwarded-proto'] as string | undefined;
+    return raw?.split(',')[0]?.trim() || 'https';
+  }
+
+  private getForwardedHost(request: FastifyRequest): string {
+    const raw = (request.headers['x-forwarded-host'] as string | undefined) || request.headers.host;
+    return raw?.split(',')[0]?.trim() || '';
+  }
+
   /**
    * Get the full URL for webhook validation
    * Handles X-Forwarded-* headers for proxy/ngrok scenarios
    */
   private getWebhookUrl(request: FastifyRequest): string {
-    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
-    const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
+    const proto = this.getForwardedProto(request);
+    const host = this.getForwardedHost(request);
     return `${proto}://${host}${request.url}`;
   }
 

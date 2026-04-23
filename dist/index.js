@@ -5135,13 +5135,21 @@ var TACServer = class {
       });
     }
   }
+  getForwardedProto(request) {
+    const raw = request.headers["x-forwarded-proto"];
+    return raw?.split(",")[0]?.trim() || "https";
+  }
+  getForwardedHost(request) {
+    const raw = request.headers["x-forwarded-host"] || request.headers.host;
+    return raw?.split(",")[0]?.trim() || "";
+  }
   /**
    * Get the full URL for webhook validation
    * Handles X-Forwarded-* headers for proxy/ngrok scenarios
    */
   getWebhookUrl(request) {
-    const proto = request.headers["x-forwarded-proto"] || "https";
-    const host = request.headers["x-forwarded-host"] || request.headers.host || "";
+    const proto = this.getForwardedProto(request);
+    const host = this.getForwardedHost(request);
     return `${proto}://${host}${request.url}`;
   }
   /**
