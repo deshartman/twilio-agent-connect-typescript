@@ -120,8 +120,6 @@ export abstract class MessagingChannel implements Channel {
 
   /**
    * Start a new conversation session.
-   *
-   * Subclasses may call this directly (e.g. VoiceWebhookChannel overrides behavior).
    * Delegates to the composed ConversationSessionStore.
    */
   protected startConversation(

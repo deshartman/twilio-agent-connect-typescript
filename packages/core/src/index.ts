@@ -42,9 +42,7 @@ export { ChatChannel } from './channels/chat';
 export type { ChatChannelConfig } from './channels/chat';
 
 export { VoiceChannel } from './channels/voice';
-
-export { VoiceWebhookChannel } from './channels/voice-webhook';
-export type { VoiceWebhookChannelConfig } from './channels/voice-webhook';
+export type { VoiceChannelConfig } from './channels/voice';
 
 // Utility functions
 export { handleFlexHandoffLogic } from './util/flex';

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   TAC,
-  VoiceWebhookChannel,
+  VoiceChannel,
   SMSChannel,
   ChatChannel,
   ChannelMessage,
@@ -10,7 +10,9 @@ import { createTestTAC } from './helpers/tac';
 
 describe('Multi-Channel Orchestration', () => {
   let tac: TAC;
-  let voiceChannel: VoiceWebhookChannel;
+  // Passive-mode VoiceChannel (no ConversationRelay injected) — webhook-only,
+  // same shape VoiceWebhookChannel provided before the merge.
+  let voiceChannel: VoiceChannel;
   let smsChannel: SMSChannel;
   let chatChannel: ChatChannel;
 
@@ -31,9 +33,9 @@ describe('Multi-Channel Orchestration', () => {
     // Memory flow is covered by memory.test.ts.
     vi.spyOn(tac, 'retrieveMemory').mockResolvedValue(undefined as never);
 
-    // Initialize all three channel types (Voice, SMS, Chat)
+    // Initialize all three channel types (Voice passive, SMS, Chat)
     const channelDeps = tac.getChannelDeps();
-    voiceChannel = new VoiceWebhookChannel(channelDeps);
+    voiceChannel = new VoiceChannel(channelDeps);
     smsChannel = new SMSChannel(channelDeps);
     chatChannel = new ChatChannel(channelDeps);
 
