@@ -8,6 +8,7 @@ import {
   ConversationId,
   ConversationSession,
   MemoryRetriever,
+  type SendMessageActionRequest,
 } from '../types/index';
 import type { TACConfig } from '../lib/config';
 import type { ConversationClient } from '../clients/conversation';
@@ -16,6 +17,7 @@ import { TACMemoryResponse } from '../lib/tac-memory-response';
 import {
   ConversationSessionStore,
   ConversationsWebhookProcessor,
+  ensureAgentParticipant,
   extractConversationId,
   extractProfileId,
   type MessagingWebhookPayload,
@@ -159,7 +161,7 @@ export class SMSChannel implements Channel {
   }
 
   /**
-   * Send SMS response using Conversation Orchestrator Send API.
+   * Send SMS response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
    */
   public async sendResponse(
     conversationId: ConversationId,
@@ -192,58 +194,73 @@ export class SMSChannel implements Channel {
 
       const participants = await this.conversationClient.listParticipants(conversationId);
 
-      const smsParticipants = participants.filter(
-        p =>
-          Array.isArray(p.addresses) &&
-          p.addresses.some(
-            addr => addr.channel === 'SMS' && addr.address === this.config.phoneNumber
-          )
+      // Find the CUSTOMER participant on the SMS channel
+      let customerParticipantId: string | undefined;
+      for (const p of participants) {
+        if (p.type !== 'CUSTOMER' || !Array.isArray(p.addresses)) continue;
+        const smsAddress = p.addresses.find(a => a.channel === 'SMS');
+        if (smsAddress) {
+          customerParticipantId = p.id;
+          break;
+        }
+      }
+
+      const agentParticipant = await ensureAgentParticipant(
+        this.conversationClient,
+        this.logger,
+        conversationId,
+        participants,
+        { channel: 'SMS', address: this.config.phoneNumber }
       );
-
-      const agentParticipant =
-        smsParticipants.find(
-          p => p.type === 'AI_AGENT' || p.type === 'HUMAN_AGENT' || p.type === 'AGENT'
-        ) ?? smsParticipants[0];
-
       if (!agentParticipant) {
         throw new Error(
-          `Agent participant not found for conversation ${conversationId} with phone ${this.config.phoneNumber}`
+          `Failed to resolve AI_AGENT participant for conversation ${conversationId}`
         );
       }
+
+      if (!customerParticipantId) {
+        throw new Error(
+          `Customer participant not found on SMS channel for conversation ${conversationId}`
+        );
+      }
+
+      const channelId =
+        typeof session.metadata?.channelId === 'string' ? session.metadata.channelId : undefined;
 
       this.logger.debug(
         {
           conversation_id: conversationId,
           recipient_address: recipientAddress,
-          recipient_participant_id: session.authorInfo.participantId,
+          recipient_participant_id: customerParticipantId,
           agent_participant_id: agentParticipant.id,
           from_number: this.config.phoneNumber,
         },
-        'Sending SMS via Send API'
+        'Sending SMS via Actions API'
       );
 
-      await this.conversationClient.sendCommunication(conversationId, {
-        author: {
-          address: this.config.phoneNumber,
-          channel: 'SMS',
-          participantId: agentParticipant.id,
-        },
-        recipients: [
-          {
-            address: recipientAddress,
+      const actionRequest: SendMessageActionRequest = {
+        type: 'SEND_MESSAGE',
+        payload: {
+          from: {
             channel: 'SMS',
-            participantId: session.authorInfo.participantId,
+            participantId: agentParticipant.id,
           },
-        ],
-        content: {
-          type: 'TEXT',
-          text: message,
+          to: [
+            {
+              channel: 'SMS',
+              participantId: customerParticipantId,
+            },
+          ],
+          content: { text: message },
+          ...(channelId ? { channelSettings: { channelId } } : {}),
         },
-      });
+      };
+
+      await this.conversationClient.createAction(conversationId, actionRequest);
 
       this.logger.info(
         { conversation_id: conversationId, recipient_address: recipientAddress },
-        'SMS sent successfully via Send API'
+        'SMS sent successfully via Actions API'
       );
     } catch (error) {
       this.logger.error({ err: error, conversation_id: conversationId }, 'Send response error');

@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createLogger, ConversationId, ProfileId } from '@twilio/tac-core';
+import {
+  createLogger,
+  ConversationId,
+  ProfileId,
+  type ConversationClient,
+  type ConversationParticipant,
+} from '@twilio/tac-core';
 import {
   ConversationSessionStore,
   ConversationsWebhookProcessor,
+  ensureAgentParticipant,
   extractConversationId,
   extractProfileId,
 } from '../packages/core/src/channels/utility';
@@ -306,5 +313,186 @@ describe('extractProfileId', () => {
   it('returns null when missing', () => {
     const got = extractProfileId({ data: {} }, silentLogger);
     expect(got).toBeNull();
+  });
+});
+
+describe('ensureAgentParticipant', () => {
+  const AGENT_ID = 'conv_participant_01testutilagent00000000000';
+  const FRESH_AGENT_ID = 'conv_participant_01testutilfresh00000000000';
+
+  const makeClient = (overrides: Partial<ConversationClient> = {}): ConversationClient =>
+    ({
+      addParticipant: vi.fn(),
+      listParticipants: vi.fn(),
+      ...overrides,
+    }) as unknown as ConversationClient;
+
+  const agentAddress = { channel: 'SMS' as const, address: '+15551234567' };
+
+  it('returns the existing AI_AGENT without calling addParticipant', async () => {
+    const existing: ConversationParticipant[] = [
+      {
+        id: AGENT_ID,
+        conversationId: CONVERSATION_ID,
+        accountId: 'AC',
+        type: 'AI_AGENT',
+        addresses: [{ channel: 'SMS', address: '+15551234567' }],
+      } as ConversationParticipant,
+    ];
+    const client = makeClient();
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      existing,
+      agentAddress
+    );
+
+    expect(got?.id).toBe(AGENT_ID);
+    expect(client.addParticipant).not.toHaveBeenCalled();
+    expect(client.listParticipants).not.toHaveBeenCalled();
+  });
+
+  it('lazy-creates the agent when no match exists', async () => {
+    const newAgent = {
+      id: FRESH_AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      accountId: 'AC',
+      type: 'AI_AGENT',
+      addresses: [{ channel: 'SMS', address: '+15551234567' }],
+    } as ConversationParticipant;
+
+    const client = makeClient({
+      addParticipant: vi.fn().mockResolvedValue(newAgent),
+    });
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      [],
+      agentAddress
+    );
+
+    expect(got?.id).toBe(FRESH_AGENT_ID);
+    expect(client.addParticipant).toHaveBeenCalledOnce();
+    expect(client.listParticipants).not.toHaveBeenCalled();
+  });
+
+  it('re-fetches participants when addParticipant loses a 409 race', async () => {
+    const rival = {
+      id: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      accountId: 'AC',
+      type: 'AI_AGENT',
+      addresses: [{ channel: 'SMS', address: '+15551234567' }],
+    } as ConversationParticipant;
+
+    const client = makeClient({
+      addParticipant: vi.fn().mockRejectedValue(new Error('409 Conflict')),
+      listParticipants: vi.fn().mockResolvedValue([rival]),
+    });
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      [],
+      agentAddress
+    );
+
+    expect(got?.id).toBe(AGENT_ID);
+    expect(client.listParticipants).toHaveBeenCalledOnce();
+  });
+
+  it('returns undefined when both create + re-fetch fail to find an agent', async () => {
+    const client = makeClient({
+      addParticipant: vi.fn().mockRejectedValue(new Error('boom')),
+      listParticipants: vi.fn().mockResolvedValue([]),
+    });
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      [],
+      agentAddress
+    );
+
+    expect(got).toBeUndefined();
+  });
+
+  it('returns undefined when re-fetch itself throws', async () => {
+    const client = makeClient({
+      addParticipant: vi.fn().mockRejectedValue(new Error('first boom')),
+      listParticipants: vi.fn().mockRejectedValue(new Error('second boom')),
+    });
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      [],
+      agentAddress
+    );
+
+    expect(got).toBeUndefined();
+  });
+
+  it('matches HUMAN_AGENT / AGENT too, not just AI_AGENT', async () => {
+    const human: ConversationParticipant[] = [
+      {
+        id: AGENT_ID,
+        conversationId: CONVERSATION_ID,
+        accountId: 'AC',
+        type: 'HUMAN_AGENT',
+        addresses: [{ channel: 'SMS', address: '+15551234567' }],
+      } as ConversationParticipant,
+    ];
+    const client = makeClient();
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      human,
+      agentAddress
+    );
+
+    expect(got?.id).toBe(AGENT_ID);
+    expect(client.addParticipant).not.toHaveBeenCalled();
+  });
+
+  it('ignores agents whose address does not match', async () => {
+    const wrong = {
+      id: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      accountId: 'AC',
+      type: 'AI_AGENT',
+      addresses: [{ channel: 'SMS', address: '+15559999999' }],
+    } as ConversationParticipant;
+    const fresh = {
+      id: FRESH_AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      accountId: 'AC',
+      type: 'AI_AGENT',
+      addresses: [{ channel: 'SMS', address: '+15551234567' }],
+    } as ConversationParticipant;
+
+    const client = makeClient({
+      addParticipant: vi.fn().mockResolvedValue(fresh),
+    });
+
+    const got = await ensureAgentParticipant(
+      client,
+      silentLogger,
+      CONVERSATION_ID,
+      [wrong],
+      agentAddress
+    );
+
+    expect(got?.id).toBe(FRESH_AGENT_ID);
+    expect(client.addParticipant).toHaveBeenCalledOnce();
   });
 });

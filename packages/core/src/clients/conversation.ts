@@ -1,5 +1,7 @@
 import axios from 'axios';
 import {
+  ActionResponse,
+  ActionResponseSchema,
   Communication,
   ConversationResponse,
   ConversationResponseSchema,
@@ -9,6 +11,7 @@ import {
   SendCommunicationRequest,
   SendCommunicationResponse,
   SendCommunicationResponseSchema,
+  SendMessageActionRequest,
   ConversationConfiguration,
   ConversationConfigurationSchema,
   ListCommunicationsResponse,
@@ -49,11 +52,12 @@ export class ConversationClient extends BaseClient {
   }
 
   /**
-   * Send a communication using the Conversation Orchestrator Send API
+   * Send a communication using the retired Conversation Orchestrator Send API
+   * (POST /v2/Communications).
    *
-   * @param conversationId - The conversation ID
-   * @param request - Send communication request
-   * @returns Promise containing communication response
+   * @deprecated Use {@link createAction} — the Send API endpoint returns 404
+   * since the 2026-04-22 migration. Retained only until the last caller is
+   * ported. Will be removed in a future release.
    */
   public async sendCommunication(
     conversationId: ConversationId,
@@ -72,6 +76,33 @@ export class ConversationClient extends BaseClient {
     } catch (error) {
       throw new Error(
         `Failed to send communication: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
+    }
+  }
+
+  /**
+   * Create an action on a conversation via the Conversation Orchestrator Actions API.
+   *
+   * Currently supports SEND_MESSAGE actions. Returns 202 Accepted; the action is
+   * processed asynchronously and delivered via COMMUNICATION_CREATED webhook.
+   *
+   * @param conversationId - The conversation ID
+   * @param request - The action request ({type, payload})
+   * @returns Promise containing the ActionResponse
+   */
+  public async createAction(
+    conversationId: ConversationId,
+    request: SendMessageActionRequest
+  ): Promise<ActionResponse> {
+    const url = `/v2/Conversations/${conversationId}/Actions`;
+
+    try {
+      const data = await this.makeRequest<ActionResponse>(url, 'POST', request);
+      return ActionResponseSchema.parse(data);
+    } catch (error) {
+      throw new Error(
+        `Failed to create action: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
       );
     }

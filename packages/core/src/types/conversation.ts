@@ -170,6 +170,93 @@ export const SendCommunicationResponseSchema = z.object({
 export type SendCommunicationResponse = z.infer<typeof SendCommunicationResponseSchema>;
 
 /**
+ * Participant reference for the Actions API (`from`/`to` entries).
+ *
+ * Either `participantId` or `address` must be supplied; `channel` is always required.
+ * When both are provided, Conversation Orchestrator uses `participantId` and
+ * `channel` disambiguates which of the participant's addresses to use.
+ */
+export const ActionParticipantRefSchema = z
+  .object({
+    participantId: z.string().min(1).optional(),
+    address: z.string().min(1).max(254).optional(),
+    channel: ParticipantAddressTypeSchema,
+  })
+  .refine(v => Boolean(v.participantId) || Boolean(v.address), {
+    message: 'ActionParticipantRef requires at least `participantId` or `address`',
+  });
+
+export type ActionParticipantRef = z.infer<typeof ActionParticipantRefSchema>;
+
+/**
+ * Plain-text content for a SEND_MESSAGE action.
+ */
+export const ActionTextContentSchema = z.object({
+  text: z.string().max(8388608),
+});
+
+export type ActionTextContent = z.infer<typeof ActionTextContentSchema>;
+
+/**
+ * Channel-specific settings forwarded to the downstream backend.
+ *
+ * Open pass-through: any field not explicitly modeled here (e.g.
+ * `messagingServiceSid`, `statusCallback`, `Attributes`) can be set by callers and
+ * will be forwarded as-is.
+ */
+export const ActionChannelSettingsSchema = z
+  .object({
+    channelId: z.string().optional(),
+    // TODO(conv-orch): Drop `chatService` once the Actions API resolves the V1 Chat
+    // service SID server-side. Confirmed this should not be required client-side;
+    // keep the field until the server-side fix ships.
+    chatService: z.string().optional(),
+  })
+  .passthrough();
+
+export type ActionChannelSettings = z.infer<typeof ActionChannelSettingsSchema>;
+
+/**
+ * Inner payload for a SEND_MESSAGE action.
+ */
+export const SendMessageActionPayloadSchema = z.object({
+  from: ActionParticipantRefSchema,
+  to: z.array(ActionParticipantRefSchema).min(1),
+  content: ActionTextContentSchema,
+  channelSettings: ActionChannelSettingsSchema.optional(),
+});
+
+export type SendMessageActionPayload = z.infer<typeof SendMessageActionPayloadSchema>;
+
+/**
+ * Request body for POST /v2/Conversations/{id}/Actions with type=SEND_MESSAGE.
+ */
+export const SendMessageActionRequestSchema = z.object({
+  type: z.literal('SEND_MESSAGE').default('SEND_MESSAGE'),
+  payload: SendMessageActionPayloadSchema,
+});
+
+export type SendMessageActionRequest = z.infer<typeof SendMessageActionRequestSchema>;
+
+/**
+ * Response from POST /v2/Conversations/{id}/Actions (202 Accepted).
+ *
+ * The action is processed asynchronously; listen for COMMUNICATION_CREATED webhook
+ * to get the full Communication.
+ */
+export const ActionResponseSchema = z.object({
+  id: z.string(),
+  // Kept as string (not enum) to tolerate future action types. Known: SEND_MESSAGE.
+  type: z.string(),
+  // Kept as string (not enum) to tolerate future statuses. Known: PENDING, COMPLETED, FAILED.
+  status: z.string(),
+  conversationId: z.string(),
+  createdAt: z.string().nullish(),
+});
+
+export type ActionResponse = z.infer<typeof ActionResponseSchema>;
+
+/**
  * Author information for a conversation session
  */
 export const AuthorInfoSchema = z.object({
@@ -376,6 +463,20 @@ export const ConversationGroupingTypeSchema = z.enum([
 export type ConversationGroupingType = z.infer<typeof ConversationGroupingTypeSchema>;
 
 /**
+ * Conversations V1 bridge settings on a ConversationConfiguration.
+ *
+ * TODO(conv-orch): Remove this schema once the Actions API resolves the V1 Chat
+ * service SID server-side. Currently used to extract `conversationsV1Bridge.serviceId`
+ * from the Configuration so the chat channel can forward it as
+ * channelSettings.chatService — drop together with the other TODO(conv-orch) sites.
+ */
+export const ConversationsV1BridgeSchema = z.object({
+  serviceId: z.string(),
+});
+
+export type ConversationsV1Bridge = z.infer<typeof ConversationsV1BridgeSchema>;
+
+/**
  * Configuration settings for a conversation
  *
  * @see /docs/oai-specs/internal-oai/spec/json/twilio_conversations_v2.json
@@ -396,6 +497,9 @@ export const ConversationConfigurationSchema = z.object({
   channelSettings: z.record(ChannelSettingsSchema).nullable().optional(),
   statusCallbacks: z.array(StatusCallbackSchema).max(20).nullable().optional(),
   intelligenceConfigurationIds: z.array(z.string()).max(5).nullable().optional(),
+  // TODO(conv-orch): Drop this field once the Actions API resolves the V1 Chat
+  // service SID server-side — see ConversationsV1BridgeSchema above.
+  conversationsV1Bridge: ConversationsV1BridgeSchema.nullish(),
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
   version: z.number().int().nullable().optional(),

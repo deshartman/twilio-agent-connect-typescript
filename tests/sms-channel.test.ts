@@ -10,6 +10,8 @@ describe('SMS Channel', () => {
   const TEST_CONVERSATION_ID = 'conv_conversation_01testsmsaabbccddeeffgghhj' as ConversationId;
   const TEST_CONVERSATION_ID_2 = 'conv_conversation_01testsms2aabbccddeeffffgg' as ConversationId;
   const TEST_PROFILE_ID = 'mem_profile_01testprofileaabbccddeeffg' as ProfileId;
+  const TEST_AGENT_PARTICIPANT_ID = 'conv_participant_01testsmsagent000000000000';
+  const TEST_CUSTOMER_PARTICIPANT_ID = 'conv_participant_01testsmscust0000000000000';
 
   afterEach(() => {
     mockAdapter?.restore();
@@ -536,14 +538,14 @@ describe('SMS Channel', () => {
       mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
         participants: [
           {
-            id: 'PA111',
+            id: TEST_AGENT_PARTICIPANT_ID,
             conversationId: TEST_CONVERSATION_ID,
             accountId: 'ACtest123456789',
             type: 'HUMAN_AGENT',
             addresses: [{ channel: 'SMS', address: '+15551234567' }],
           },
           {
-            id: 'PA123',
+            id: TEST_CUSTOMER_PARTICIPANT_ID,
             conversationId: TEST_CONVERSATION_ID,
             accountId: 'ACtest123456789',
             type: 'CUSTOMER',
@@ -552,15 +554,19 @@ describe('SMS Channel', () => {
         ],
       });
 
-      // Mock sendCommunication call (returns 202 Accepted)
-      mockAdapter.onPost('/v2/Communications').reply(202, {
-        message: 'Conversation setup complete',
-        conversationId: TEST_CONVERSATION_ID,
-        channelId: 'SM123abc',
-      });
+      // Mock createAction call (returns 202 Accepted)
+      mockAdapter
+        .onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Actions`)
+        .reply(202, {
+          id: 'AC_action_01test00000000000000000000',
+          type: 'SEND_MESSAGE',
+          status: 'PENDING',
+          conversationId: TEST_CONVERSATION_ID,
+          createdAt: '2026-04-23T00:00:00Z',
+        });
     });
 
-    it('should send SMS via Send API', async () => {
+    it('should send SMS via Actions API', async () => {
       // Start conversation and receive message to populate author_info
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
@@ -580,31 +586,31 @@ describe('SMS Channel', () => {
           author: {
             address: '+15559876543',
             channel: 'SMS',
-            participantId: 'PA123',
+            participantId: TEST_CUSTOMER_PARTICIPANT_ID,
           },
         },
       });
 
       await channel.sendResponse(TEST_CONVERSATION_ID, 'Hello back!');
 
-      // Verify that the correct requests were made (listParticipants + sendCommunication)
+      // Verify that the correct requests were made (listParticipants + createAction)
       const history = mockAdapter.history;
       expect(history.get.length).toBe(1); // listParticipants
       expect(history.get[0].url).toBe(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`);
 
       expect(history.post.length).toBe(1);
-      expect(history.post[0].url).toBe('/v2/Communications');
+      expect(history.post[0].url).toBe(`/v2/Conversations/${TEST_CONVERSATION_ID}/Actions`);
       const body = JSON.parse(history.post[0].data);
-      expect(body.conversationId).toBe(TEST_CONVERSATION_ID);
-      expect(body.author.address).toBe('+15551234567');
-      expect(body.author.channel).toBe('SMS');
-      expect(body.author.participantId).toBe('PA111');
-      expect(body.recipients).toHaveLength(1);
-      expect(body.recipients[0].address).toBe('+15559876543');
-      expect(body.recipients[0].channel).toBe('SMS');
-      expect(body.recipients[0].participantId).toBe('PA123');
-      expect(body.content.type).toBe('TEXT');
-      expect(body.content.text).toBe('Hello back!');
+      expect(body.type).toBe('SEND_MESSAGE');
+      // Mode 1 refs: participantId + channel only, no address
+      expect(body.payload.from.channel).toBe('SMS');
+      expect(body.payload.from.participantId).toBe(TEST_AGENT_PARTICIPANT_ID);
+      expect(body.payload.from.address).toBeUndefined();
+      expect(body.payload.to).toHaveLength(1);
+      expect(body.payload.to[0].channel).toBe('SMS');
+      expect(body.payload.to[0].participantId).toBe(TEST_CUSTOMER_PARTICIPANT_ID);
+      expect(body.payload.to[0].address).toBeUndefined();
+      expect(body.payload.content.text).toBe('Hello back!');
     });
 
     it('should throw error when no session exists', async () => {

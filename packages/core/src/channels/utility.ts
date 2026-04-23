@@ -4,20 +4,21 @@
  * Channels compose these helpers instead of inheriting from a base class:
  *   - ConversationSessionStore — owns the per-channel active-conversation Map
  *   - ConversationsWebhookProcessor — dedup + event routing for Maestro webhooks
- *
- * ensureAgentParticipant (pure function) will be added when #75's Actions API
- * migration unifies the current inline per-channel participant lookup into a
- * single reusable helper.
+ *   - ensureAgentParticipant (pure function) — resolve or lazy-create the
+ *     conversation's AI_AGENT participant with 409-race handling
  */
 
 import {
+  ConversationAddress,
   ConversationId,
+  ConversationParticipant,
   ProfileId,
   ConversationSession,
   ChannelType,
   isConversationId,
   isProfileId,
 } from '../types/index';
+import type { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
 
 /**
@@ -450,6 +451,86 @@ export function extractConversationId(payload: unknown, logger: Logger): Convers
   }
 
   return null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ensureAgentParticipant
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Return the conversation's agent participant (AI_AGENT / HUMAN_AGENT / AGENT)
+ * that owns `agentAddress`, creating one if absent.
+ *
+ * Behaviour:
+ *   1. Match against `existingParticipants` — return the first AGENT-type
+ *      participant with an address matching `agentAddress` on both channel and
+ *      address.
+ *   2. No match → create an AI_AGENT with `agentAddress`.
+ *   3. Create failed (usually 409 from a concurrent worker) → re-list and
+ *      re-match. Returns undefined if still not found, letting callers
+ *      decide how to surface the failure.
+ */
+export async function ensureAgentParticipant(
+  client: ConversationClient,
+  logger: Logger,
+  conversationId: ConversationId,
+  existingParticipants: ConversationParticipant[],
+  agentAddress: ConversationAddress
+): Promise<ConversationParticipant | undefined> {
+  const matches = (p: ConversationParticipant): boolean =>
+    (p.type === 'AI_AGENT' || p.type === 'HUMAN_AGENT' || p.type === 'AGENT') &&
+    Array.isArray(p.addresses) &&
+    p.addresses.some(a => a.channel === agentAddress.channel && a.address === agentAddress.address);
+
+  const existing = existingParticipants.find(matches);
+  if (existing) {
+    return existing;
+  }
+
+  logger.debug(
+    {
+      conversation_id: conversationId,
+      channel: agentAddress.channel,
+      address: agentAddress.address,
+    },
+    'No agent participant found, creating AI_AGENT'
+  );
+
+  try {
+    const agent = await client.addParticipant(conversationId, [agentAddress], 'AI_AGENT');
+    logger.debug(
+      { conversation_id: conversationId, participant_id: agent.id },
+      'Created AI_AGENT participant'
+    );
+    return agent;
+  } catch (error) {
+    // Most likely a 409 race (another worker just created the agent), but we
+    // catch broadly here — log the original error so a real 5xx isn't hidden.
+    logger.warn(
+      { err: error, conversation_id: conversationId },
+      'Failed to create AI_AGENT, retrying participant list'
+    );
+  }
+
+  let retried: ConversationParticipant[];
+  try {
+    retried = await client.listParticipants(conversationId);
+  } catch (error) {
+    logger.error(
+      { err: error, conversation_id: conversationId },
+      'Failed to retry listing participants'
+    );
+    return undefined;
+  }
+
+  const agent = retried.find(matches);
+  if (!agent) {
+    logger.error(
+      { conversation_id: conversationId },
+      'Failed to create or find AI_AGENT participant'
+    );
+  }
+  return agent;
 }
 
 /**
