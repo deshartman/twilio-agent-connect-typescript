@@ -481,6 +481,31 @@ describe('ConversationClient', () => {
       expect(result.status).toBe('PENDING');
     });
 
+    it('should omit channelSettings when not provided', async () => {
+      // The Zod schema makes channelSettings optional. When callers don't pass
+      // it, the outbound body should not include the key at all (not
+      // `channelSettings: undefined`, which JSON-serialises to absent but
+      // would fail stricter server-side validators).
+      mockAdapter.onPost('/v2/Conversations/CH123/Actions').reply(202, {
+        id: 'AC_action_01test00000000000000000000',
+        type: 'SEND_MESSAGE',
+        status: 'PENDING',
+        conversationId: 'CH123',
+      });
+
+      await conversationClient.createAction('CH123', {
+        type: 'SEND_MESSAGE',
+        payload: {
+          from: { channel: 'SMS', participantId: 'part_123' },
+          to: [{ channel: 'SMS', participantId: 'part_456' }],
+          content: { text: 'Hello' },
+        },
+      });
+
+      const body = JSON.parse(mockAdapter.history.post[0]!.data);
+      expect(body.payload).not.toHaveProperty('channelSettings');
+    });
+
     it('should handle API errors', async () => {
       mockAdapter.onPost('/v2/Conversations/CH123/Actions').reply(500);
 

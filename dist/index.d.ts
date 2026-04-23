@@ -109,7 +109,7 @@ type MemoryDeliveryStatus = z.infer<typeof MemoryDeliveryStatusSchema>;
 /**
  * Participant in a Memory communication (author or recipient).
  *
- * Memory API has different field requirements than Maestro:
+ * Memory API has different field requirements than Conversation Orchestrator:
  * - Uses `id` and `name` instead of just `participant_id`
  * - Includes `type` and `profile_id` fields
  */
@@ -142,7 +142,7 @@ type MemoryParticipant = z.infer<typeof MemoryParticipantSchema>;
 /**
  * Content of a Memory communication.
  *
- * Memory API content is simpler than Maestro - no type discriminator field.
+ * Memory API content is simpler than Conversation Orchestrator - no type discriminator field.
  * The `text` field is optional in Memory API models.
  */
 declare const MemoryCommunicationContentSchema: z.ZodObject<{
@@ -156,7 +156,7 @@ type MemoryCommunicationContent = z.infer<typeof MemoryCommunicationContentSchem
 /**
  * A communication from Memory API (historical conversation data).
  *
- * Memory API has different field requirements than Maestro:
+ * Memory API has different field requirements than Conversation Orchestrator:
  * - No `conversation_id`, `account_id`, or `content.type` fields
  * - Participants use `id`, `name`, `type`, `profile_id`
  *
@@ -782,18 +782,22 @@ type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSumm
 /**
  * Session Types
  *
- * Generic session abstractions that work with any identifier (CallSid, ConversationId, etc.)
+ * Session abstractions for Maestro-backed channels (voice / SMS / chat).
+ * `ConversationId` is the canonical session key across all TAC channels —
+ * this is the unified-identity model this branch's refactor standardises on.
  */
 
 /**
- * Base session context - works with any session identifier
+ * Base session context for a TAC channel session.
  *
- * This minimal interface supports both standalone CR (CallSid) and
- * Maestro-backed channels (ConversationId) without forcing conversation concepts.
+ * `conversationId` is always a Maestro ConversationId — the single session key
+ * shared across voice, SMS and chat. If you need raw-CallSid sessions (standalone
+ * ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
+ * directly — it ships its own `CallSid` branded type and does not use this interface.
  */
 interface SessionContext {
     /**
-     * Conversation identifier
+     * Maestro ConversationId — canonical session key for this context.
      */
     conversationId: string;
     /**
@@ -833,7 +837,7 @@ declare const ParticipantAddressSchema: z.ZodObject<{
 }>;
 type ParticipantAddress = z.infer<typeof ParticipantAddressSchema>;
 /**
- * Communication participant for Conversations Service API (Maestro).
+ * Communication participant for Conversations Service API (Conversation Orchestrator).
  *
  * Note: participantId is required for SDK validation when creating communications.
  */
@@ -914,7 +918,7 @@ type Transcription = z.infer<typeof TranscriptionSchema>;
 /**
  * Communication content (ContentText or ContentTranscription).
  *
- * Note: In Maestro API, both `type` and `text` are required fields.
+ * Note: In the Conversation Orchestrator API, both `type` and `text` are required fields.
  */
 declare const CommunicationContentSchema: z.ZodObject<{
     type: z.ZodEnum<["TEXT", "TRANSCRIPTION"]>;
@@ -984,7 +988,7 @@ declare const CommunicationContentSchema: z.ZodObject<{
 }>;
 type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
 /**
- * Communication from Conversations Service API (Maestro).
+ * Communication from Conversations Service API (Conversation Orchestrator).
  *
  * Note: `createdAt` is optional per API spec.
  *
@@ -1588,6 +1592,8 @@ declare const SendMessageActionPayloadSchema: z.ZodObject<{
 type SendMessageActionPayload = z.infer<typeof SendMessageActionPayloadSchema>;
 /**
  * Request body for POST /v2/Conversations/{id}/Actions with type=SEND_MESSAGE.
+ *
+ * Body is discriminated by `type` with the action-specific fields under `payload`.
  */
 declare const SendMessageActionRequestSchema: z.ZodObject<{
     type: z.ZodDefault<z.ZodLiteral<"SEND_MESSAGE">>;
@@ -1735,8 +1741,8 @@ type SendMessageActionRequest = z.infer<typeof SendMessageActionRequestSchema>;
 /**
  * Response from POST /v2/Conversations/{id}/Actions (202 Accepted).
  *
- * The action is processed asynchronously; listen for COMMUNICATION_CREATED webhook
- * to get the full Communication.
+ * The action is processed asynchronously; listen for COMMUNICATION_CREATED
+ * webhook to get the full Communication.
  */
 declare const ActionResponseSchema: z.ZodObject<{
     id: z.ZodString;
@@ -2382,7 +2388,7 @@ type TACDeliveryStatus = z.infer<typeof TACDeliveryStatusSchema>;
 declare const TACParticipantTypeSchema: z.ZodEnum<["HUMAN_AGENT", "CUSTOMER", "AI_AGENT"]>;
 type TACParticipantType = z.infer<typeof TACParticipantTypeSchema>;
 /**
- * Unified author model with all fields from both Memory and Maestro APIs.
+ * Unified author model with all fields from both Memory and Conversation Orchestrator APIs.
  *
  * Fields not available from a particular API will be undefined.
  */
@@ -2416,7 +2422,7 @@ declare const TACCommunicationAuthorSchema: z.ZodObject<{
 }>;
 type TACCommunicationAuthor = z.infer<typeof TACCommunicationAuthorSchema>;
 /**
- * Unified content model with all fields from both Memory and Maestro APIs.
+ * Unified content model with all fields from both Memory and Conversation Orchestrator APIs.
  */
 declare const TACCommunicationContentSchema: z.ZodObject<{
     type: z.ZodOptional<z.ZodEnum<["TEXT", "TRANSCRIPTION"]>>;
@@ -2486,7 +2492,7 @@ declare const TACCommunicationContentSchema: z.ZodObject<{
 }>;
 type TACCommunicationContent = z.infer<typeof TACCommunicationContentSchema>;
 /**
- * Unified communication model with all fields from both Memory and Maestro APIs.
+ * Unified communication model with all fields from both Memory and Conversation Orchestrator APIs.
  *
  * Provides complete access to all communication fields regardless of the source.
  * Fields not available from a particular API will be undefined.
@@ -2709,42 +2715,42 @@ type TACCommunication = z.infer<typeof TACCommunicationSchema>;
  * Unified response wrapper for TAC.retrieveMemory().
  *
  * Provides a consistent interface for accessing memory data regardless of whether
- * Memory API is configured or falling back to Maestro Communications API.
+ * Memory API is configured or falling back to Conversation Orchestrator Communications API.
  *
  * Memory configured:
  * - observations, summaries, communications all populated
  * - communications include Memory-specific fields (author id, name, type, profileId)
  *
- * Maestro fallback:
+ * Conversation Orchestrator fallback:
  * - observations and summaries are empty arrays
- * - communications include Maestro-specific fields (conversationId, accountId, etc.)
+ * - communications include Conversation Orchestrator-specific fields (conversationId, accountId, etc.)
  */
 declare class TACMemoryResponse {
     private readonly _data;
     private readonly _communications;
     /**
-     * Initialize wrapper with either Memory or Maestro data.
+     * Initialize wrapper with either Memory or Conversation Orchestrator data.
      *
-     * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Maestro)
+     * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Conversation Orchestrator)
      */
     constructor(data: MemoryRetrievalResponse | Communication[]);
     /**
      * Get observation memories.
      *
-     * @returns List of observations if Memory is configured, empty array for Maestro fallback
+     * @returns List of observations if Memory is configured, empty array for Conversation Orchestrator fallback
      */
     get observations(): ObservationInfo[];
     /**
      * Get summary memories.
      *
-     * @returns List of summaries if Memory is configured, empty array for Maestro fallback
+     * @returns List of summaries if Memory is configured, empty array for Conversation Orchestrator fallback
      */
     get summaries(): SummaryInfo[];
     /**
      * Get communications in unified format with all available fields.
      *
      * Communications are converted to a common format during initialization that includes
-     * all fields from both Memory and Maestro APIs. Fields not available from a particular
+     * all fields from both Memory and Conversation Orchestrator APIs. Fields not available from a particular
      * API will be undefined.
      *
      * @returns List of unified communications with all available fields
@@ -2754,7 +2760,7 @@ declare class TACMemoryResponse {
      * Check if Memory API is configured and providing full features.
      *
      * @returns true if Memory is configured (observations/summaries available),
-     *          false if using Maestro fallback (only communications available)
+     *          false if using Conversation Orchestrator fallback (only communications available)
      */
     get hasMemoryFeatures(): boolean;
     /**
@@ -4441,7 +4447,7 @@ interface TACOptions {
 /**
  * Callback function signatures for TAC events
  */
-type MessageReadyCallback = (message: ChannelMessage) => Promise<void> | void;
+type MessageReadyCallback = (message: ChannelMessage) => Promise<string | null | void> | string | null | void;
 type ErrorCallback = (params: {
     error: Error;
     context?: Record<string, unknown> | undefined;
@@ -4473,12 +4479,17 @@ declare class TAC {
     private cintelProcessor?;
     private memoryStoreId;
     /**
-     * Cached from conversationConfig.conversationsV1Bridge?.serviceId at init.
+     * Cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init.
      * ChatChannel forwards this as `channelSettings.chatService` on outbound
      * SEND_MESSAGE actions.
      *
-     * TODO(conv-orch): Drop this field once the Actions API resolves the V1
-     * Chat service SID server-side — see ConversationsV1BridgeSchema.
+     * Until the server-side fix ships, CHAT sends fail with
+     *   "chatService attribute is required for CHAT channel"
+     * unless we pass it on channelSettings.chatService.
+     *
+     * TODO(conv-orch): Drop this field plus ActionChannelSettings.chatService
+     * and ChatChannel's chatServiceSid plumbing once the Actions API resolves
+     * the V1 Chat service SID server-side.
      */
     conversationsV1ServiceSid?: string;
     private messageReadyCallback?;
@@ -4505,7 +4516,8 @@ declare class TAC {
      */
     private handleMessage;
     /**
-     * Register callback for when messages are ready to be processed
+     * Register callback for when messages are ready to be processed.
+     * Return a string to auto-send, or null/void for manual handling.
      */
     onMessageReady(callback: MessageReadyCallback): void;
     /**

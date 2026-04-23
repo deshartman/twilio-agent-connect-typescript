@@ -172,9 +172,6 @@ tac.onMessageReady(async msg => {
   const llmResponse = choice?.content ?? '';
   conversationHistory[convId].push({ role: 'assistant', content: llmResponse });
 
-  // Send response via the channel that delivered the message
-  await channel.sendResponse(convId as ConversationId, llmResponse);
-
   // Uniform tool dispatch. On voice, CR protocol tools are auto-shipped via the
   // WebSocket by executeTool. On sms/chat, messaging tools are plain functions.
   for (const call of choice?.tool_calls ?? []) {
@@ -184,6 +181,10 @@ tac.onMessageReady(async msg => {
       JSON.parse(call.function.arguments)
     );
   }
+
+  // Returning the string auto-sends via the originating channel's sendResponse.
+  // Return void/null if you want to route manually instead.
+  return llmResponse;
 });
 
 const server = new TACServer(tac);

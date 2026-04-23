@@ -549,5 +549,64 @@ describe('Chat Channel', () => {
       expect(body.payload.channelSettings.chatService).toBe('IS01testv1bridgeaabbccddeeff');
       expect(body.payload.channelSettings.channelId).toBe('CH00000000000000000000000000000000');
     });
+
+    it('should throw when channelId missing from session metadata', async () => {
+      // Seed session from an inbound webhook that carries no channelId — the V1
+      // Chat backend needs it, so sendResponse must reject rather than silently
+      // send a broken action.
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          author: {
+            address: 'customer@example.com',
+            participantId: 'PA_customer_123',
+            channel: 'CHAT',
+          },
+          content: { type: 'TEXT', text: 'Hello' },
+          // no channelId
+        },
+      });
+
+      await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'Hello')).rejects.toThrow(
+        /Missing chat channelId/
+      );
+    });
+
+    it('should throw when ensureAgentParticipant fails (addParticipant fails and retry finds none)', async () => {
+      // Both list calls return no AI_AGENT, addParticipant 5xxs — the helper
+      // must raise. Distinct from our existing race-condition test, which
+      // exercises the successful-retry branch.
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          author: {
+            address: 'customer@example.com',
+            participantId: 'PA_customer_123',
+            channel: 'CHAT',
+          },
+          content: { type: 'TEXT', text: 'Hello' },
+          channelId: 'CH00000000000000000000000000000000',
+        },
+      });
+
+      mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
+        participants: [
+          {
+            id: 'PA_customer_123',
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'CHAT', address: 'customer@example.com' }],
+          },
+        ],
+      });
+      mockAdapter.onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(500);
+
+      await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'Hello')).rejects.toThrow(
+        'Failed to resolve AI_AGENT participant'
+      );
+    });
   });
 });

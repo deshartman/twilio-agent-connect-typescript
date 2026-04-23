@@ -4,14 +4,14 @@
  * Example demonstrating ChatChannel with the Twilio Conversations JS SDK.
  * Messages flow through Twilio Conversations and Conversation Orchestrator:
  *
- *     Browser (Conversations JS SDK) -> Twilio Conversations -> Conversation Orchestrator -> webhook -> server -> AI -> Send API -> SDK
+ *     Browser (Conversations JS SDK) -> Twilio Conversations -> Conversation Orchestrator -> webhook -> server -> AI -> Actions API -> SDK
  *
  * Usage:
  *     npm start
  *     Then open http://localhost:8000 in a browser.
  *
  * Required env vars (in addition to standard TAC vars):
- *     TWILIO_CONVERSATION_SERVICE_SID - Conversations v1 Service SID (starts with IS)
+ *     TWILIO_CONVERSATIONS_SERVICE_SID - Conversations v1 Service SID (starts with IS)
  *     OPENAI_API_KEY                  - OpenAI API key
  */
 
@@ -112,18 +112,16 @@ tac.onMessageReady(async msg => {
 
     const llmResponse = response.choices[0]?.message?.content ?? '';
 
-    if (llmResponse) {
-      // Add assistant response to history
-      conversationMessages[convId].push({
-        role: 'assistant',
-        content: llmResponse,
-      });
+    // Add assistant response to history
+    conversationMessages[convId].push({
+      role: 'assistant',
+      content: llmResponse,
+    });
 
-      // Send response via chat channel
-      await chatChannel.sendResponse(conversationId, llmResponse);
-    }
+    return llmResponse;
   } catch (error) {
     console.error(`Error processing message for conversation ${convId}:`, error);
+    return 'Sorry, I encountered an error processing your message.';
   }
 });
 
@@ -169,7 +167,7 @@ app.post('/token', async (request, reply) => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const apiKey = process.env.TWILIO_API_KEY;
   const apiSecret = process.env.TWILIO_API_SECRET;
-  const serviceSid = process.env.TWILIO_CONVERSATION_SERVICE_SID;
+  const serviceSid = process.env.TWILIO_CONVERSATIONS_SERVICE_SID;
 
   if (!accountSid || !apiKey || !apiSecret || !serviceSid) {
     app.log.error('Missing required credentials for token generation');
@@ -188,7 +186,7 @@ app.post('/token', async (request, reply) => {
 });
 
 // Conversation Orchestrator webhook handler
-app.post('/conversation', async (request, reply) => {
+app.post('/webhook', async (request, reply) => {
   try {
     const payload = request.body as Record<string, unknown> | undefined;
     const data = payload?.data as Record<string, unknown> | undefined;
@@ -198,7 +196,7 @@ app.post('/conversation', async (request, reply) => {
         conversationId: data?.conversationId,
         author: data?.author,
       },
-      '/conversation webhook received'
+      '/webhook received'
     );
     // Fire-and-forget webhook processing
     chatChannel.processWebhook(request.body).catch((err: unknown) => {

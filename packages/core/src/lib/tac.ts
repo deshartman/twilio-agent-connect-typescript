@@ -29,7 +29,9 @@ export interface TACOptions {
 /**
  * Callback function signatures for TAC events
  */
-export type MessageReadyCallback = (message: ChannelMessage) => Promise<void> | void;
+export type MessageReadyCallback = (
+  message: ChannelMessage
+) => Promise<string | null | void> | string | null | void;
 
 export type ErrorCallback = (params: {
   error: Error;
@@ -66,12 +68,17 @@ export class TAC {
   private cintelProcessor?: OperatorResultProcessor;
   private memoryStoreId!: MemoryStoreId;
   /**
-   * Cached from conversationConfig.conversationsV1Bridge?.serviceId at init.
+   * Cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init.
    * ChatChannel forwards this as `channelSettings.chatService` on outbound
    * SEND_MESSAGE actions.
    *
-   * TODO(conv-orch): Drop this field once the Actions API resolves the V1
-   * Chat service SID server-side — see ConversationsV1BridgeSchema.
+   * Until the server-side fix ships, CHAT sends fail with
+   *   "chatService attribute is required for CHAT channel"
+   * unless we pass it on channelSettings.chatService.
+   *
+   * TODO(conv-orch): Drop this field plus ActionChannelSettings.chatService
+   * and ChatChannel's chatServiceSid plumbing once the Actions API resolves
+   * the V1 Chat service SID server-side.
    */
   public conversationsV1ServiceSid?: string;
 
@@ -242,7 +249,37 @@ export class TAC {
     );
 
     try {
-      await this.messageReadyCallback(message);
+      const response = await this.messageReadyCallback(message);
+
+      // Auto-send if callback returned a non-empty string.
+      // - null/void/undefined → manual handling (existing contract)
+      // - empty string → warn and skip (almost certainly not intended)
+      // - non-empty string → route back through the originating channel
+      if (typeof response === 'string') {
+        if (response === '') {
+          this.logger.warn(
+            { conversation_id: message.conversationId, channel: message.channel },
+            'Callback returned empty string, skipping auto-send'
+          );
+        } else {
+          const channel = this.channels.get(message.channel);
+          if (!channel) {
+            this.logger.error(
+              { conversation_id: message.conversationId, channel: message.channel },
+              'No channel registered for auto-send'
+            );
+          } else {
+            try {
+              await channel.sendResponse(message.conversationId, response);
+            } catch (sendError) {
+              this.logger.error(
+                { err: sendError, conversation_id: message.conversationId },
+                'Failed to auto-send callback response'
+              );
+            }
+          }
+        }
+      }
     } catch (error) {
       this.logger.error(
         { err: error, conversation_id: message.conversationId },
@@ -252,7 +289,8 @@ export class TAC {
   }
 
   /**
-   * Register callback for when messages are ready to be processed
+   * Register callback for when messages are ready to be processed.
+   * Return a string to auto-send, or null/void for manual handling.
    */
   public onMessageReady(callback: MessageReadyCallback): void {
     this.messageReadyCallback = callback;

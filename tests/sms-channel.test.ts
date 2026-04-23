@@ -632,5 +632,174 @@ describe('SMS Channel', () => {
         'No author info found'
       );
     });
+
+    it('should forward channelId as channelSettings.channelId when present', async () => {
+      await channel.processWebhook({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: TEST_CONVERSATION_ID },
+      });
+
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          content: { type: 'TEXT', text: 'Hello' },
+          author: {
+            address: '+15559876543',
+            channel: 'SMS',
+            participantId: TEST_CUSTOMER_PARTICIPANT_ID,
+          },
+          channelId: 'SMabcdef',
+        },
+      });
+
+      await channel.sendResponse(TEST_CONVERSATION_ID, 'Reply');
+
+      const body = JSON.parse(mockAdapter.history.post[0]!.data);
+      expect(body.payload.channelSettings?.channelId).toBe('SMabcdef');
+    });
+
+    it('should lazily create AI_AGENT participant when absent', async () => {
+      // Replace the sendResponse beforeEach participants list with customer-only
+      // so ensureAgentParticipant has to create the AI_AGENT.
+      mockAdapter.resetHandlers();
+      mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
+        participants: [
+          {
+            id: TEST_CUSTOMER_PARTICIPANT_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'SMS', address: '+15559876543' }],
+          },
+        ],
+      });
+      mockAdapter
+        .onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`)
+        .reply(201, {
+          id: TEST_AGENT_PARTICIPANT_ID,
+          conversationId: TEST_CONVERSATION_ID,
+          accountId: 'ACtest123456789',
+          type: 'AI_AGENT',
+          addresses: [{ channel: 'SMS', address: '+15551234567' }],
+        });
+      mockAdapter
+        .onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Actions`)
+        .reply(202, {
+          id: 'AC_action_01test00000000000000000000',
+          type: 'SEND_MESSAGE',
+          status: 'PENDING',
+          conversationId: TEST_CONVERSATION_ID,
+        });
+
+      await channel.processWebhook({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: TEST_CONVERSATION_ID },
+      });
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          content: { type: 'TEXT', text: 'Hello' },
+          author: {
+            address: '+15559876543',
+            channel: 'SMS',
+            participantId: TEST_CUSTOMER_PARTICIPANT_ID,
+          },
+        },
+      });
+
+      await channel.sendResponse(TEST_CONVERSATION_ID, 'Reply');
+
+      const addParticipantCall = mockAdapter.history.post.find(p =>
+        p.url?.endsWith('/Participants')
+      );
+      expect(addParticipantCall).toBeDefined();
+      const addBody = JSON.parse(addParticipantCall!.data);
+      expect(addBody.type).toBe('AI_AGENT');
+      expect(addBody.addresses[0].channel).toBe('SMS');
+      expect(addBody.addresses[0].address).toBe('+15551234567');
+
+      const actionCall = mockAdapter.history.post.find(p => p.url?.endsWith('/Actions'));
+      expect(actionCall).toBeDefined();
+      const actionBody = JSON.parse(actionCall!.data);
+      expect(actionBody.payload.from.participantId).toBe(TEST_AGENT_PARTICIPANT_ID);
+    });
+
+    it('should throw when ensureAgentParticipant fails', async () => {
+      // Only the customer exists and addParticipant fails — ensureAgentParticipant
+      // should raise rather than fabricate an AI_AGENT.
+      mockAdapter.resetHandlers();
+      mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
+        participants: [
+          {
+            id: TEST_CUSTOMER_PARTICIPANT_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'CUSTOMER',
+            addresses: [{ channel: 'SMS', address: '+15559876543' }],
+          },
+        ],
+      });
+      mockAdapter.onPost(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(500);
+
+      await channel.processWebhook({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: TEST_CONVERSATION_ID },
+      });
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          content: { type: 'TEXT', text: 'Hello' },
+          author: {
+            address: '+15559876543',
+            channel: 'SMS',
+            participantId: TEST_CUSTOMER_PARTICIPANT_ID,
+          },
+        },
+      });
+
+      await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'Reply')).rejects.toThrow(
+        'Failed to resolve AI_AGENT participant'
+      );
+    });
+
+    it('should throw when no CUSTOMER participant is found on SMS', async () => {
+      // Only an AI_AGENT exists — outbound SMS needs a CUSTOMER to address.
+      mockAdapter.resetHandlers();
+      mockAdapter.onGet(`/v2/Conversations/${TEST_CONVERSATION_ID}/Participants`).reply(200, {
+        participants: [
+          {
+            id: TEST_AGENT_PARTICIPANT_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            accountId: 'ACtest123456789',
+            type: 'AI_AGENT',
+            addresses: [{ channel: 'SMS', address: '+15551234567' }],
+          },
+        ],
+      });
+
+      await channel.processWebhook({
+        eventType: 'CONVERSATION_CREATED',
+        data: { conversationId: TEST_CONVERSATION_ID },
+      });
+      await channel.processWebhook({
+        eventType: 'COMMUNICATION_CREATED',
+        data: {
+          conversationId: TEST_CONVERSATION_ID,
+          content: { type: 'TEXT', text: 'Hello' },
+          author: {
+            address: '+15559876543',
+            channel: 'SMS',
+            participantId: 'conv_participant_01other00000000000000000000',
+          },
+        },
+      });
+
+      await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'Reply')).rejects.toThrow(
+        'Customer participant not found'
+      );
+    });
   });
 });

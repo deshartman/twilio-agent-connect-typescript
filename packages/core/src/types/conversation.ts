@@ -28,7 +28,7 @@ export const ParticipantAddressSchema = z.object({
 export type ParticipantAddress = z.infer<typeof ParticipantAddressSchema>;
 
 /**
- * Communication participant for Conversations Service API (Maestro).
+ * Communication participant for Conversations Service API (Conversation Orchestrator).
  *
  * Note: participantId is required for SDK validation when creating communications.
  */
@@ -69,7 +69,7 @@ export type Transcription = z.infer<typeof TranscriptionSchema>;
 /**
  * Communication content (ContentText or ContentTranscription).
  *
- * Note: In Maestro API, both `type` and `text` are required fields.
+ * Note: In the Conversation Orchestrator API, both `type` and `text` are required fields.
  */
 export const CommunicationContentSchema = z.object({
   type: z.enum(['TEXT', 'TRANSCRIPTION']),
@@ -80,7 +80,7 @@ export const CommunicationContentSchema = z.object({
 export type CommunicationContent = z.infer<typeof CommunicationContentSchema>;
 
 /**
- * Communication from Conversations Service API (Maestro).
+ * Communication from Conversations Service API (Conversation Orchestrator).
  *
  * Note: `createdAt` is optional per API spec.
  *
@@ -179,6 +179,8 @@ export type SendMessageActionPayload = z.infer<typeof SendMessageActionPayloadSc
 
 /**
  * Request body for POST /v2/Conversations/{id}/Actions with type=SEND_MESSAGE.
+ *
+ * Body is discriminated by `type` with the action-specific fields under `payload`.
  */
 export const SendMessageActionRequestSchema = z.object({
   type: z.literal('SEND_MESSAGE').default('SEND_MESSAGE'),
@@ -190,8 +192,8 @@ export type SendMessageActionRequest = z.infer<typeof SendMessageActionRequestSc
 /**
  * Response from POST /v2/Conversations/{id}/Actions (202 Accepted).
  *
- * The action is processed asynchronously; listen for COMMUNICATION_CREATED webhook
- * to get the full Communication.
+ * The action is processed asynchronously; listen for COMMUNICATION_CREATED
+ * webhook to get the full Communication.
  */
 export const ActionResponseSchema = z.object({
   id: z.string(),

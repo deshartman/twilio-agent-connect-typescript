@@ -528,7 +528,7 @@ var TACCommunicationAuthorSchema = z.object({
   // Common fields (both APIs)
   address: z.string(),
   channel: TACChannelTypeSchema,
-  // Maestro-only fields
+  // Conversation Orchestrator-only fields
   participantId: z.string().optional(),
   deliveryStatus: TACDeliveryStatusSchema.optional(),
   // Memory-only fields
@@ -538,11 +538,11 @@ var TACCommunicationAuthorSchema = z.object({
   profileId: z.string().optional()
 });
 var TACCommunicationContentSchema = z.object({
-  // Maestro-only: content type discriminator
+  // Conversation Orchestrator-only: content type discriminator
   type: z.enum(["TEXT", "TRANSCRIPTION"]).optional(),
   // Both APIs: message text (optional in unified model to handle both)
   text: z.string().optional(),
-  // Maestro-only: transcription metadata
+  // Conversation Orchestrator-only: transcription metadata
   transcription: TranscriptionSchema.optional()
 });
 var TACCommunicationSchema = z.object({
@@ -554,7 +554,7 @@ var TACCommunicationSchema = z.object({
   channelId: z.string().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-  // Maestro-only fields
+  // Conversation Orchestrator-only fields
   conversationId: z.string().optional(),
   accountId: z.string().optional()
 });
@@ -616,9 +616,9 @@ var TACMemoryResponse = class {
   _data;
   _communications;
   /**
-   * Initialize wrapper with either Memory or Maestro data.
+   * Initialize wrapper with either Memory or Conversation Orchestrator data.
    *
-   * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Maestro)
+   * @param data - Either MemoryRetrievalResponse (Memory) or Communication[] (Conversation Orchestrator)
    */
   constructor(data) {
     this._data = data;
@@ -633,7 +633,7 @@ var TACMemoryResponse = class {
   /**
    * Get observation memories.
    *
-   * @returns List of observations if Memory is configured, empty array for Maestro fallback
+   * @returns List of observations if Memory is configured, empty array for Conversation Orchestrator fallback
    */
   get observations() {
     if (isMemoryRetrievalResponse(this._data)) {
@@ -644,7 +644,7 @@ var TACMemoryResponse = class {
   /**
    * Get summary memories.
    *
-   * @returns List of summaries if Memory is configured, empty array for Maestro fallback
+   * @returns List of summaries if Memory is configured, empty array for Conversation Orchestrator fallback
    */
   get summaries() {
     if (isMemoryRetrievalResponse(this._data)) {
@@ -656,7 +656,7 @@ var TACMemoryResponse = class {
    * Get communications in unified format with all available fields.
    *
    * Communications are converted to a common format during initialization that includes
-   * all fields from both Memory and Maestro APIs. Fields not available from a particular
+   * all fields from both Memory and Conversation Orchestrator APIs. Fields not available from a particular
    * API will be undefined.
    *
    * @returns List of unified communications with all available fields
@@ -668,7 +668,7 @@ var TACMemoryResponse = class {
    * Check if Memory API is configured and providing full features.
    *
    * @returns true if Memory is configured (observations/summaries available),
-   *          false if using Maestro fallback (only communications available)
+   *          false if using Conversation Orchestrator fallback (only communications available)
    */
   get hasMemoryFeatures() {
     return isMemoryRetrievalResponse(this._data);
@@ -1096,11 +1096,20 @@ var MemoryClient = class extends BaseClient {
   }
 };
 function isHttpStatus(err, status) {
-  const chain = [err];
-  if (err instanceof Error && err.cause !== void 0) {
-    chain.push(err.cause);
+  const seen = /* @__PURE__ */ new Set();
+  let current = err;
+  while (current !== void 0) {
+    if ((typeof current === "object" || typeof current === "function") && current !== null) {
+      if (seen.has(current)) break;
+      seen.add(current);
+    }
+    if (axios.isAxiosError(current) && current.response?.status === status) {
+      return true;
+    }
+    if (!(current instanceof Error) || current.cause === void 0) break;
+    current = current.cause;
   }
-  return chain.some((e) => axios.isAxiosError(e) && e.response?.status === status);
+  return false;
 }
 var ConversationClient = class extends BaseClient {
   conversationConfigurationId;
@@ -1812,12 +1821,17 @@ var TAC = class _TAC {
   cintelProcessor;
   memoryStoreId;
   /**
-   * Cached from conversationConfig.conversationsV1Bridge?.serviceId at init.
+   * Cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init.
    * ChatChannel forwards this as `channelSettings.chatService` on outbound
    * SEND_MESSAGE actions.
    *
-   * TODO(conv-orch): Drop this field once the Actions API resolves the V1
-   * Chat service SID server-side — see ConversationsV1BridgeSchema.
+   * Until the server-side fix ships, CHAT sends fail with
+   *   "chatService attribute is required for CHAT channel"
+   * unless we pass it on channelSettings.chatService.
+   *
+   * TODO(conv-orch): Drop this field plus ActionChannelSettings.chatService
+   * and ChatChannel's chatServiceSid plumbing once the Actions API resolves
+   * the V1 Chat service SID server-side.
    */
   conversationsV1ServiceSid;
   // Callback registrations
@@ -1952,7 +1966,32 @@ var TAC = class _TAC {
       "Forwarding message to callback"
     );
     try {
-      await this.messageReadyCallback(message);
+      const response = await this.messageReadyCallback(message);
+      if (typeof response === "string") {
+        if (response === "") {
+          this.logger.warn(
+            { conversation_id: message.conversationId, channel: message.channel },
+            "Callback returned empty string, skipping auto-send"
+          );
+        } else {
+          const channel = this.channels.get(message.channel);
+          if (!channel) {
+            this.logger.error(
+              { conversation_id: message.conversationId, channel: message.channel },
+              "No channel registered for auto-send"
+            );
+          } else {
+            try {
+              await channel.sendResponse(message.conversationId, response);
+            } catch (sendError) {
+              this.logger.error(
+                { err: sendError, conversation_id: message.conversationId },
+                "Failed to auto-send callback response"
+              );
+            }
+          }
+        }
+      }
     } catch (error) {
       this.logger.error(
         { err: error, conversation_id: message.conversationId },
@@ -1961,7 +2000,8 @@ var TAC = class _TAC {
     }
   }
   /**
-   * Register callback for when messages are ready to be processed
+   * Register callback for when messages are ready to be processed.
+   * Return a string to auto-send, or null/void for manual handling.
    */
   onMessageReady(callback) {
     this.messageReadyCallback = callback;
@@ -4148,9 +4188,9 @@ var playMediaTool = defineTool(
         description: "URL of audio file to play (must be accessible to Twilio)"
       },
       loop: {
-        type: "number",
+        type: "integer",
         minimum: 0,
-        description: "Number of times to loop (0 = 1000 times max, default = 1)"
+        description: "Whole number of times to loop (0 = 1000 times max, default = 1)"
       },
       interruptible: {
         type: "boolean",
