@@ -253,9 +253,26 @@ export class TACServer {
 
   /**
    * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
+   *
+   * Voice routes (/twiml, /ws, /conversation-relay-callback) are only registered
+   * when a VoiceChannel is available, so SMS/Chat-only deployments don't expose
+   * dead 500-returning endpoints.
    */
   private async setupRoutes(): Promise<void> {
-    // ── Voice / CR routes ──────────────────────────────────────────
+    await this.setupVoiceRoutes();
+    this.setupMessagingRoutes();
+    this.setupCintelRoute();
+  }
+
+  private async setupVoiceRoutes(): Promise<void> {
+    const voiceChannel = this.voiceChannel;
+    if (!voiceChannel) {
+      this.tac.logger.debug(
+        'TACServer: No VoiceChannel registered. Voice routes (/twiml, /ws, /conversation-relay-callback) will not be registered.'
+      );
+      return;
+    }
+
     // Voice webhook (POST - Twilio calls this when an incoming call arrives)
     this.fastify.post(
       this.config.webhookPaths.twiml || '/twiml',
@@ -271,12 +288,7 @@ export class TACServer {
           const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws || '/ws'}`;
           const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback'}`;
 
-          if (!this.voiceChannel) {
-            await reply.code(500).send({ error: 'Voice channel not available' });
-            return;
-          }
-
-          const twiml = await this.voiceChannel.handleIncomingCall({
+          const twiml = await voiceChannel.handleIncomingCall({
             toNumber,
             fromNumber,
             callSid,
@@ -305,11 +317,6 @@ export class TACServer {
       this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback',
       async (request: FastifyRequest, reply: FastifyReply) => {
         try {
-          if (!this.voiceChannel) {
-            await reply.code(500).send({ error: 'Voice channel not available' });
-            return;
-          }
-
           const formData = request.body as Record<string, string>;
           const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
 
@@ -322,7 +329,7 @@ export class TACServer {
             return;
           }
 
-          const result = await this.voiceChannel.handleConversationRelayCallback(
+          const result = await voiceChannel.handleConversationRelayCallback(
             parseResult.data,
             this.config.handoffHandler
           );
@@ -358,80 +365,79 @@ export class TACServer {
             return;
           }
 
-          if (!this.voiceChannel) {
-            socket.terminate();
-            return;
-          }
-
-          this.voiceChannel.handleWebSocketConnection(socket);
+          voiceChannel.handleWebSocketConnection(socket);
         }
       );
     });
+  }
 
-    // ── Messaging webhook ─────────────────────────────────────────
-    if (this.conversationChannels.length > 0) {
-      this.fastify.post(
-        this.config.webhookPaths.messaging || '/webhook',
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          const rawHeader = request.headers['i-twilio-idempotency-token'];
-          const idempotencyToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
-          for (const channel of this.conversationChannels) {
-            channel.processWebhook?.(request.body, idempotencyToken).catch((err: unknown) => {
-              this.fastify.log.error(
-                { err, channel: channel.channelType },
-                'Conversation webhook processing error'
-              );
-            });
-          }
-          await reply.code(200).send({ status: 'ok' });
-        }
-      );
+  private setupMessagingRoutes(): void {
+    if (this.conversationChannels.length === 0) {
+      return;
     }
-
-    // ── Conversation Intelligence webhook (optional) ──────────────
-    if (this.config.webhookPaths.cintel) {
-      this.fastify.post(
-        this.config.webhookPaths.cintel,
-        async (request: FastifyRequest, reply: FastifyReply) => {
-          if (!this.tac.isCintelEnabled()) {
-            await reply.code(400).send({
-              error: 'Conversation Intelligence is not enabled',
-              message:
-                'Set TWILIO_TAC_CI_CONFIGURATION_ID and memory credentials to enable CI processing',
-            });
-            return;
-          }
-
-          try {
-            this.fastify.log.info('Processing Conversation Intelligence webhook');
-            const result = await this.tac.processCintelEvent(request.body);
-
-            if (result.success) {
-              if (result.skipped) {
-                this.fastify.log.debug({ reason: result.skipReason }, 'CI event skipped');
-              } else {
-                this.fastify.log.info(
-                  { eventType: result.eventType, createdCount: result.createdCount },
-                  'CI event processed'
-                );
-              }
-            } else {
-              this.fastify.log.error({ error: result.error }, 'CI event processing failed');
-            }
-
-            await reply.send(result);
-          } catch (error) {
+    this.fastify.post(
+      this.config.webhookPaths.messaging || '/webhook',
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const rawHeader = request.headers['i-twilio-idempotency-token'];
+        const idempotencyToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+        for (const channel of this.conversationChannels) {
+          channel.processWebhook?.(request.body, idempotencyToken).catch((err: unknown) => {
             this.fastify.log.error(
-              'CI webhook error: ' + (error instanceof Error ? error.message : String(error))
+              { err, channel: channel.channelType },
+              'Conversation webhook processing error'
             );
-            await reply.code(500).send({
-              success: false,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
+          });
         }
-      );
+        await reply.code(200).send({ status: 'ok' });
+      }
+    );
+  }
+
+  private setupCintelRoute(): void {
+    if (!this.config.webhookPaths.cintel) {
+      return;
     }
+    this.fastify.post(
+      this.config.webhookPaths.cintel,
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!this.tac.isCintelEnabled()) {
+          await reply.code(400).send({
+            error: 'Conversation Intelligence is not enabled',
+            message:
+              'Set TWILIO_TAC_CI_CONFIGURATION_ID and memory credentials to enable CI processing',
+          });
+          return;
+        }
+
+        try {
+          this.fastify.log.info('Processing Conversation Intelligence webhook');
+          const result = await this.tac.processCintelEvent(request.body);
+
+          if (result.success) {
+            if (result.skipped) {
+              this.fastify.log.debug({ reason: result.skipReason }, 'CI event skipped');
+            } else {
+              this.fastify.log.info(
+                { eventType: result.eventType, createdCount: result.createdCount },
+                'CI event processed'
+              );
+            }
+          } else {
+            this.fastify.log.error({ error: result.error }, 'CI event processing failed');
+          }
+
+          await reply.send(result);
+        } catch (error) {
+          this.fastify.log.error(
+            'CI webhook error: ' + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    );
   }
 
   /**
