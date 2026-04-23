@@ -7,62 +7,23 @@ import {
   ChannelEvents,
   ChannelMessage,
   MemoryRetriever,
-  isConversationId,
-  isProfileId,
 } from '../types/index';
 import { TACConfig } from '../lib/config';
 import { ConversationClient } from '../clients/conversation';
 import { Logger } from '../lib/logger';
 import { TACMemoryResponse } from '../lib/tac-memory-response';
 import type { CRTool } from '@twilio/tac-conversationrelay';
+import {
+  ConversationsWebhookProcessor,
+  ConversationSessionStore,
+  extractConversationId,
+  extractProfileId,
+  type MessagingWebhookPayload,
+  type WebhookProcessorConfig,
+} from './utility';
 
-/**
- * Messaging webhook event types from Twilio Conversations Service
- * Supports the v2 format for SMS and Chat channels
- *
- * @remarks
- * **SCHEMA VERIFICATION NEEDED**: This webhook payload structure is inferred from
- * internal usage patterns and observation of actual webhook events. The official
- * Twilio Maestro Conversations documentation does not explicitly specify the complete
- * webhook event schema. This should be verified with the Twilio API team to ensure
- * it matches the actual webhook contract.
- *
- * Key event types used: CONVERSATION_CREATED, COMMUNICATION_CREATED, CONVERSATION_UPDATED,
- * PARTICIPANT_ADDED, PARTICIPANT_REMOVED
- *
- * @see https://docs.twilio.com/docs/platform/tac/core-concepts (general TAC docs)
- */
-export interface MessagingWebhookPayload {
-  eventType: string;
-  timestamp?: string;
-  data?: {
-    id?: string;
-    conversationId?: string;
-    accountId?: string;
-    serviceId?: string;
-    status?: string;
-    participantType?: string;
-    profileId?: string;
-    channelId?: string;
-    author?: {
-      address?: string;
-      channel?: string;
-      participantId?: string;
-    };
-    content?: {
-      type?: string;
-      text?: string;
-    };
-    recipients?: Array<{
-      address?: string;
-      channel?: string;
-      participantId?: string;
-      deliveryStatus?: string;
-    }>;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
+// Re-export for backwards compatibility with subclass files importing from './messaging'
+export type { MessagingWebhookPayload };
 
 /**
  * Messaging channel configuration options
@@ -72,24 +33,30 @@ export interface MessagingChannelConfig {
   dedupCapacity?: number | undefined;
 }
 
-const DEFAULT_DEDUP_CAPACITY = 10_000;
-
 /**
  * Abstract Messaging Channel base class for SMS and Chat channels
  *
- * Provides shared webhook processing logic for messaging channels
- * (SMS and Chat) that use the Conversations Service webhooks.
+ * Delegates webhook processing and session management to composition helpers
+ * in `./utility.ts`. Subclasses implement channel-specific `sendResponse` and
+ * `isOwnMessage` logic.
+ *
+ * @remarks
+ * This base class will be deleted once SMS/Chat/VoiceWebhook are rewritten to
+ * compose the helpers directly (Steps 3-6 of the channel refactor).
  */
 export abstract class MessagingChannel implements Channel {
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
-  protected readonly activeConversations: Map<ConversationId, ConversationSession>;
   protected readonly callbacks: ChannelEvents;
   private readonly memoryRetriever: MemoryRetriever;
-  private readonly processedTokens = new Set<string>();
-  private readonly maxTrackedTokens: number;
   private readonly tools: Map<string, CRTool> = new Map();
+  /**
+   * Lazily constructed because it needs `this.channelType`, which is abstract
+   * and not readable in the base-class constructor.
+   */
+  private _sessionStore?: ConversationSessionStore;
+  private readonly webhookProcessor: ConversationsWebhookProcessor;
 
   constructor(
     deps: {
@@ -104,34 +71,31 @@ export abstract class MessagingChannel implements Channel {
     this.logger = deps.logger.child({ component: 'channel' });
     this.conversationClient = deps.conversationClient;
     this.memoryRetriever = deps.memoryRetriever;
-    this.activeConversations = new Map();
     this.callbacks = {};
 
-    const capacity = channelConfig?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
-    if (capacity < 1 || !Number.isInteger(capacity)) {
-      throw new Error('dedupCapacity must be a positive integer');
-    }
-    this.maxTrackedTokens = capacity;
+    const processorConfig: WebhookProcessorConfig | undefined =
+      channelConfig?.dedupCapacity !== undefined
+        ? { dedupCapacity: channelConfig.dedupCapacity }
+        : undefined;
+    this.webhookProcessor = new ConversationsWebhookProcessor(
+      { logger: this.logger },
+      processorConfig
+    );
   }
 
-  /**
-   * Check if a webhook has already been processed, and if not, record the token immediately.
-   * This is intentionally a single synchronous check-and-record to prevent race conditions
-   * where a duplicate arrives while the first request is still awaiting async work.
-   * Uses a sliding window with FIFO eviction at capacity.
-   */
-  private isDuplicateWebhook(idempotencyToken: string): boolean {
-    if (this.processedTokens.has(idempotencyToken)) {
-      return true;
-    }
-
-    if (this.processedTokens.size >= this.maxTrackedTokens) {
-      const oldest = this.processedTokens.values().next().value!;
-      this.processedTokens.delete(oldest);
-    }
-
-    this.processedTokens.add(idempotencyToken);
-    return false;
+  private get sessionStore(): ConversationSessionStore {
+    this._sessionStore ??= new ConversationSessionStore({
+      logger: this.logger,
+      channelType: this.channelType,
+      callbacks: {
+        onConversationStarted: (data): void => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data): Promise<void> | void =>
+          this.callbacks.onConversationEnded?.(data),
+      },
+    });
+    return this._sessionStore;
   }
 
   /**
@@ -155,107 +119,33 @@ export abstract class MessagingChannel implements Channel {
   ): Promise<void>;
 
   /**
-   * Start a new conversation session
+   * Start a new conversation session.
+   *
+   * Subclasses may call this directly (e.g. VoiceWebhookChannel overrides behavior).
+   * Delegates to the composed ConversationSessionStore.
    */
   protected startConversation(
     conversationId: ConversationId,
     profileId?: ProfileId,
     serviceId?: string
   ): ConversationSession {
-    if (this.activeConversations.has(conversationId)) {
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          profile_id: this.activeConversations.get(conversationId)?.profileId,
-          service_id: this.activeConversations.get(conversationId)?.serviceId,
-        },
-        'Conversation already active'
-      );
-      return this.activeConversations.get(conversationId)!;
-    }
-
-    const session: ConversationSession = {
-      // Base SessionContext fields
-      conversationId: conversationId,
-      channel: this.channelType,
-      startedAt: new Date(),
-      metadata: {},
-      // Maestro-specific fields
-      profileId: profileId,
-      serviceId: serviceId,
-    };
-
-    this.activeConversations.set(conversationId, session);
-
-    this.logger.debug(
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        service_id: serviceId,
-        channel: this.channelType,
-      },
-      'Conversation started'
-    );
-
-    if (this.callbacks.onConversationStarted) {
-      this.callbacks.onConversationStarted({ session });
-    }
-
-    return session;
+    return this.sessionStore.start(conversationId, profileId, serviceId);
   }
 
   /**
    * End a conversation session.
-   *
-   * Triggers the onConversationEnded callback BEFORE removing the session,
-   * so the callback receives the full ConversationSession data.
-   * Errors in the callback do not prevent session cleanup.
+   * Delegates to the composed ConversationSessionStore.
    */
   protected async endConversation(conversationId: ConversationId): Promise<void> {
-    const session = this.activeConversations.get(conversationId);
-
-    if (session) {
-      // Trigger callback BEFORE deleting the session
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            'Error in conversation ended callback'
-          );
-        }
-      }
-
-      this.activeConversations.delete(conversationId);
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          channel: this.channelType,
-          service_id: session.serviceId,
-        },
-        'Conversation ended'
-      );
-    } else {
-      this.logger.debug(
-        { conversation_id: conversationId, channel: this.channelType },
-        'Conversation end requested but no active session found'
-      );
-    }
+    await this.sessionStore.end(conversationId);
   }
 
-  /**
-   * Get an active conversation session
-   */
   public getConversationSession(conversationId: ConversationId): ConversationSession | undefined {
-    return this.activeConversations.get(conversationId);
+    return this.sessionStore.get(conversationId);
   }
 
-  /**
-   * Check if a conversation is active
-   */
   public isConversationActive(conversationId: ConversationId): boolean {
-    return this.activeConversations.has(conversationId);
+    return this.sessionStore.isActive(conversationId);
   }
 
   /**
@@ -273,20 +163,14 @@ export abstract class MessagingChannel implements Channel {
     }
   }
 
-  /**
-   * Cleanup resources when shutting down
-   */
   public shutdown(): void {
-    this.activeConversations.clear();
+    this.sessionStore.clear();
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
     delete this.callbacks.onMessage;
   }
 
-  /**
-   * Register event callbacks (override for messaging-specific events)
-   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
   public on(event: string, callback: (...args: any[]) => void): void {
     switch (event) {
@@ -305,29 +189,14 @@ export abstract class MessagingChannel implements Channel {
     }
   }
 
-  /**
-   * List tools registered on this channel (for LLM discovery).
-   * MessagingChannel starts with an empty registry; future messaging tools
-   * (e.g., send_mms) can be added via `registerTool`.
-   */
   public listTools(): CRTool[] {
     return Array.from(this.tools.values());
   }
 
-  /**
-   * Register a tool on this channel. Overwrites any tool with the same name.
-   */
   public registerTool(tool: CRTool): void {
     this.tools.set(tool.name, tool);
   }
 
-  /**
-   * Execute a registered tool by name.
-   *
-   * Messaging tools are plain side-effect functions — unlike VoiceChannel,
-   * there is no `outgoingMessage` auto-shipping. The tool's result is
-   * returned unchanged for the caller to feed back to the LLM loop.
-   */
   public executeTool(
     _conversationId: ConversationId,
     name: string,
@@ -341,133 +210,28 @@ export abstract class MessagingChannel implements Channel {
   }
 
   /**
-   * Check if this webhook event belongs to this channel.
-   * Returns false if the event is clearly for a different channel type.
-   */
-  private isEventForThisChannel(webhookData: MessagingWebhookPayload): boolean {
-    const eventType = webhookData.eventType;
-    const authorChannel = webhookData.data?.author?.channel;
-
-    // COMMUNICATION_CREATED: require author.channel for safe filtering
-    // Reject events without channel to prevent fanout crosstalk
-    if (eventType === 'COMMUNICATION_CREATED') {
-      if (!authorChannel) {
-        return false; // Missing channel - cannot safely determine ownership
-      }
-      return authorChannel === this.channelType.toUpperCase();
-    }
-
-    // CONVERSATION_UPDATED: only process if this channel tracks the conversation
-    if (eventType === 'CONVERSATION_UPDATED') {
-      const conversationId = this.extractConversationId(webhookData);
-      if (conversationId && !this.isConversationActive(conversationId)) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Process messaging channel webhook from Twilio Conversations Service
+   * Process messaging channel webhook from Twilio Conversations Service.
+   * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
    */
   public async processWebhook(payload: unknown, idempotencyToken?: string): Promise<void> {
-    this.logger.debug({ operation: 'webhook_processing', payload }, 'Processing webhook');
-
-    try {
-      if (idempotencyToken && this.isDuplicateWebhook(idempotencyToken)) {
-        this.logger.debug({ idempotency_token: idempotencyToken }, 'Skipping duplicate webhook');
-        return;
-      }
-
-      if (!this.validateWebhookPayload(payload)) {
-        throw new Error('Invalid webhook payload');
-      }
-
-      const webhookData = payload as MessagingWebhookPayload;
-      const eventType = webhookData.eventType;
-      const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
-
-      // Self-filter: ignore events meant for other channel types
-      if (!this.isEventForThisChannel(webhookData)) {
-        this.logger.debug(
-          { event_type: eventType, channel: this.channelType, conversation_id: conversationId },
-          'Ignoring event for different channel type'
-        );
-        return;
-      }
-
-      this.logger.info(
-        {
-          event_type: eventType,
-          raw_event_type: webhookData.eventType,
-          conversation_id: conversationId,
-        },
-        'Processing webhook event'
-      );
-
-      switch (eventType) {
-        case 'CONVERSATION_CREATED':
-          this.logger.debug(
-            { conversation_id: conversationId, profile_id: webhookData.data?.profileId },
-            'Handling CONVERSATION_CREATED'
-          );
-          this.handleConversationCreated(webhookData);
-          break;
-
-        case 'PARTICIPANT_ADDED':
-          this.logger.debug(
-            { conversation_id: conversationId, profile_id: webhookData.data?.profileId },
-            'Handling PARTICIPANT_ADDED'
-          );
-          this.handleParticipantAdded(webhookData);
-          break;
-
-        case 'COMMUNICATION_CREATED':
-          this.logger.debug({ conversation_id: conversationId }, 'Handling COMMUNICATION_CREATED');
-          await this.handleCommunicationCreated(webhookData);
-          break;
-
-        case 'CONVERSATION_UPDATED':
-          this.logger.debug(
-            { conversation_id: conversationId, status: webhookData.data?.status },
-            'Handling CONVERSATION_UPDATED'
-          );
-          await this.handleConversationUpdated(webhookData);
-          break;
-
-        default:
-          this.logger.warn(
-            {
-              event_type: eventType,
-              raw_event_type: webhookData.eventType,
-              conversation_id: conversationId,
-              payload,
-            },
-            'Unhandled event type - this event will be ignored'
-          );
-      }
-
-      this.logger.debug({ event_type: eventType }, 'Webhook processing completed');
-    } catch (error) {
-      // Remove the token so retries are not blocked
-      if (idempotencyToken) {
-        this.processedTokens.delete(idempotencyToken);
-      }
-      this.logger.error(
-        { err: error, operation: 'webhook_processing' },
-        'Webhook processing error'
-      );
-      this.handleError(error instanceof Error ? error : new Error(String(error)), { payload });
-    }
+    await this.webhookProcessor.process(
+      payload,
+      {
+        channelType: this.channelType,
+        isConversationActive: id => this.isConversationActive(id),
+        onConversationCreated: p => this.handleConversationCreated(p),
+        onParticipantAdded: p => this.handleParticipantAdded(p),
+        onCommunicationCreated: p => this.handleCommunicationCreated(p),
+        onConversationUpdated: p => this.handleConversationUpdated(p),
+        onError: (err, ctx) => this.handleError(err, ctx),
+      },
+      idempotencyToken
+    );
   }
 
-  /**
-   * Handle conversation creation event
-   */
   private handleConversationCreated(payload: MessagingWebhookPayload): void {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
 
     if (!conversationId) {
       this.logger.warn(
@@ -480,12 +244,9 @@ export abstract class MessagingChannel implements Channel {
     this.startConversation(conversationId, profileId ?? undefined, payload.data?.serviceId);
   }
 
-  /**
-   * Handle participant added event
-   */
   private handleParticipantAdded(payload: MessagingWebhookPayload): void {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
 
     if (!conversationId) {
       this.logger.warn(
@@ -495,7 +256,6 @@ export abstract class MessagingChannel implements Channel {
       throw new Error('Missing conversation ID in participant.added event');
     }
 
-    // Update conversation with profile ID if conversation exists
     if (this.isConversationActive(conversationId)) {
       const session = this.getConversationSession(conversationId);
       if (session) {
@@ -524,7 +284,6 @@ export abstract class MessagingChannel implements Channel {
         }
       }
     } else {
-      // Auto-initialize conversation if not already started
       this.logger.debug(
         { conversation_id: conversationId, profile_id: profileId },
         'Auto-starting conversation from participant.added'
@@ -533,15 +292,10 @@ export abstract class MessagingChannel implements Channel {
     }
   }
 
-  /**
-   * Handle new communication event (incoming message)
-   */
   private async handleCommunicationCreated(payload: MessagingWebhookPayload): Promise<void> {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
-    // Extract message text from data.content.text
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
     const message = payload.data?.content?.text?.trim();
-    // Author is in data.author.address
     const author = payload.data?.author?.address || 'unknown';
 
     this.logger.info(
@@ -569,19 +323,14 @@ export abstract class MessagingChannel implements Channel {
       return;
     }
 
-    // Filter out messages from the bot itself using subclass-specific logic
     if (this.isOwnMessage(author)) {
       this.logger.info(
-        {
-          conversation_id: conversationId,
-          author_address: author,
-        },
+        { conversation_id: conversationId, author_address: author },
         'Ignoring message from AI agent'
       );
       return;
     }
 
-    // Initialize conversation if not already active
     if (!this.isConversationActive(conversationId)) {
       this.logger.debug({ conversation_id: conversationId }, 'Starting new conversation');
       this.startConversation(conversationId, profileId ?? undefined, payload.data?.serviceId);
@@ -600,7 +349,6 @@ export abstract class MessagingChannel implements Channel {
       }
     }
 
-    // Get session and update with author info for profile lookup
     const session = this.getConversationSession(conversationId);
     if (session) {
       session.authorInfo = {
@@ -608,7 +356,6 @@ export abstract class MessagingChannel implements Channel {
         participantId: payload.data?.author?.participantId,
       };
 
-      // Store channelId (Chat Channel SID) in session metadata for reply sending
       if (payload.data?.channelId) {
         if (!session.metadata) {
           session.metadata = {};
@@ -621,7 +368,6 @@ export abstract class MessagingChannel implements Channel {
       }
     }
 
-    // Retrieve user memory via injected retriever
     let userMemory: TACMemoryResponse | undefined;
     if (session) {
       this.logger.debug({ conversation_id: conversationId, author }, 'Retrieving user memory');
@@ -639,7 +385,6 @@ export abstract class MessagingChannel implements Channel {
       }
     }
 
-    // Emit unified 'message' event with conversation bundle
     if (this.callbacks.onMessage) {
       this.logger.debug({ conversation_id: conversationId }, 'Emitting message event');
       const channelMessage: ChannelMessage = {
@@ -667,17 +412,13 @@ export abstract class MessagingChannel implements Channel {
     }
   }
 
-  /**
-   * Handle conversation updated event
-   */
   private async handleConversationUpdated(payload: MessagingWebhookPayload): Promise<void> {
-    const conversationId = this.extractConversationId(payload);
+    const conversationId = extractConversationId(payload, this.logger);
 
     if (!conversationId) {
       throw new Error('Missing conversation ID in conversation.updated event');
     }
 
-    // Check if conversation is closed
     if (payload.data?.status === 'CLOSED') {
       this.logger.info(
         { conversation_id: conversationId, status: payload.data.status },
@@ -685,88 +426,5 @@ export abstract class MessagingChannel implements Channel {
       );
       await this.endConversation(conversationId);
     }
-  }
-
-  /**
-   * Extract conversation ID from webhook payload
-   */
-  protected extractConversationId(payload: unknown): ConversationId | null {
-    const webhookData = payload as MessagingWebhookPayload;
-    const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
-
-    if (conversationId && isConversationId(conversationId)) {
-      return conversationId;
-    }
-
-    // Add explicit logging for observability
-    if (conversationId) {
-      this.logger.warn(
-        {
-          provided_id: conversationId,
-          operation: 'extract_conversation_id',
-          expected_pattern: '^conv_conversation_[0-9a-z]{26}$',
-        },
-        'Invalid conversation ID format in webhook payload'
-      );
-    } else {
-      this.logger.debug(
-        { operation: 'extract_conversation_id' },
-        'Conversation ID missing in webhook payload'
-      );
-    }
-
-    return null;
-  }
-
-  /**
-   * Extract profile ID from webhook payload
-   */
-  protected extractProfileId(payload: unknown): ProfileId | null {
-    const webhookData = payload as MessagingWebhookPayload;
-    const conversationId = webhookData.data?.conversationId;
-    const profileId = webhookData.data?.profileId;
-
-    if (profileId && isProfileId(profileId)) {
-      return profileId;
-    }
-
-    // Add explicit logging for observability (matching extractConversationId pattern)
-    if (profileId) {
-      this.logger.warn(
-        {
-          provided_id: profileId,
-          operation: 'extract_profile_id',
-          expected_pattern: '^mem_profile_[0-9a-z]{26}$',
-          conversation_id: conversationId,
-        },
-        'Invalid profile ID format in webhook payload'
-      );
-    } else {
-      this.logger.debug(
-        {
-          operation: 'extract_profile_id',
-          conversation_id: conversationId,
-        },
-        'Profile ID missing in webhook payload'
-      );
-    }
-
-    return null;
-  }
-
-  /**
-   * Validate messaging channel webhook payload structure
-   */
-  protected validateWebhookPayload(payload: unknown): boolean {
-    if (payload === null || payload === undefined) {
-      return false;
-    }
-
-    const webhookData = payload as MessagingWebhookPayload;
-    return (
-      typeof webhookData === 'object' &&
-      typeof webhookData.eventType === 'string' &&
-      webhookData.eventType.length > 0
-    );
   }
 }
