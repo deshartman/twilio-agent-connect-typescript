@@ -43,7 +43,6 @@ const makeDeps = () => {
     listConversations: vi.fn(),
     updateConversation: vi.fn(),
     listParticipants: vi.fn(),
-    sendCommunication: vi.fn(),
     createAction: vi.fn(),
     listCommunications: vi.fn(),
   } as unknown as ConversationClient;

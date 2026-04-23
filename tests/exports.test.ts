@@ -12,7 +12,12 @@ describe('package exports', () => {
     expect(tac.VoiceChannel).toBeDefined();
     expect(tac.SMSChannel).toBeDefined();
     expect(tac.ChatChannel).toBeDefined();
-    expect(tac.MessagingChannel).toBeDefined();
+  });
+
+  it('exports channel composition helpers', () => {
+    expect(tac.ConversationSessionStore).toBeDefined();
+    expect(tac.ConversationsWebhookProcessor).toBeDefined();
+    expect(tac.ensureAgentParticipant).toBeDefined();
   });
 
   it('exports ConversationRelay (re-exported from @twilio/tac-conversationrelay)', () => {

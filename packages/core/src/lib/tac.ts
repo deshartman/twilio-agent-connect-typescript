@@ -367,7 +367,7 @@ export class TAC {
   }
 
   /**
-   * Get channel dependencies for creating channels (VoiceChannel, MessagingChannel subclasses).
+   * Get channel dependencies for creating channels (VoiceChannel, SMSChannel, ChatChannel).
    * Returns all dependencies needed to construct a channel.
    */
   public getChannelDeps(): {

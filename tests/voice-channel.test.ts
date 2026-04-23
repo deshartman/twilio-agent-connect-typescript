@@ -31,7 +31,6 @@ describe('VoiceChannel', () => {
       listConversations: vi.fn(),
       updateConversation: vi.fn(),
       listParticipants: vi.fn(),
-      sendCommunication: vi.fn(),
       listCommunications: vi.fn(),
       ...overrides?.conversationClient,
     } as unknown as ConversationClient;

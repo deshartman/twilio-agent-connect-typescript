@@ -34,7 +34,6 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       listConversations: vi.fn(),
       updateConversation: vi.fn(),
       listParticipants: vi.fn(),
-      sendCommunication: vi.fn(),
       listCommunications: vi.fn(),
     }) as unknown as ConversationClient;
 

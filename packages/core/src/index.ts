@@ -30,19 +30,27 @@ export { ConversationClient } from './clients/conversation';
 export { KnowledgeClient } from './clients/knowledge';
 
 // Channel implementations
-export { MessagingChannel } from './channels/messaging';
-export type {
-  MessagingChannelConfig,
-  MessagingWebhookPayload,
-} from './channels/messaging';
-
 export { SMSChannel } from './channels/sms';
+export type { SMSChannelConfig } from './channels/sms';
 
 export { ChatChannel } from './channels/chat';
 export type { ChatChannelConfig } from './channels/chat';
 
 export { VoiceChannel } from './channels/voice';
 export type { VoiceChannelConfig } from './channels/voice';
+
+// Channel composition helpers (shared by all channels)
+export {
+  ConversationSessionStore,
+  ConversationsWebhookProcessor,
+  ensureAgentParticipant,
+} from './channels/utility';
+export type {
+  MessagingWebhookPayload,
+  SessionStoreCallbacks,
+  ConversationsWebhookHandlers,
+  WebhookProcessorConfig,
+} from './channels/utility';
 
 // Utility functions
 export { handleFlexHandoffLogic } from './util/flex';

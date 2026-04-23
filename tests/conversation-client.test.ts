@@ -455,35 +455,45 @@ describe('ConversationClient', () => {
     });
   });
 
-  describe('sendCommunication()', () => {
-    it('should send communication successfully', async () => {
+  describe('createAction()', () => {
+    it('should create a SEND_MESSAGE action successfully', async () => {
       const mockResponse = {
-        message: 'Communication queued',
+        id: 'AC_action_01test00000000000000000000',
+        type: 'SEND_MESSAGE',
+        status: 'PENDING',
         conversationId: 'CH123',
-        channelId: null,
+        createdAt: '2026-04-23T00:00:00Z',
       };
 
-      mockAdapter.onPost('/v2/Communications').reply(202, mockResponse);
+      mockAdapter.onPost('/v2/Conversations/CH123/Actions').reply(202, mockResponse);
 
-      const result = await conversationClient.sendCommunication('CH123', {
-        author: { address: '+12025551234', channel: 'SMS', participantId: 'part_123' },
-        content: { type: 'TEXT', text: 'Hello' },
-        recipients: [{ address: '+12025555678', channel: 'SMS', participantId: 'part_456' }],
+      const result = await conversationClient.createAction('CH123', {
+        type: 'SEND_MESSAGE',
+        payload: {
+          from: { channel: 'SMS', participantId: 'part_123' },
+          to: [{ channel: 'SMS', participantId: 'part_456' }],
+          content: { text: 'Hello' },
+        },
       });
 
-      expect(result.message).toBe('Communication queued');
+      expect(result.id).toBe('AC_action_01test00000000000000000000');
+      expect(result.type).toBe('SEND_MESSAGE');
+      expect(result.status).toBe('PENDING');
     });
 
     it('should handle API errors', async () => {
-      mockAdapter.onPost('/v2/Communications').reply(500);
+      mockAdapter.onPost('/v2/Conversations/CH123/Actions').reply(500);
 
       await expect(
-        conversationClient.sendCommunication('CH123', {
-          author: { address: '+12025551234', channel: 'SMS', participantId: 'part_123' },
-          content: { type: 'TEXT', text: 'Hello' },
-          recipients: [{ address: '+12025555678', channel: 'SMS', participantId: 'part_456' }],
+        conversationClient.createAction('CH123', {
+          type: 'SEND_MESSAGE',
+          payload: {
+            from: { channel: 'SMS', participantId: 'part_123' },
+            to: [{ channel: 'SMS', participantId: 'part_456' }],
+            content: { text: 'Hello' },
+          },
         })
-      ).rejects.toThrow(/Failed to send communication/);
+      ).rejects.toThrow(/Failed to create action/);
     });
   });
 

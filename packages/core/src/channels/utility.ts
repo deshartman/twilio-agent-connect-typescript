@@ -78,9 +78,8 @@ export interface SessionStoreCallbacks {
 /**
  * Per-channel conversation session store.
  *
- * Owns the Map<ConversationId, ConversationSession> previously held on
- * MessagingChannel. Each channel instantiates its own store — sessions are
- * not shared across channels.
+ * Owns the Map<ConversationId, ConversationSession>. Each channel
+ * instantiates its own store — sessions are not shared across channels.
  */
 export class ConversationSessionStore {
   private readonly sessions: Map<ConversationId, ConversationSession> = new Map();
@@ -236,9 +235,8 @@ const DEFAULT_DEDUP_CAPACITY = 10_000;
 /**
  * Per-channel webhook processor.
  *
- * Owns the dedup set and event-routing logic previously on MessagingChannel.
- * Each channel instantiates its own processor — dedup state is not shared
- * across channels (matches today's per-instance behaviour).
+ * Owns the dedup set and event-routing logic. Each channel instantiates
+ * its own processor — dedup state is not shared across channels.
  */
 export class ConversationsWebhookProcessor {
   private readonly logger: Logger;

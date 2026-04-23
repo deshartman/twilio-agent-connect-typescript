@@ -38,7 +38,7 @@ export interface ChannelMessage {
 
 /**
  * Function that retrieves memory for a conversation session.
- * Injected into Maestro channels (VoiceChannel, MessagingChannel subclasses)
+ * Injected into Maestro channels (VoiceChannel, SMSChannel, ChatChannel)
  * to decouple them from the TAC instance.
  */
 export type MemoryRetriever = (
@@ -128,8 +128,8 @@ export interface Channel {
   /**
    * Execute a registered tool by name.
    *
-   * VoiceChannel auto-ships any `outgoingMessage` the tool produces via the CR
-   * WebSocket. MessagingChannel subclasses simply invoke the tool's implementation.
+   * VoiceChannel (active mode) auto-ships any `outgoingMessage` the tool produces
+   * via the CR WebSocket. Other channels simply invoke the tool's implementation.
    *
    * @param conversationId - Conversation identifier to scope the execution
    * @param name - Registered tool name

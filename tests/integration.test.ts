@@ -49,11 +49,13 @@ describe('Integration Tests', () => {
         });
       }
 
-      // Mock sendCommunication call (returns 202 Accepted)
+      // Mock createAction call (returns 202 Accepted)
       const sendResponse = {
-        message: 'Conversation setup complete',
+        id: 'AC_action_01test00000000000000000000',
+        type: 'SEND_MESSAGE',
+        status: 'PENDING',
         conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
-        channelId: 'SM123abc',
+        createdAt: '2026-04-23T00:00:00Z',
       };
 
       return new Response(JSON.stringify(sendResponse), {

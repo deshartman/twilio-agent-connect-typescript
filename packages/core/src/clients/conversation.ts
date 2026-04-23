@@ -8,9 +8,6 @@ import {
   ConversationAddress,
   ConversationParticipant,
   ConversationParticipantSchema,
-  SendCommunicationRequest,
-  SendCommunicationResponse,
-  SendCommunicationResponseSchema,
   SendMessageActionRequest,
   ConversationConfiguration,
   ConversationConfigurationSchema,
@@ -49,36 +46,6 @@ export class ConversationClient extends BaseClient {
       : 'https://conversations.twilio.com';
     super(baseUrl, config, logger);
     this.conversationConfigurationId = config.conversationConfigurationId;
-  }
-
-  /**
-   * Send a communication using the retired Conversation Orchestrator Send API
-   * (POST /v2/Communications).
-   *
-   * @deprecated Use {@link createAction} — the Send API endpoint returns 404
-   * since the 2026-04-22 migration. Retained only until the last caller is
-   * ported. Will be removed in a future release.
-   */
-  public async sendCommunication(
-    conversationId: ConversationId,
-    request: SendCommunicationRequest
-  ): Promise<SendCommunicationResponse> {
-    const url = `/v2/Communications`;
-
-    const requestBody = {
-      conversationId,
-      ...request,
-    };
-
-    try {
-      const data = await this.makeRequest<SendCommunicationResponse>(url, 'POST', requestBody);
-      return SendCommunicationResponseSchema.parse(data);
-    } catch (error) {
-      throw new Error(
-        `Failed to send communication: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error }
-      );
-    }
   }
 
   /**

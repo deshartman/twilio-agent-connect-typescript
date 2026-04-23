@@ -15,7 +15,8 @@ import {
   VoiceServerConfigSchema,
   TAC,
   VoiceChannel,
-  MessagingChannel,
+  SMSChannel,
+  ChatChannel,
   type Channel,
 } from '@twilio/tac-core';
 import {
@@ -161,7 +162,7 @@ export class TACServer {
     this.conversationChannels =
       config.conversationChannels ??
       (
-        [tac.getChannel<MessagingChannel>('sms'), tac.getChannel<MessagingChannel>('chat')] as (
+        [tac.getChannel<SMSChannel>('sms'), tac.getChannel<ChatChannel>('chat')] as (
           | Channel
           | undefined
         )[]
