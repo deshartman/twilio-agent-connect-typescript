@@ -1,20 +1,24 @@
 /**
  * Session Types
  *
- * Generic session abstractions that work with any identifier (CallSid, ConversationId, etc.)
+ * Session abstractions for Maestro-backed channels (voice / SMS / chat).
+ * `ConversationId` is the canonical session key across all TAC channels —
+ * this is the unified-identity model this branch's refactor standardises on.
  */
 
 import type { ChannelType } from './config';
 
 /**
- * Base session context - works with any session identifier
+ * Base session context for a TAC channel session.
  *
- * This minimal interface supports both standalone CR (CallSid) and
- * Maestro-backed channels (ConversationId) without forcing conversation concepts.
+ * `conversationId` is always a Maestro ConversationId — the single session key
+ * shared across voice, SMS and chat. If you need raw-CallSid sessions (standalone
+ * ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
+ * directly — it ships its own `CallSid` branded type and does not use this interface.
  */
 export interface SessionContext {
   /**
-   * Conversation identifier
+   * Maestro ConversationId — canonical session key for this context.
    */
   conversationId: string;
 

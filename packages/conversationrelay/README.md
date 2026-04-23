@@ -270,27 +270,36 @@ Silence handling and listen-mode are **not** CR protocol operations, so they are
 Use the `SilenceDetector` helper to track gaps between prompts and take action (warn, end call, etc.) when the caller has been quiet for too long:
 
 ```typescript
-import { ConversationRelay, SilenceDetector } from '@twilio/tac-conversationrelay';
+import { ConversationRelay, SilenceDetector, createLogger } from '@twilio/tac-conversationrelay';
 
-const conversationRelay = new ConversationRelay();
+const logger = createLogger();
+const conversationRelay = new ConversationRelay(logger);
 const silenceDetectors = new Map<string, SilenceDetector>();
 
 conversationRelay.onSessionStarted((callSid) => {
-  const detector = new SilenceDetector({
-    thresholdMs: 15_000,
-    onSilence: () => {
-      conversationRelay.sendResponse(callSid, 'Are you still there?');
+  const detector = new SilenceDetector(
+    {
+      thresholdSeconds: 15,
+      reminders: ['Are you still there?', 'Hello? Can you hear me?', 'Ending call due to inactivity'],
+      onSilence: (silencedCallSid, reminder, isTerminal) => {
+        if (isTerminal) {
+          conversationRelay.endCall(silencedCallSid);
+        } else {
+          conversationRelay.sendResponse(silencedCallSid, reminder);
+        }
+      },
     },
-  });
+    logger
+  );
   silenceDetectors.set(callSid, detector);
 });
 
 conversationRelay.onPrompt((callSid) => {
-  silenceDetectors.get(callSid)?.reset();
+  silenceDetectors.get(callSid)?.reset(callSid);
 });
 
 conversationRelay.onSessionEnded((callSid) => {
-  silenceDetectors.get(callSid)?.shutdown();
+  silenceDetectors.get(callSid)?.stop(callSid);
   silenceDetectors.delete(callSid);
 });
 ```

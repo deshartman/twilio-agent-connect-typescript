@@ -23,15 +23,26 @@ import { TACConfig } from '../lib/config';
 import { Logger } from '../lib/logger';
 import { BaseClient } from './base';
 
-// Walks the error chain (error and its `cause`) looking for an axios error with
-// the given HTTP status. addParticipant wraps the raw axios error with
-// `new Error(..., { cause: error })`, so the structured status lives on `.cause`.
+// Walks the error chain (error and its `cause` recursively) looking for an
+// axios error with the given HTTP status. addParticipant wraps the raw axios
+// error with `new Error(..., { cause: error })`, so the structured status lives
+// on `.cause` — but if any future caller double-wraps, this still finds it.
+// Cycle-guarded via a Set in case `.cause` references are circular.
 function isHttpStatus(err: unknown, status: number): boolean {
-  const chain: unknown[] = [err];
-  if (err instanceof Error && err.cause !== undefined) {
-    chain.push(err.cause);
+  const seen = new Set<object>();
+  let current: unknown = err;
+  while (current !== undefined) {
+    if ((typeof current === 'object' || typeof current === 'function') && current !== null) {
+      if (seen.has(current)) break;
+      seen.add(current);
+    }
+    if (axios.isAxiosError(current) && current.response?.status === status) {
+      return true;
+    }
+    if (!(current instanceof Error) || current.cause === undefined) break;
+    current = current.cause;
   }
-  return chain.some(e => axios.isAxiosError(e) && e.response?.status === status);
+  return false;
 }
 
 /**

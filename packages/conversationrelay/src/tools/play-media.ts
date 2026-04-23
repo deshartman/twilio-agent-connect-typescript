@@ -52,9 +52,9 @@ export const playMediaTool = defineTool<PlayMediaParams, PlayMediaResult>(
         description: 'URL of audio file to play (must be accessible to Twilio)',
       },
       loop: {
-        type: 'number',
+        type: 'integer',
         minimum: 0,
-        description: 'Number of times to loop (0 = 1000 times max, default = 1)',
+        description: 'Whole number of times to loop (0 = 1000 times max, default = 1)',
       },
       interruptible: {
         type: 'boolean',
