@@ -16,6 +16,7 @@ import {
   TAC,
   VoiceChannel,
   MessagingChannel,
+  type Channel,
 } from '@twilio/tac-core';
 import {
   type ConversationRelayCallbackPayload,
@@ -65,8 +66,15 @@ export interface TACServerConfig {
   /** Voice channel instance (alternative to registering on TAC) */
   voiceChannel?: VoiceChannel;
 
-  /** Messaging channel instances — webhooks are fanned out to all (alternative to registering on TAC) */
-  messagingChannels?: MessagingChannel[];
+  /**
+   * Channels consuming Conversation Orchestrator webhooks (SMS, Chat, and
+   * passive Voice). Webhooks are fanned out to every channel in this list;
+   * each channel's `processWebhook` self-filters on `author.channel`.
+   *
+   * Alternative to registering channels on TAC — provide this array to
+   * override TAC's channel registry for server-level fan-out.
+   */
+  conversationChannels?: Channel[];
 }
 
 /**
@@ -89,7 +97,7 @@ const DEFAULT_CONFIG = {
   development: false,
 } satisfies Omit<
   TACServerConfig,
-  'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'messagingChannels'
+  'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'conversationChannels'
 >;
 
 /**
@@ -121,13 +129,13 @@ export class TACServer {
   private readonly config: Required<
     Omit<
       TACServerConfig,
-      'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'messagingChannels'
+      'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'conversationChannels'
     >
   > & {
     handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>;
   };
-  /** All enabled messaging channels — webhooks are fanned out to each one */
-  private readonly messagingChannels: MessagingChannel[];
+  /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
+  private readonly conversationChannels: Channel[];
   /** Voice channel instance */
   private readonly voiceChannel: VoiceChannel | undefined;
 
@@ -150,19 +158,19 @@ export class TACServer {
 
     // Resolve channels (always VoiceChannel + SMS + Chat with Maestro)
     this.voiceChannel = config.voiceChannel ?? tac.getChannel<VoiceChannel>('voice');
-    this.messagingChannels =
-      config.messagingChannels ??
+    this.conversationChannels =
+      config.conversationChannels ??
       (
         [tac.getChannel<MessagingChannel>('sms'), tac.getChannel<MessagingChannel>('chat')] as (
-          | MessagingChannel
+          | Channel
           | undefined
         )[]
-      ).filter((ch): ch is MessagingChannel => ch != null);
+      ).filter((ch): ch is Channel => ch != null);
 
-    if (this.messagingChannels.length === 0) {
+    if (this.conversationChannels.length === 0) {
       this.tac.logger.warn(
-        'TACServer: No messaging channels (SMS/Chat) configured. Messaging webhooks will not be registered. ' +
-          'Register a MessagingChannel with tac.registerChannel() before creating TACServer to enable SMS/Chat.'
+        'TACServer: No conversation channels (SMS/Chat) configured. Messaging webhooks will not be registered. ' +
+          'Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat.'
       );
     }
 
@@ -360,17 +368,17 @@ export class TACServer {
     });
 
     // ── Messaging webhook ─────────────────────────────────────────
-    if (this.messagingChannels.length > 0) {
+    if (this.conversationChannels.length > 0) {
       this.fastify.post(
         this.config.webhookPaths.messaging || '/webhook',
         async (request: FastifyRequest, reply: FastifyReply) => {
           const rawHeader = request.headers['i-twilio-idempotency-token'];
           const idempotencyToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
-          for (const channel of this.messagingChannels) {
-            channel.processWebhook(request.body, idempotencyToken).catch((err: unknown) => {
+          for (const channel of this.conversationChannels) {
+            channel.processWebhook?.(request.body, idempotencyToken).catch((err: unknown) => {
               this.fastify.log.error(
                 { err, channel: channel.channelType },
-                'Messaging webhook processing error'
+                'Conversation webhook processing error'
               );
             });
           }

@@ -137,4 +137,18 @@ export interface Channel {
    * @returns The tool's result (to feed back to the LLM loop)
    */
   executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+
+  /**
+   * Process a Maestro Conversations Service webhook payload.
+   *
+   * Optional because some channels (e.g. an active-only VoiceChannel with CR
+   * strapped in) don't consume webhooks directly. The server fans out every
+   * incoming webhook to all registered channels via
+   * `channel.processWebhook?.(body, idempotencyToken)`; channels that don't
+   * implement it simply ignore the event.
+   *
+   * @param payload - Raw webhook body from Twilio
+   * @param idempotencyToken - Optional token from the `I-Twilio-Idempotency-Token` header
+   */
+  processWebhook?(payload: unknown, idempotencyToken?: string): Promise<void>;
 }
