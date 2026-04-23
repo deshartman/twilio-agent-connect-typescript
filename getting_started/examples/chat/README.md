@@ -74,7 +74,7 @@ sequenceDiagram
     Server->>OpenAI: 5. Generate response
     OpenAI-->>Server: AI response
 
-    Server->>CO: 6. POST /v2/Communications (Send API)
+    Server->>CO: 6. POST /v2/Conversations/{id}/Actions (SEND_MESSAGE)
     CO-->>TC: 7. Deliver message
 
     TC->>Browser: 8. Message Added (SDK event)
