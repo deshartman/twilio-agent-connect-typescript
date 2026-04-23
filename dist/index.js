@@ -3,8 +3,8 @@ export { z } from 'zod';
 import pino from 'pino';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
-import { WebSocket } from 'ws';
 import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
+import { WebSocket } from 'ws';
 import Fastify2 from 'fastify';
 import formbody2 from '@fastify/formbody';
 import websocket2 from '@fastify/websocket';
@@ -213,25 +213,41 @@ var CommunicationSchema = z.object({
 var ListCommunicationsResponseSchema = z.object({
   communications: z.array(CommunicationSchema)
 });
-var SendCommunicationParticipantAddressSchema = z.object({
-  address: z.string().min(1, "Address is required").max(254),
-  channel: ParticipantAddressTypeSchema,
-  participantId: z.string().optional()
+var ActionParticipantRefSchema = z.object({
+  participantId: z.string().min(1).optional(),
+  address: z.string().min(1).max(254).optional(),
+  channel: ParticipantAddressTypeSchema
+}).refine((v) => Boolean(v.participantId) || Boolean(v.address), {
+  message: "ActionParticipantRef requires at least `participantId` or `address`"
 });
-var SendCommunicationRequestSchema = z.object({
-  author: SendCommunicationParticipantAddressSchema,
-  content: z.object({
-    type: z.enum(["TEXT", "TRANSCRIPTION"]),
-    text: z.string(),
-    transcription: TranscriptionSchema.optional()
-  }),
-  recipients: z.array(SendCommunicationParticipantAddressSchema).min(1),
-  channelId: z.string().optional()
+var ActionTextContentSchema = z.object({
+  text: z.string().max(8388608)
 });
-var SendCommunicationResponseSchema = z.object({
-  message: z.string(),
+var ActionChannelSettingsSchema = z.object({
+  channelId: z.string().optional(),
+  // TODO(conv-orch): Drop `chatService` once the Actions API resolves the V1 Chat
+  // service SID server-side. Confirmed this should not be required client-side;
+  // keep the field until the server-side fix ships.
+  chatService: z.string().optional()
+}).passthrough();
+var SendMessageActionPayloadSchema = z.object({
+  from: ActionParticipantRefSchema,
+  to: z.array(ActionParticipantRefSchema).min(1),
+  content: ActionTextContentSchema,
+  channelSettings: ActionChannelSettingsSchema.optional()
+});
+var SendMessageActionRequestSchema = z.object({
+  type: z.literal("SEND_MESSAGE").default("SEND_MESSAGE"),
+  payload: SendMessageActionPayloadSchema
+});
+var ActionResponseSchema = z.object({
+  id: z.string(),
+  // Kept as string (not enum) to tolerate future action types. Known: SEND_MESSAGE.
+  type: z.string(),
+  // Kept as string (not enum) to tolerate future statuses. Known: PENDING, COMPLETED, FAILED.
+  status: z.string(),
   conversationId: z.string(),
-  channelId: z.string().nullable()
+  createdAt: z.string().nullish()
 });
 var AuthorInfoSchema = z.object({
   address: z.string(),
@@ -316,6 +332,9 @@ var ConversationGroupingTypeSchema = z.enum([
   "GROUP_BY_PARTICIPANT_ADDRESSES",
   "GROUP_BY_PARTICIPANT_ADDRESSES_AND_CHANNEL_TYPE"
 ]);
+var ConversationsV1BridgeSchema = z.object({
+  serviceId: z.string()
+});
 var ConversationConfigurationSchema = z.object({
   id: z.string(),
   displayName: z.string().max(32).regex(/^[a-zA-Z0-9-_ ]+$/).nullable().optional(),
@@ -325,6 +344,9 @@ var ConversationConfigurationSchema = z.object({
   channelSettings: z.record(ChannelSettingsSchema).nullable().optional(),
   statusCallbacks: z.array(StatusCallbackSchema).max(20).nullable().optional(),
   intelligenceConfigurationIds: z.array(z.string()).max(5).nullable().optional(),
+  // TODO(conv-orch): Drop this field once the Actions API resolves the V1 Chat
+  // service SID server-side — see ConversationsV1BridgeSchema above.
+  conversationsV1Bridge: ConversationsV1BridgeSchema.nullish(),
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
   version: z.number().int().nullable().optional()
@@ -1088,24 +1110,23 @@ var ConversationClient = class extends BaseClient {
     this.conversationConfigurationId = config.conversationConfigurationId;
   }
   /**
-   * Send a communication using the Conversation Orchestrator Send API
+   * Create an action on a conversation via the Conversation Orchestrator Actions API.
+   *
+   * Currently supports SEND_MESSAGE actions. Returns 202 Accepted; the action is
+   * processed asynchronously and delivered via COMMUNICATION_CREATED webhook.
    *
    * @param conversationId - The conversation ID
-   * @param request - Send communication request
-   * @returns Promise containing communication response
+   * @param request - The action request ({type, payload})
+   * @returns Promise containing the ActionResponse
    */
-  async sendCommunication(conversationId, request) {
-    const url = `/v2/Communications`;
-    const requestBody = {
-      conversationId,
-      ...request
-    };
+  async createAction(conversationId, request) {
+    const url = `/v2/Conversations/${conversationId}/Actions`;
     try {
-      const data = await this.makeRequest(url, "POST", requestBody);
-      return SendCommunicationResponseSchema.parse(data);
+      const data = await this.makeRequest(url, "POST", request);
+      return ActionResponseSchema.parse(data);
     } catch (error) {
       throw new Error(
-        `Failed to send communication: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to create action: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
       );
     }
@@ -1790,6 +1811,15 @@ var TAC = class _TAC {
   channels;
   cintelProcessor;
   memoryStoreId;
+  /**
+   * Cached from conversationConfig.conversationsV1Bridge?.serviceId at init.
+   * ChatChannel forwards this as `channelSettings.chatService` on outbound
+   * SEND_MESSAGE actions.
+   *
+   * TODO(conv-orch): Drop this field once the Actions API resolves the V1
+   * Chat service SID server-side — see ConversationsV1BridgeSchema.
+   */
+  conversationsV1ServiceSid;
   // Callback registrations
   messageReadyCallback;
   handoffCallback;
@@ -1823,6 +1853,10 @@ var TAC = class _TAC {
         );
       }
       tac.memoryStoreId = fetchedMemoryStoreId;
+      const v1ServiceId = conversationConfig.conversationsV1Bridge?.serviceId;
+      if (v1ServiceId !== void 0) {
+        tac.conversationsV1ServiceSid = v1ServiceId;
+      }
       tac.memoryClient = new MemoryClient(tac.config, tac.logger.child({ component: "memory" }));
       tac.knowledgeClient = new KnowledgeClient(
         tac.config,
@@ -2027,7 +2061,7 @@ var TAC = class _TAC {
     return (session, query) => this.retrieveMemory(session, query);
   }
   /**
-   * Get channel dependencies for creating channels (VoiceChannel, MessagingChannel subclasses).
+   * Get channel dependencies for creating channels (VoiceChannel, SMSChannel, ChatChannel).
    * Returns all dependencies needed to construct a channel.
    */
   getChannelDeps() {
@@ -2176,74 +2210,43 @@ var TAC = class _TAC {
   }
 };
 
-// packages/core/src/channels/messaging.ts
-var DEFAULT_DEDUP_CAPACITY = 1e4;
-var MessagingChannel = class {
-  config;
+// packages/core/src/channels/utility.ts
+var ConversationSessionStore = class {
+  sessions = /* @__PURE__ */ new Map();
   logger;
-  conversationClient;
-  activeConversations;
+  channelType;
   callbacks;
-  memoryRetriever;
-  processedTokens = /* @__PURE__ */ new Set();
-  maxTrackedTokens;
-  tools = /* @__PURE__ */ new Map();
-  constructor(deps, channelConfig) {
-    this.config = deps.config;
-    this.logger = deps.logger.child({ component: "channel" });
-    this.conversationClient = deps.conversationClient;
-    this.memoryRetriever = deps.memoryRetriever;
-    this.activeConversations = /* @__PURE__ */ new Map();
-    this.callbacks = {};
-    const capacity = channelConfig?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
-    if (capacity < 1 || !Number.isInteger(capacity)) {
-      throw new Error("dedupCapacity must be a positive integer");
-    }
-    this.maxTrackedTokens = capacity;
+  constructor(deps) {
+    this.logger = deps.logger;
+    this.channelType = deps.channelType;
+    this.callbacks = deps.callbacks;
   }
   /**
-   * Check if a webhook has already been processed, and if not, record the token immediately.
-   * This is intentionally a single synchronous check-and-record to prevent race conditions
-   * where a duplicate arrives while the first request is still awaiting async work.
-   * Uses a sliding window with FIFO eviction at capacity.
+   * Start a new conversation session. No-op if the session already exists;
+   * returns the existing session in that case.
    */
-  isDuplicateWebhook(idempotencyToken) {
-    if (this.processedTokens.has(idempotencyToken)) {
-      return true;
-    }
-    if (this.processedTokens.size >= this.maxTrackedTokens) {
-      const oldest = this.processedTokens.values().next().value;
-      this.processedTokens.delete(oldest);
-    }
-    this.processedTokens.add(idempotencyToken);
-    return false;
-  }
-  /**
-   * Start a new conversation session
-   */
-  startConversation(conversationId, profileId, serviceId) {
-    if (this.activeConversations.has(conversationId)) {
+  start(conversationId, profileId, serviceId) {
+    const existing = this.sessions.get(conversationId);
+    if (existing) {
       this.logger.debug(
         {
           conversation_id: conversationId,
-          profile_id: this.activeConversations.get(conversationId)?.profileId,
-          service_id: this.activeConversations.get(conversationId)?.serviceId
+          profile_id: existing.profileId,
+          service_id: existing.serviceId
         },
         "Conversation already active"
       );
-      return this.activeConversations.get(conversationId);
+      return existing;
     }
     const session = {
-      // Base SessionContext fields
       conversationId,
       channel: this.channelType,
       startedAt: /* @__PURE__ */ new Date(),
       metadata: {},
-      // Maestro-specific fields
       profileId,
       serviceId
     };
-    this.activeConversations.set(conversationId, session);
+    this.sessions.set(conversationId, session);
     this.logger.debug(
       {
         conversation_id: conversationId,
@@ -2261,162 +2264,85 @@ var MessagingChannel = class {
   /**
    * End a conversation session.
    *
-   * Triggers the onConversationEnded callback BEFORE removing the session,
-   * so the callback receives the full ConversationSession data.
-   * Errors in the callback do not prevent session cleanup.
+   * Triggers onConversationEnded BEFORE removing the session so the callback
+   * receives the full session. Errors in the callback do not prevent cleanup.
    */
-  async endConversation(conversationId) {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            "Error in conversation ended callback"
-          );
-        }
-      }
-      this.activeConversations.delete(conversationId);
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          channel: this.channelType,
-          service_id: session.serviceId
-        },
-        "Conversation ended"
-      );
-    } else {
+  async end(conversationId) {
+    const session = this.sessions.get(conversationId);
+    if (!session) {
       this.logger.debug(
         { conversation_id: conversationId, channel: this.channelType },
         "Conversation end requested but no active session found"
       );
+      return;
     }
-  }
-  /**
-   * Get an active conversation session
-   */
-  getConversationSession(conversationId) {
-    return this.activeConversations.get(conversationId);
-  }
-  /**
-   * Check if a conversation is active
-   */
-  isConversationActive(conversationId) {
-    return this.activeConversations.has(conversationId);
-  }
-  /**
-   * Handle errors with proper context
-   */
-  handleError(error, context) {
-    this.logger.error({ err: error, ...context }, "Channel error");
-    if (this.callbacks.onError) {
-      if (context) {
-        this.callbacks.onError({ error, context });
-      } else {
-        this.callbacks.onError({ error });
+    if (this.callbacks.onConversationEnded) {
+      try {
+        await this.callbacks.onConversationEnded({ session });
+      } catch (error) {
+        this.logger.error(
+          { err: error, conversation_id: conversationId },
+          "Error in conversation ended callback"
+        );
       }
     }
+    this.sessions.delete(conversationId);
+    this.logger.debug(
+      {
+        conversation_id: conversationId,
+        channel: this.channelType,
+        service_id: session.serviceId
+      },
+      "Conversation ended"
+    );
+  }
+  get(conversationId) {
+    return this.sessions.get(conversationId);
+  }
+  isActive(conversationId) {
+    return this.sessions.has(conversationId);
   }
   /**
-   * Cleanup resources when shutting down
+   * Clear all sessions (for shutdown).
    */
-  shutdown() {
-    this.activeConversations.clear();
-    delete this.callbacks.onConversationStarted;
-    delete this.callbacks.onConversationEnded;
-    delete this.callbacks.onError;
-    delete this.callbacks.onMessage;
+  clear() {
+    this.sessions.clear();
   }
-  /**
-   * Register event callbacks (override for messaging-specific events)
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
-  on(event, callback) {
-    switch (event) {
-      case "message":
-        this.callbacks.onMessage = callback;
-        break;
-      case "conversationStarted":
-        this.callbacks.onConversationStarted = callback;
-        break;
-      case "conversationEnded":
-        this.callbacks.onConversationEnded = callback;
-        break;
-      case "error":
-        this.callbacks.onError = callback;
-        break;
+};
+var DEFAULT_DEDUP_CAPACITY = 1e4;
+var ConversationsWebhookProcessor = class {
+  logger;
+  processedTokens = /* @__PURE__ */ new Set();
+  maxTrackedTokens;
+  constructor(deps, config) {
+    this.logger = deps.logger;
+    const capacity = config?.dedupCapacity ?? DEFAULT_DEDUP_CAPACITY;
+    if (capacity < 1 || !Number.isInteger(capacity)) {
+      throw new Error("dedupCapacity must be a positive integer");
     }
+    this.maxTrackedTokens = capacity;
   }
   /**
-   * List tools registered on this channel (for LLM discovery).
-   * MessagingChannel starts with an empty registry; future messaging tools
-   * (e.g., send_mms) can be added via `registerTool`.
+   * Process a Maestro Conversations webhook payload, routing recognized event
+   * types to the supplied handlers. Performs dedup, self-filtering, and
+   * payload validation before dispatch.
    */
-  listTools() {
-    return Array.from(this.tools.values());
-  }
-  /**
-   * Register a tool on this channel. Overwrites any tool with the same name.
-   */
-  registerTool(tool) {
-    this.tools.set(tool.name, tool);
-  }
-  /**
-   * Execute a registered tool by name.
-   *
-   * Messaging tools are plain side-effect functions — unlike VoiceChannel,
-   * there is no `outgoingMessage` auto-shipping. The tool's result is
-   * returned unchanged for the caller to feed back to the LLM loop.
-   */
-  executeTool(_conversationId, name, args) {
-    const tool = this.tools.get(name);
-    if (!tool) {
-      throw new Error(`Unknown tool: ${name}`);
-    }
-    return Promise.resolve(tool.implementation(args));
-  }
-  /**
-   * Check if this webhook event belongs to this channel.
-   * Returns false if the event is clearly for a different channel type.
-   */
-  isEventForThisChannel(webhookData) {
-    const eventType = webhookData.eventType;
-    const authorChannel = webhookData.data?.author?.channel;
-    if (eventType === "COMMUNICATION_CREATED") {
-      if (!authorChannel) {
-        return false;
-      }
-      return authorChannel === this.channelType.toUpperCase();
-    }
-    if (eventType === "CONVERSATION_UPDATED") {
-      const conversationId = this.extractConversationId(webhookData);
-      if (conversationId && !this.isConversationActive(conversationId)) {
-        return false;
-      }
-    }
-    return true;
-  }
-  /**
-   * Process messaging channel webhook from Twilio Conversations Service
-   */
-  async processWebhook(payload, idempotencyToken) {
+  async process(payload, handlers, idempotencyToken) {
     this.logger.debug({ operation: "webhook_processing", payload }, "Processing webhook");
     try {
-      if (idempotencyToken && this.isDuplicateWebhook(idempotencyToken)) {
+      if (idempotencyToken && this.isDuplicate(idempotencyToken)) {
         this.logger.debug({ idempotency_token: idempotencyToken }, "Skipping duplicate webhook");
         return;
       }
-      if (!this.validateWebhookPayload(payload)) {
+      if (!this.validatePayload(payload)) {
         throw new Error("Invalid webhook payload");
       }
       const webhookData = payload;
       const eventType = webhookData.eventType;
       const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
-      if (!this.isEventForThisChannel(webhookData)) {
+      if (!this.isEventForThisChannel(webhookData, handlers)) {
         this.logger.debug(
-          { event_type: eventType, channel: this.channelType, conversation_id: conversationId },
+          { event_type: eventType, channel: handlers.channelType, conversation_id: conversationId },
           "Ignoring event for different channel type"
         );
         return;
@@ -2435,25 +2361,29 @@ var MessagingChannel = class {
             { conversation_id: conversationId, profile_id: webhookData.data?.profileId },
             "Handling CONVERSATION_CREATED"
           );
-          this.handleConversationCreated(webhookData);
+          handlers.onConversationCreated?.(webhookData);
           break;
         case "PARTICIPANT_ADDED":
           this.logger.debug(
             { conversation_id: conversationId, profile_id: webhookData.data?.profileId },
             "Handling PARTICIPANT_ADDED"
           );
-          this.handleParticipantAdded(webhookData);
+          handlers.onParticipantAdded?.(webhookData);
           break;
         case "COMMUNICATION_CREATED":
           this.logger.debug({ conversation_id: conversationId }, "Handling COMMUNICATION_CREATED");
-          await this.handleCommunicationCreated(webhookData);
+          if (handlers.onCommunicationCreated) {
+            await handlers.onCommunicationCreated(webhookData);
+          }
           break;
         case "CONVERSATION_UPDATED":
           this.logger.debug(
             { conversation_id: conversationId, status: webhookData.data?.status },
             "Handling CONVERSATION_UPDATED"
           );
-          await this.handleConversationUpdated(webhookData);
+          if (handlers.onConversationUpdated) {
+            await handlers.onConversationUpdated(webhookData);
+          }
           break;
         default:
           this.logger.warn(
@@ -2475,261 +2405,44 @@ var MessagingChannel = class {
         { err: error, operation: "webhook_processing" },
         "Webhook processing error"
       );
-      this.handleError(error instanceof Error ? error : new Error(String(error)), { payload });
+      const err = error instanceof Error ? error : new Error(String(error));
+      handlers.onError?.(err, { payload });
     }
   }
   /**
-   * Handle conversation creation event
+   * Check if a webhook has already been processed, and if not, record the token immediately.
+   * Single synchronous check-and-record to prevent races where a duplicate arrives while
+   * the first request is still awaiting async work. FIFO eviction at capacity.
    */
-  handleConversationCreated(payload) {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
-    if (!conversationId) {
-      this.logger.warn(
-        { payload, operation: "handle_conversation_created" },
-        "Missing conversation ID in conversation.created event"
-      );
-      throw new Error("Missing conversation ID in conversation.created event");
+  isDuplicate(idempotencyToken) {
+    if (this.processedTokens.has(idempotencyToken)) {
+      return true;
     }
-    this.startConversation(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    if (this.processedTokens.size >= this.maxTrackedTokens) {
+      const oldest = this.processedTokens.values().next().value;
+      this.processedTokens.delete(oldest);
+    }
+    this.processedTokens.add(idempotencyToken);
+    return false;
   }
-  /**
-   * Handle participant added event
-   */
-  handleParticipantAdded(payload) {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
-    if (!conversationId) {
-      this.logger.warn(
-        { payload, operation: "handle_participant_added" },
-        "Missing conversation ID in participant.added event"
-      );
-      throw new Error("Missing conversation ID in participant.added event");
-    }
-    if (this.isConversationActive(conversationId)) {
-      const session = this.getConversationSession(conversationId);
-      if (session) {
-        if (profileId) {
-          this.logger.debug(
-            {
-              conversation_id: conversationId,
-              old_profile_id: session.profileId,
-              new_profile_id: profileId
-            },
-            "Updating conversation profile ID from participant.added"
-          );
-          session.profileId = profileId;
-        }
-        if (payload.data?.serviceId && session.serviceId !== payload.data.serviceId) {
-          this.logger.debug(
-            {
-              conversation_id: conversationId,
-              old_service_id: session.serviceId,
-              new_service_id: payload.data.serviceId
-            },
-            "Updating conversation configuration ID from participant.added"
-          );
-          session.serviceId = payload.data.serviceId;
-        }
+  isEventForThisChannel(webhookData, handlers) {
+    const eventType = webhookData.eventType;
+    const authorChannel = webhookData.data?.author?.channel;
+    if (eventType === "COMMUNICATION_CREATED") {
+      if (!authorChannel) {
+        return false;
       }
-    } else {
-      this.logger.debug(
-        { conversation_id: conversationId, profile_id: profileId },
-        "Auto-starting conversation from participant.added"
-      );
-      this.startConversation(conversationId, profileId ?? void 0, payload.data?.serviceId);
+      return authorChannel === handlers.channelType.toUpperCase();
     }
-  }
-  /**
-   * Handle new communication event (incoming message)
-   */
-  async handleCommunicationCreated(payload) {
-    const conversationId = this.extractConversationId(payload);
-    const profileId = this.extractProfileId(payload);
-    const message = payload.data?.content?.text?.trim();
-    const author = payload.data?.author?.address || "unknown";
-    this.logger.info(
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        author,
-        message,
-        message_length: message?.length,
-        operation: "handle_communication_created"
-      },
-      "Handling communication.created"
-    );
-    if (!conversationId) {
-      this.logger.warn(
-        { payload, operation: "handle_communication_created" },
-        "Missing conversation ID in communication.created event"
-      );
-      throw new Error("Missing conversation ID in communication.created event");
-    }
-    if (!message) {
-      this.logger.info({ conversation_id: conversationId }, "Ignoring empty message");
-      return;
-    }
-    if (this.isOwnMessage(author)) {
-      this.logger.info(
-        {
-          conversation_id: conversationId,
-          author_address: author
-        },
-        "Ignoring message from AI agent"
-      );
-      return;
-    }
-    if (!this.isConversationActive(conversationId)) {
-      this.logger.debug({ conversation_id: conversationId }, "Starting new conversation");
-      this.startConversation(conversationId, profileId ?? void 0, payload.data?.serviceId);
-    } else if (payload.data?.serviceId) {
-      const session2 = this.getConversationSession(conversationId);
-      if (session2 && session2.serviceId !== payload.data.serviceId) {
-        this.logger.debug(
-          {
-            conversation_id: conversationId,
-            old_service_id: session2.serviceId,
-            new_service_id: payload.data.serviceId
-          },
-          "Updating conversation configuration ID from communication.created"
-        );
-        session2.serviceId = payload.data.serviceId;
+    if (eventType === "CONVERSATION_UPDATED" && handlers.isConversationActive) {
+      const conversationId = extractConversationId(webhookData, this.logger);
+      if (conversationId && !handlers.isConversationActive(conversationId)) {
+        return false;
       }
     }
-    const session = this.getConversationSession(conversationId);
-    if (session) {
-      session.authorInfo = {
-        address: author,
-        participantId: payload.data?.author?.participantId
-      };
-      if (payload.data?.channelId) {
-        if (!session.metadata) {
-          session.metadata = {};
-        }
-        session.metadata.channelId = payload.data.channelId;
-        this.logger.debug(
-          { conversation_id: conversationId, channel_id: payload.data.channelId },
-          "Stored channelId in session metadata"
-        );
-      }
-    }
-    let userMemory;
-    if (session) {
-      this.logger.debug({ conversation_id: conversationId, author }, "Retrieving user memory");
-      try {
-        userMemory = await this.memoryRetriever(session, message);
-        this.logger.debug(
-          { conversation_id: conversationId, profile_id: session.profileId },
-          "User memory retrieved"
-        );
-      } catch (error) {
-        this.logger.warn(
-          { err: error, conversation_id: conversationId },
-          "Failed to retrieve user memory"
-        );
-      }
-    }
-    if (this.callbacks.onMessage) {
-      this.logger.debug({ conversation_id: conversationId }, "Emitting message event");
-      const channelMessage = {
-        conversationId,
-        messageType: "user",
-        message,
-        channel: this.channelType,
-        metadata: { type: "communication_created" },
-        conversation: session ? {
-          profileId: session.profileId ?? profileId ?? void 0,
-          memory: userMemory,
-          author,
-          serviceId: session.serviceId,
-          authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
-          startedAt: session.startedAt
-        } : void 0
-      };
-      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        this.handleError(error, { conversationId, event: "message" });
-      });
-    }
+    return true;
   }
-  /**
-   * Handle conversation updated event
-   */
-  async handleConversationUpdated(payload) {
-    const conversationId = this.extractConversationId(payload);
-    if (!conversationId) {
-      throw new Error("Missing conversation ID in conversation.updated event");
-    }
-    if (payload.data?.status === "CLOSED") {
-      this.logger.info(
-        { conversation_id: conversationId, status: payload.data.status },
-        "Conversation closed, cleaning up"
-      );
-      await this.endConversation(conversationId);
-    }
-  }
-  /**
-   * Extract conversation ID from webhook payload
-   */
-  extractConversationId(payload) {
-    const webhookData = payload;
-    const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
-    if (conversationId && isConversationId(conversationId)) {
-      return conversationId;
-    }
-    if (conversationId) {
-      this.logger.warn(
-        {
-          provided_id: conversationId,
-          operation: "extract_conversation_id",
-          expected_pattern: "^conv_conversation_[0-9a-z]{26}$"
-        },
-        "Invalid conversation ID format in webhook payload"
-      );
-    } else {
-      this.logger.debug(
-        { operation: "extract_conversation_id" },
-        "Conversation ID missing in webhook payload"
-      );
-    }
-    return null;
-  }
-  /**
-   * Extract profile ID from webhook payload
-   */
-  extractProfileId(payload) {
-    const webhookData = payload;
-    const conversationId = webhookData.data?.conversationId;
-    const profileId = webhookData.data?.profileId;
-    if (profileId && isProfileId(profileId)) {
-      return profileId;
-    }
-    if (profileId) {
-      this.logger.warn(
-        {
-          provided_id: profileId,
-          operation: "extract_profile_id",
-          expected_pattern: "^mem_profile_[0-9a-z]{26}$",
-          conversation_id: conversationId
-        },
-        "Invalid profile ID format in webhook payload"
-      );
-    } else {
-      this.logger.debug(
-        {
-          operation: "extract_profile_id",
-          conversation_id: conversationId
-        },
-        "Profile ID missing in webhook payload"
-      );
-    }
-    return null;
-  }
-  /**
-   * Validate messaging channel webhook payload structure
-   */
-  validateWebhookPayload(payload) {
+  validatePayload(payload) {
     if (payload === null || payload === void 0) {
       return false;
     }
@@ -2737,20 +2450,201 @@ var MessagingChannel = class {
     return typeof webhookData === "object" && typeof webhookData.eventType === "string" && webhookData.eventType.length > 0;
   }
 };
+function extractConversationId(payload, logger2) {
+  const webhookData = payload;
+  const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
+  if (conversationId && isConversationId(conversationId)) {
+    return conversationId;
+  }
+  if (conversationId) {
+    logger2.warn(
+      {
+        provided_id: conversationId,
+        operation: "extract_conversation_id",
+        expected_pattern: "^conv_conversation_[0-9a-z]{26}$"
+      },
+      "Invalid conversation ID format in webhook payload"
+    );
+  } else {
+    logger2.debug(
+      { operation: "extract_conversation_id" },
+      "Conversation ID missing in webhook payload"
+    );
+  }
+  return null;
+}
+async function ensureAgentParticipant(client, logger2, conversationId, existingParticipants, agentAddress) {
+  const matches = (p) => (p.type === "AI_AGENT" || p.type === "HUMAN_AGENT" || p.type === "AGENT") && Array.isArray(p.addresses) && p.addresses.some((a) => a.channel === agentAddress.channel && a.address === agentAddress.address);
+  const existing = existingParticipants.find(matches);
+  if (existing) {
+    return existing;
+  }
+  logger2.debug(
+    {
+      conversation_id: conversationId,
+      channel: agentAddress.channel,
+      address: agentAddress.address
+    },
+    "No agent participant found, creating AI_AGENT"
+  );
+  try {
+    const agent2 = await client.addParticipant(conversationId, [agentAddress], "AI_AGENT");
+    logger2.debug(
+      { conversation_id: conversationId, participant_id: agent2.id },
+      "Created AI_AGENT participant"
+    );
+    return agent2;
+  } catch (error) {
+    logger2.warn(
+      { err: error, conversation_id: conversationId },
+      "Failed to create AI_AGENT, retrying participant list"
+    );
+  }
+  let retried;
+  try {
+    retried = await client.listParticipants(conversationId);
+  } catch (error) {
+    logger2.error(
+      { err: error, conversation_id: conversationId },
+      "Failed to retry listing participants"
+    );
+    return void 0;
+  }
+  const agent = retried.find(matches);
+  if (!agent) {
+    logger2.error(
+      { conversation_id: conversationId },
+      "Failed to create or find AI_AGENT participant"
+    );
+  }
+  return agent;
+}
+function extractProfileId(payload, logger2) {
+  const webhookData = payload;
+  const conversationId = webhookData.data?.conversationId;
+  const profileId = webhookData.data?.profileId;
+  if (profileId && isProfileId(profileId)) {
+    return profileId;
+  }
+  if (profileId) {
+    logger2.warn(
+      {
+        provided_id: profileId,
+        operation: "extract_profile_id",
+        expected_pattern: "^mem_profile_[0-9a-z]{26}$",
+        conversation_id: conversationId
+      },
+      "Invalid profile ID format in webhook payload"
+    );
+  } else {
+    logger2.debug(
+      {
+        operation: "extract_profile_id",
+        conversation_id: conversationId
+      },
+      "Profile ID missing in webhook payload"
+    );
+  }
+  return null;
+}
 
 // packages/core/src/channels/sms.ts
-var SMSChannel = class extends MessagingChannel {
-  get channelType() {
-    return "sms";
+var SMSChannel = class {
+  channelType = "sms";
+  config;
+  logger;
+  conversationClient;
+  memoryRetriever;
+  callbacks = {};
+  tools = /* @__PURE__ */ new Map();
+  webhookProcessor;
+  sessionStore;
+  constructor(deps, channelConfig) {
+    this.config = deps.config;
+    this.logger = deps.logger.child({ component: "channel", channel: this.channelType });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
+    const processorConfig = channelConfig?.dedupCapacity !== void 0 ? { dedupCapacity: channelConfig.dedupCapacity } : void 0;
+    this.webhookProcessor = new ConversationsWebhookProcessor(
+      { logger: this.logger },
+      processorConfig
+    );
+    this.sessionStore = new ConversationSessionStore({
+      logger: this.logger,
+      channelType: this.channelType,
+      callbacks: {
+        onConversationStarted: (data) => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data) => this.callbacks.onConversationEnded?.(data)
+      }
+    });
+  }
+  // ── Channel interface ────────────────────────────────────────────────────
+  getConversationSession(conversationId) {
+    return this.sessionStore.get(conversationId);
+  }
+  isConversationActive(conversationId) {
+    return this.sessionStore.isActive(conversationId);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
+  on(event, callback) {
+    switch (event) {
+      case "message":
+        this.callbacks.onMessage = callback;
+        break;
+      case "conversationStarted":
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case "conversationEnded":
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case "error":
+        this.callbacks.onError = callback;
+        break;
+    }
+  }
+  shutdown() {
+    this.sessionStore.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
+  }
+  listTools() {
+    return Array.from(this.tools.values());
+  }
+  registerTool(tool) {
+    this.tools.set(tool.name, tool);
+  }
+  executeTool(_conversationId, name, args) {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    return Promise.resolve(tool.implementation(args));
   }
   /**
-   * Check if a message is from the bot itself (by phone number)
+   * Process an SMS webhook event from Twilio Conversation Orchestrator.
+   * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
    */
-  isOwnMessage(authorAddress) {
-    return authorAddress === this.config.phoneNumber;
+  async processWebhook(payload, idempotencyToken) {
+    await this.webhookProcessor.process(
+      payload,
+      {
+        channelType: this.channelType,
+        isConversationActive: (id) => this.isConversationActive(id),
+        onConversationCreated: (p) => this.handleConversationCreated(p),
+        onParticipantAdded: (p) => this.handleParticipantAdded(p),
+        onCommunicationCreated: (p) => this.handleCommunicationCreated(p),
+        onConversationUpdated: (p) => this.handleConversationUpdated(p),
+        onError: (err, ctx) => this.handleError(err, ctx)
+      },
+      idempotencyToken
+    );
   }
   /**
-   * Send SMS response using Conversation Orchestrator Send API
+   * Send SMS response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
    */
   async sendResponse(conversationId, message, metadata) {
     this.logger.debug(
@@ -2773,50 +2667,64 @@ var SMSChannel = class extends MessagingChannel {
       }
       const recipientAddress = session.authorInfo.address;
       const participants = await this.conversationClient.listParticipants(conversationId);
-      const smsParticipants = participants.filter(
-        (p) => Array.isArray(p.addresses) && p.addresses.some(
-          (addr) => addr.channel === "SMS" && addr.address === this.config.phoneNumber
-        )
+      let customerParticipantId;
+      for (const p of participants) {
+        if (p.type !== "CUSTOMER" || !Array.isArray(p.addresses)) continue;
+        const smsAddress = p.addresses.find((a) => a.channel === "SMS");
+        if (smsAddress) {
+          customerParticipantId = p.id;
+          break;
+        }
+      }
+      const agentParticipant = await ensureAgentParticipant(
+        this.conversationClient,
+        this.logger,
+        conversationId,
+        participants,
+        { channel: "SMS", address: this.config.phoneNumber }
       );
-      const agentParticipant = smsParticipants.find(
-        (p) => p.type === "AI_AGENT" || p.type === "HUMAN_AGENT" || p.type === "AGENT"
-      ) ?? smsParticipants[0];
       if (!agentParticipant) {
         throw new Error(
-          `Agent participant not found for conversation ${conversationId} with phone ${this.config.phoneNumber}`
+          `Failed to resolve AI_AGENT participant for conversation ${conversationId}`
         );
       }
+      if (!customerParticipantId) {
+        throw new Error(
+          `Customer participant not found on SMS channel for conversation ${conversationId}`
+        );
+      }
+      const channelId = typeof session.metadata?.channelId === "string" ? session.metadata.channelId : void 0;
       this.logger.debug(
         {
           conversation_id: conversationId,
           recipient_address: recipientAddress,
-          recipient_participant_id: session.authorInfo.participantId,
+          recipient_participant_id: customerParticipantId,
           agent_participant_id: agentParticipant.id,
           from_number: this.config.phoneNumber
         },
-        "Sending SMS via Send API"
+        "Sending SMS via Actions API"
       );
-      await this.conversationClient.sendCommunication(conversationId, {
-        author: {
-          address: this.config.phoneNumber,
-          channel: "SMS",
-          participantId: agentParticipant.id
-        },
-        recipients: [
-          {
-            address: recipientAddress,
+      const actionRequest = {
+        type: "SEND_MESSAGE",
+        payload: {
+          from: {
             channel: "SMS",
-            participantId: session.authorInfo.participantId
-          }
-        ],
-        content: {
-          type: "TEXT",
-          text: message
+            participantId: agentParticipant.id
+          },
+          to: [
+            {
+              channel: "SMS",
+              participantId: customerParticipantId
+            }
+          ],
+          content: { text: message },
+          ...channelId ? { channelSettings: { channelId } } : {}
         }
-      });
+      };
+      await this.conversationClient.createAction(conversationId, actionRequest);
       this.logger.info(
         { conversation_id: conversationId, recipient_address: recipientAddress },
-        "SMS sent successfully via Send API"
+        "SMS sent successfully via Actions API"
       );
     } catch (error) {
       this.logger.error({ err: error, conversation_id: conversationId }, "Send response error");
@@ -2828,26 +2736,254 @@ var SMSChannel = class extends MessagingChannel {
       throw error;
     }
   }
+  // ── Private helpers (webhook handlers) ───────────────────────────────────
+  isOwnMessage(authorAddress) {
+    return authorAddress === this.config.phoneNumber;
+  }
+  handleError(error, context) {
+    this.logger.error({ err: error, ...context }, "Channel error");
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
+      }
+    }
+  }
+  handleConversationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      this.logger.warn(
+        { payload, operation: "handle_conversation_created" },
+        "Missing conversation ID in conversation.created event"
+      );
+      throw new Error("Missing conversation ID in conversation.created event");
+    }
+    this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+  }
+  handleParticipantAdded(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      this.logger.warn(
+        { payload, operation: "handle_participant_added" },
+        "Missing conversation ID in participant.added event"
+      );
+      throw new Error("Missing conversation ID in participant.added event");
+    }
+    if (this.isConversationActive(conversationId)) {
+      const session = this.getConversationSession(conversationId);
+      if (session) {
+        if (profileId) {
+          session.profileId = profileId;
+        }
+        if (payload.data?.serviceId && session.serviceId !== payload.data.serviceId) {
+          session.serviceId = payload.data.serviceId;
+        }
+      }
+    } else {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    }
+  }
+  async handleCommunicationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    const message = payload.data?.content?.text?.trim();
+    const author = payload.data?.author?.address || "unknown";
+    this.logger.info(
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        author,
+        message_length: message?.length,
+        operation: "handle_communication_created"
+      },
+      "Handling communication.created"
+    );
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in communication.created event");
+    }
+    if (!message) {
+      this.logger.info({ conversation_id: conversationId }, "Ignoring empty message");
+      return;
+    }
+    if (this.isOwnMessage(author)) {
+      this.logger.info(
+        { conversation_id: conversationId, author_address: author },
+        "Ignoring message from AI agent"
+      );
+      return;
+    }
+    if (!this.isConversationActive(conversationId)) {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    } else if (payload.data?.serviceId) {
+      const existing = this.getConversationSession(conversationId);
+      if (existing && existing.serviceId !== payload.data.serviceId) {
+        existing.serviceId = payload.data.serviceId;
+      }
+    }
+    const session = this.getConversationSession(conversationId);
+    if (session) {
+      session.authorInfo = {
+        address: author,
+        participantId: payload.data?.author?.participantId
+      };
+      if (payload.data?.channelId) {
+        session.metadata ??= {};
+        session.metadata.channelId = payload.data.channelId;
+      }
+    }
+    let userMemory;
+    if (session) {
+      try {
+        userMemory = await this.memoryRetriever(session, message);
+      } catch (error) {
+        this.logger.warn(
+          { err: error, conversation_id: conversationId },
+          "Failed to retrieve user memory"
+        );
+      }
+    }
+    if (this.callbacks.onMessage) {
+      const channelMessage = {
+        conversationId,
+        messageType: "user",
+        message,
+        channel: this.channelType,
+        metadata: { type: "communication_created" },
+        conversation: session ? {
+          profileId: session.profileId ?? profileId ?? void 0,
+          memory: userMemory,
+          author,
+          serviceId: session.serviceId,
+          authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
+          startedAt: session.startedAt
+        } : void 0
+      };
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.handleError(error, { conversationId, event: "message" });
+      });
+    }
+  }
+  async handleConversationUpdated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in conversation.updated event");
+    }
+    if (payload.data?.status === "CLOSED") {
+      this.logger.info(
+        { conversation_id: conversationId, status: payload.data.status },
+        "Conversation closed, cleaning up"
+      );
+      await this.sessionStore.end(conversationId);
+    }
+  }
 };
 
 // packages/core/src/channels/chat.ts
-var ChatChannel = class extends MessagingChannel {
+var ChatChannel = class {
+  channelType = "chat";
+  logger;
+  conversationClient;
+  memoryRetriever;
   agentAddress;
-  constructor(deps, config) {
-    super(deps, config);
-    this.agentAddress = config?.agentAddress ?? "ai-assistant";
-  }
-  get channelType() {
-    return "chat";
-  }
   /**
-   * Check if a message is from the bot itself (by agent address)
+   * TODO(conv-orch): Drop once Actions API resolves V1 Chat service SID server-side.
    */
-  isOwnMessage(authorAddress) {
-    return authorAddress === this.agentAddress;
+  conversationsV1ServiceSid;
+  callbacks = {};
+  tools = /* @__PURE__ */ new Map();
+  webhookProcessor;
+  sessionStore;
+  constructor(deps, channelConfig) {
+    this.logger = deps.logger.child({ component: "channel", channel: this.channelType });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
+    this.agentAddress = channelConfig?.agentAddress ?? "ai-assistant";
+    this.conversationsV1ServiceSid = channelConfig?.conversationsV1ServiceSid;
+    const processorConfig = channelConfig?.dedupCapacity !== void 0 ? { dedupCapacity: channelConfig.dedupCapacity } : void 0;
+    this.webhookProcessor = new ConversationsWebhookProcessor(
+      { logger: this.logger },
+      processorConfig
+    );
+    this.sessionStore = new ConversationSessionStore({
+      logger: this.logger,
+      channelType: this.channelType,
+      callbacks: {
+        onConversationStarted: (data) => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data) => this.callbacks.onConversationEnded?.(data)
+      }
+    });
+  }
+  // ── Channel interface ────────────────────────────────────────────────────
+  getConversationSession(conversationId) {
+    return this.sessionStore.get(conversationId);
+  }
+  isConversationActive(conversationId) {
+    return this.sessionStore.isActive(conversationId);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
+  on(event, callback) {
+    switch (event) {
+      case "message":
+        this.callbacks.onMessage = callback;
+        break;
+      case "conversationStarted":
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case "conversationEnded":
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case "error":
+        this.callbacks.onError = callback;
+        break;
+    }
+  }
+  shutdown() {
+    this.sessionStore.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
+  }
+  listTools() {
+    return Array.from(this.tools.values());
+  }
+  registerTool(tool) {
+    this.tools.set(tool.name, tool);
+  }
+  executeTool(_conversationId, name, args) {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    return Promise.resolve(tool.implementation(args));
   }
   /**
-   * Send chat response using Conversation Orchestrator Send API
+   * Process a Chat webhook event from Twilio Conversation Orchestrator.
+   * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
+   */
+  async processWebhook(payload, idempotencyToken) {
+    await this.webhookProcessor.process(
+      payload,
+      {
+        channelType: this.channelType,
+        isConversationActive: (id) => this.isConversationActive(id),
+        onConversationCreated: (p) => this.handleConversationCreated(p),
+        onParticipantAdded: (p) => this.handleParticipantAdded(p),
+        onCommunicationCreated: (p) => this.handleCommunicationCreated(p),
+        onConversationUpdated: (p) => this.handleConversationUpdated(p),
+        onError: (err, ctx) => this.handleError(err, ctx)
+      },
+      idempotencyToken
+    );
+  }
+  /**
+   * Send chat response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
    */
   async sendResponse(conversationId, message, metadata) {
     this.logger.debug(
@@ -2871,51 +3007,22 @@ var ChatChannel = class extends MessagingChannel {
       const chatChannelSid = typeof session.metadata?.channelId === "string" ? session.metadata.channelId : void 0;
       if (!chatChannelSid) {
         throw new Error(
-          `No channelId found in session metadata for conversation ${conversationId}`
+          `Missing chat channelId in session.metadata.channelId for conversation ${conversationId}. Inbound COMMUNICATION_CREATED webhooks populate this automatically; sendResponse must not be called before an inbound message has arrived.`
         );
       }
       const recipientAddress = session.authorInfo.address;
       const participants = await this.conversationClient.listParticipants(conversationId);
-      let agentParticipant = participants.find((p) => p.type === "AI_AGENT" || p.type === "AGENT");
+      const agentParticipant = await ensureAgentParticipant(
+        this.conversationClient,
+        this.logger,
+        conversationId,
+        participants,
+        { channel: "CHAT", address: this.agentAddress, channelId: chatChannelSid }
+      );
       if (!agentParticipant) {
-        this.logger.debug(
-          {
-            conversation_id: conversationId,
-            agent_address: this.agentAddress,
-            channel_id: chatChannelSid
-          },
-          "No AI_AGENT participant found, creating one"
+        throw new Error(
+          `Failed to resolve AI_AGENT participant for conversation ${conversationId}`
         );
-        try {
-          agentParticipant = await this.conversationClient.addParticipant(
-            conversationId,
-            [{ channel: "CHAT", address: this.agentAddress, channelId: chatChannelSid }],
-            "AI_AGENT"
-          );
-          this.logger.info(
-            {
-              conversation_id: conversationId,
-              participant_id: agentParticipant.id,
-              agent_address: this.agentAddress,
-              channel_id: chatChannelSid
-            },
-            "Created AI_AGENT participant"
-          );
-        } catch (error) {
-          this.logger.warn(
-            { err: error, conversation_id: conversationId },
-            "Failed to create AI_AGENT participant, attempting to list participants again"
-          );
-          const retriedParticipants = await this.conversationClient.listParticipants(conversationId);
-          agentParticipant = retriedParticipants.find(
-            (p) => p.type === "AI_AGENT" || p.type === "AGENT"
-          );
-          if (!agentParticipant) {
-            throw new Error(
-              `Failed to create or find AI_AGENT participant for conversation ${conversationId}`
-            );
-          }
-        }
       }
       this.logger.debug(
         {
@@ -2925,31 +3032,34 @@ var ChatChannel = class extends MessagingChannel {
           agent_participant_id: agentParticipant.id,
           agent_address: this.agentAddress
         },
-        "Sending chat message via Send API"
+        "Sending chat message via Actions API"
       );
-      const sendRequest = {
-        author: {
-          address: this.agentAddress,
-          channel: "CHAT",
-          participantId: agentParticipant.id
-        },
-        recipients: [
-          {
-            address: recipientAddress,
+      const actionRequest = {
+        type: "SEND_MESSAGE",
+        payload: {
+          from: {
             channel: "CHAT",
-            participantId: session.authorInfo.participantId
+            participantId: agentParticipant.id
+          },
+          to: [
+            {
+              channel: "CHAT",
+              ...session.authorInfo.participantId ? { participantId: session.authorInfo.participantId } : { address: recipientAddress }
+            }
+          ],
+          content: { text: message },
+          // TODO(conv-orch): Drop `chatService` once the Actions API resolves the V1
+          // Chat service SID server-side.
+          channelSettings: {
+            channelId: chatChannelSid,
+            ...this.conversationsV1ServiceSid ? { chatService: this.conversationsV1ServiceSid } : {}
           }
-        ],
-        content: {
-          type: "TEXT",
-          text: message
-        },
-        channelId: chatChannelSid
+        }
       };
-      await this.conversationClient.sendCommunication(conversationId, sendRequest);
+      await this.conversationClient.createAction(conversationId, actionRequest);
       this.logger.info(
         { conversation_id: conversationId, channel_id: chatChannelSid },
-        "Chat message sent successfully via Send API"
+        "Chat message sent successfully via Actions API"
       );
     } catch (error) {
       this.logger.error({ err: error, conversation_id: conversationId }, "Send response error");
@@ -2959,6 +3069,797 @@ var ChatChannel = class extends MessagingChannel {
         metadata
       });
       throw error;
+    }
+  }
+  // ── Private helpers (webhook handlers) ───────────────────────────────────
+  isOwnMessage(authorAddress) {
+    return authorAddress === this.agentAddress;
+  }
+  handleError(error, context) {
+    this.logger.error({ err: error, ...context }, "Channel error");
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
+      }
+    }
+  }
+  handleConversationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      this.logger.warn(
+        { payload, operation: "handle_conversation_created" },
+        "Missing conversation ID in conversation.created event"
+      );
+      throw new Error("Missing conversation ID in conversation.created event");
+    }
+    this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+  }
+  handleParticipantAdded(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      this.logger.warn(
+        { payload, operation: "handle_participant_added" },
+        "Missing conversation ID in participant.added event"
+      );
+      throw new Error("Missing conversation ID in participant.added event");
+    }
+    if (this.isConversationActive(conversationId)) {
+      const session = this.getConversationSession(conversationId);
+      if (session) {
+        if (profileId) {
+          session.profileId = profileId;
+        }
+        if (payload.data?.serviceId && session.serviceId !== payload.data.serviceId) {
+          session.serviceId = payload.data.serviceId;
+        }
+      }
+    } else {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    }
+  }
+  async handleCommunicationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    const message = payload.data?.content?.text?.trim();
+    const author = payload.data?.author?.address || "unknown";
+    this.logger.info(
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        author,
+        message_length: message?.length,
+        operation: "handle_communication_created"
+      },
+      "Handling communication.created"
+    );
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in communication.created event");
+    }
+    if (!message) {
+      this.logger.info({ conversation_id: conversationId }, "Ignoring empty message");
+      return;
+    }
+    if (this.isOwnMessage(author)) {
+      this.logger.info(
+        { conversation_id: conversationId, author_address: author },
+        "Ignoring message from AI agent"
+      );
+      return;
+    }
+    if (!this.isConversationActive(conversationId)) {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    } else if (payload.data?.serviceId) {
+      const existing = this.getConversationSession(conversationId);
+      if (existing && existing.serviceId !== payload.data.serviceId) {
+        existing.serviceId = payload.data.serviceId;
+      }
+    }
+    const session = this.getConversationSession(conversationId);
+    if (session) {
+      session.authorInfo = {
+        address: author,
+        participantId: payload.data?.author?.participantId
+      };
+      if (payload.data?.channelId) {
+        session.metadata ??= {};
+        session.metadata.channelId = payload.data.channelId;
+      }
+    }
+    let userMemory;
+    if (session) {
+      try {
+        userMemory = await this.memoryRetriever(session, message);
+      } catch (error) {
+        this.logger.warn(
+          { err: error, conversation_id: conversationId },
+          "Failed to retrieve user memory"
+        );
+      }
+    }
+    if (this.callbacks.onMessage) {
+      const channelMessage = {
+        conversationId,
+        messageType: "user",
+        message,
+        channel: this.channelType,
+        metadata: { type: "communication_created" },
+        conversation: session ? {
+          profileId: session.profileId ?? profileId ?? void 0,
+          memory: userMemory,
+          author,
+          serviceId: session.serviceId,
+          authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
+          startedAt: session.startedAt
+        } : void 0
+      };
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.handleError(error, { conversationId, event: "message" });
+      });
+    }
+  }
+  async handleConversationUpdated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in conversation.updated event");
+    }
+    if (payload.data?.status === "CLOSED") {
+      this.logger.info(
+        { conversation_id: conversationId, status: payload.data.status },
+        "Conversation closed, cleaning up"
+      );
+      await this.sessionStore.end(conversationId);
+    }
+  }
+};
+
+// packages/core/src/channels/voice.ts
+var VoiceChannel = class {
+  config;
+  logger;
+  conversationClient;
+  callbacks;
+  conversationRelay;
+  callSidToConversationId;
+  memoryRetriever;
+  sessionStore;
+  webhookProcessor;
+  tools = /* @__PURE__ */ new Map();
+  constructor(deps, channelConfig) {
+    this.config = deps.config;
+    this.logger = deps.logger.child({ component: "channel" });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
+    this.callbacks = {};
+    this.callSidToConversationId = /* @__PURE__ */ new Map();
+    this.conversationRelay = channelConfig?.conversationRelay;
+    this.sessionStore = new ConversationSessionStore({
+      logger: this.logger,
+      channelType: "voice",
+      callbacks: {
+        onConversationStarted: (data) => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data) => this.callbacks.onConversationEnded?.(data)
+      }
+    });
+    const processorConfig = channelConfig?.dedupCapacity !== void 0 ? { dedupCapacity: channelConfig.dedupCapacity } : void 0;
+    this.webhookProcessor = new ConversationsWebhookProcessor(
+      { logger: this.logger },
+      processorConfig
+    );
+    if (this.conversationRelay) {
+      this.conversationRelay.onSessionStarted((callSid, _session, data) => {
+        this.handleSetupFromRelay(callSid, data);
+      });
+      this.conversationRelay.onPrompt((callSid, _message, data) => {
+        this.handlePromptFromRelay(callSid, data);
+      });
+      this.conversationRelay.onInterrupt((callSid, data) => {
+        this.handleInterruptFromRelay(callSid, data);
+      });
+      this.conversationRelay.onDtmf((callSid, data) => {
+        const conversationId = this.callSidToConversationId.get(callSid);
+        if (conversationId) {
+          this.emitMessage(conversationId, {
+            messageType: "system",
+            message: `User pressed ${data.digit}`,
+            metadata: { type: "dtmf", digit: data.digit }
+          });
+        }
+      });
+      this.conversationRelay.onInfo((callSid, data) => {
+        const conversationId = this.callSidToConversationId.get(callSid);
+        if (conversationId) {
+          this.emitMessage(conversationId, {
+            messageType: "system",
+            message: JSON.stringify(data.info ?? {}),
+            metadata: { type: "info", info: data.info }
+          });
+        }
+      });
+      this.conversationRelay.onSessionEnded((callSid) => {
+        this.handleCloseFromRelay(callSid);
+      });
+      this.conversationRelay.onError((callSid, error) => {
+        this.handleError(error, { callSid });
+      });
+      this.logger.info("VoiceChannel initialized in active mode (CR + Maestro)");
+    } else {
+      this.logger.info("VoiceChannel initialized in passive mode (Maestro webhooks only)");
+    }
+  }
+  get channelType() {
+    return "voice";
+  }
+  // ===========================================================================
+  // Unified Message Emission
+  // ===========================================================================
+  emitMessage(conversationId, msg) {
+    const session = this.getConversationSession(conversationId);
+    const channelMessage = {
+      conversationId,
+      messageType: msg.messageType,
+      message: msg.message,
+      channel: "voice",
+      metadata: msg.metadata,
+      conversation: session ? {
+        profileId: session.profileId,
+        memory: msg.memory,
+        author: session.authorInfo?.address ?? "unknown",
+        serviceId: session.serviceId,
+        authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
+        startedAt: session.startedAt
+      } : void 0
+    };
+    if (this.callbacks.onMessage) {
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
+        this.logger.error({ err, conversation_id: conversationId }, "Error in message callback");
+      });
+    }
+  }
+  // ===========================================================================
+  // ConversationRelay → VoiceChannel Bridge
+  // ===========================================================================
+  handleSetupFromRelay(_callSid, data) {
+    const conversationId = this.handleSetupMessage(data);
+    this.emitMessage(conversationId, {
+      messageType: "system",
+      message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
+      metadata: {
+        type: "setup",
+        callSid: data.callSid,
+        from: data.from,
+        to: data.to,
+        direction: data.direction
+      }
+    });
+  }
+  handlePromptFromRelay(callSid, data) {
+    const conversationId = this.callSidToConversationId.get(callSid);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in prompt");
+      return;
+    }
+    void this.handlePromptMessage(conversationId, data).catch((err) => {
+      this.logger.error(
+        { err, conversation_id: conversationId },
+        "Failed to handle prompt message"
+      );
+    });
+  }
+  handleInterruptFromRelay(callSid, data) {
+    const conversationId = this.callSidToConversationId.get(callSid);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in interrupt");
+      return;
+    }
+    const parts = ["User interrupted"];
+    if (data.durationUntilInterruptMs !== void 0) {
+      parts.push(`after ${data.durationUntilInterruptMs}ms`);
+    }
+    if (data.utteranceUntilInterrupt) {
+      parts.push(`Last heard: '${data.utteranceUntilInterrupt}'`);
+    }
+    this.emitMessage(conversationId, {
+      messageType: "system",
+      message: parts.join(". "),
+      metadata: {
+        type: "interrupt",
+        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
+        durationUntilInterruptMs: data.durationUntilInterruptMs
+      }
+    });
+  }
+  handleCloseFromRelay(callSid) {
+    const conversationId = this.callSidToConversationId.get(callSid);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in close");
+      return;
+    }
+    void this.handleWebSocketDisconnect(conversationId).catch((err) => {
+      this.logger.error(
+        { err, conversation_id: conversationId },
+        "WebSocket disconnect handler error"
+      );
+    });
+  }
+  // ===========================================================================
+  // Message Handlers
+  // ===========================================================================
+  handleSetupMessage(message) {
+    const { callSid, from, customParameters } = message;
+    let conversationId;
+    let profileId;
+    if (customParameters?.conversation_id && typeof customParameters.conversation_id === "string" && isConversationId(customParameters.conversation_id)) {
+      conversationId = customParameters.conversation_id;
+    } else {
+      conversationId = callSid;
+    }
+    if (customParameters?.profile_id && typeof customParameters.profile_id === "string" && isProfileId(customParameters.profile_id)) {
+      profileId = customParameters.profile_id;
+    }
+    this.callSidToConversationId.set(callSid, conversationId);
+    const session = this.startConversation(conversationId, profileId);
+    session.authorInfo = { address: from };
+    return conversationId;
+  }
+  async handlePromptMessage(conversationId, message) {
+    const transcript = message.voicePrompt;
+    const session = this.getConversationSession(conversationId);
+    let userMemory;
+    if (session) {
+      try {
+        userMemory = await this.memoryRetriever(session, transcript);
+        this.logger.debug({ conversation_id: conversationId }, "Retrieved memory for voice prompt");
+      } catch (error) {
+        this.logger.warn(
+          { err: error, conversation_id: conversationId },
+          "Failed to retrieve memory for voice prompt"
+        );
+      }
+    }
+    this.emitMessage(conversationId, {
+      messageType: "user",
+      message: transcript,
+      metadata: { type: "prompt", lang: message.lang, last: message.last },
+      memory: userMemory
+    });
+  }
+  async handleWebSocketDisconnect(conversationId) {
+    for (const [callSid, cId] of this.callSidToConversationId.entries()) {
+      if (cId === conversationId) {
+        this.callSidToConversationId.delete(callSid);
+        break;
+      }
+    }
+    await this.endConversation(conversationId);
+  }
+  // ===========================================================================
+  // Channel Interface
+  // ===========================================================================
+  /**
+   * Returns the active ConversationRelay, or throws a clear error if the
+   * channel was constructed in passive mode.
+   */
+  assertCR(op) {
+    if (!this.conversationRelay) {
+      throw new Error(
+        `VoiceChannel.${op} requires an active ConversationRelay. Pass { conversationRelay } to the VoiceChannel constructor to enable CR features.`
+      );
+    }
+    return this.conversationRelay;
+  }
+  getWebsocket(conversationId) {
+    if (!this.conversationRelay) {
+      return null;
+    }
+    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
+      if (convId === conversationId) {
+        return this.conversationRelay.getWebSocket(callSid);
+      }
+    }
+    return null;
+  }
+  // Wrapping sync code in async to honor Channel interface's Promise<void> contract
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async sendResponse(conversationId, message, metadata) {
+    try {
+      const cr = this.assertCR("sendResponse");
+      let callSid;
+      for (const [cSid, cId] of this.callSidToConversationId.entries()) {
+        if (cId === conversationId) {
+          callSid = cSid;
+          break;
+        }
+      }
+      if (!callSid) {
+        throw new Error(`No CallSid found for conversation ${conversationId}`);
+      }
+      const last = metadata?.last === void 0 ? true : metadata.last;
+      cr.sendResponse(callSid, message, last);
+    } catch (error) {
+      this.handleError(error instanceof Error ? error : new Error(String(error)), {
+        conversationId,
+        message,
+        metadata
+      });
+      throw error;
+    }
+  }
+  /**
+   * Process a voice-channel Maestro webhook event.
+   *
+   * In **active mode** (CR connected), COMMUNICATION_CREATED events are
+   * intentionally dropped: the CR WebSocket is the source of truth for user
+   * turns, so letting the webhook path also emit would double-deliver.
+   * Lifecycle events (CONVERSATION_CREATED / CONVERSATION_UPDATED) are
+   * handled for session bookkeeping regardless.
+   *
+   * In **passive mode** (no CR), COMMUNICATION_CREATED emits `ChannelMessage`
+   * exactly like SMS/Chat — this is the BYO-CR / webhook-only path.
+   */
+  async processWebhook(payload, idempotencyToken) {
+    await this.webhookProcessor.process(
+      payload,
+      {
+        channelType: "voice",
+        isConversationActive: (id) => this.isConversationActive(id),
+        onConversationCreated: (p) => this.handleVoiceConversationCreated(p),
+        onParticipantAdded: (p) => this.handleVoiceParticipantAdded(p),
+        onCommunicationCreated: (p) => this.handleVoiceCommunicationCreated(p),
+        onConversationUpdated: (p) => this.handleVoiceConversationUpdated(p),
+        onError: (err, ctx) => this.handleError(err, ctx)
+      },
+      idempotencyToken
+    );
+  }
+  // ===========================================================================
+  // Passive-Mode Webhook Handlers
+  // ===========================================================================
+  handleVoiceConversationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in conversation.created event");
+    }
+    this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+  }
+  handleVoiceParticipantAdded(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in participant.added event");
+    }
+    if (this.isConversationActive(conversationId)) {
+      const session = this.getConversationSession(conversationId);
+      if (session) {
+        if (profileId) {
+          session.profileId = profileId;
+        }
+        if (payload.data?.serviceId && session.serviceId !== payload.data.serviceId) {
+          session.serviceId = payload.data.serviceId;
+        }
+      }
+    } else {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    }
+  }
+  async handleVoiceCommunicationCreated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    const profileId = extractProfileId(payload, this.logger);
+    const message = payload.data?.content?.text?.trim();
+    const author = payload.data?.author?.address || "unknown";
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in communication.created event");
+    }
+    if (!message) {
+      this.logger.info({ conversation_id: conversationId }, "Ignoring empty voice webhook message");
+      return;
+    }
+    if (this.conversationRelay) {
+      this.logger.debug(
+        { conversation_id: conversationId, author },
+        "Active mode: dropping passive voice webhook communication (CR owns user turns)"
+      );
+      return;
+    }
+    if (author === this.config.phoneNumber) {
+      this.logger.info(
+        { conversation_id: conversationId, author_address: author },
+        "Ignoring voice webhook message from AI agent"
+      );
+      return;
+    }
+    if (!this.isConversationActive(conversationId)) {
+      this.sessionStore.start(conversationId, profileId ?? void 0, payload.data?.serviceId);
+    } else if (payload.data?.serviceId) {
+      const existing = this.getConversationSession(conversationId);
+      if (existing && existing.serviceId !== payload.data.serviceId) {
+        existing.serviceId = payload.data.serviceId;
+      }
+    }
+    const session = this.getConversationSession(conversationId);
+    if (session) {
+      session.authorInfo = {
+        address: author,
+        participantId: payload.data?.author?.participantId
+      };
+      if (payload.data?.channelId) {
+        session.metadata ??= {};
+        session.metadata.channelId = payload.data.channelId;
+      }
+    }
+    let userMemory;
+    if (session) {
+      try {
+        userMemory = await this.memoryRetriever(session, message);
+      } catch (error) {
+        this.logger.warn(
+          { err: error, conversation_id: conversationId },
+          "Failed to retrieve memory for passive voice webhook"
+        );
+      }
+    }
+    this.emitMessage(conversationId, {
+      messageType: "user",
+      message,
+      metadata: { type: "communication_created" },
+      memory: userMemory
+    });
+  }
+  async handleVoiceConversationUpdated(payload) {
+    const conversationId = extractConversationId(payload, this.logger);
+    if (!conversationId) {
+      throw new Error("Missing conversation ID in conversation.updated event");
+    }
+    if (payload.data?.status === "CLOSED") {
+      this.logger.info(
+        { conversation_id: conversationId, status: payload.data.status },
+        "Conversation closed, cleaning up"
+      );
+      await this.sessionStore.end(conversationId);
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
+  on(event, callback) {
+    switch (event) {
+      case "message":
+        this.callbacks.onMessage = callback;
+        break;
+      case "conversationStarted":
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case "conversationEnded":
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case "error":
+        this.callbacks.onError = callback;
+        break;
+    }
+  }
+  getConversationSession(conversationId) {
+    return this.sessionStore.get(conversationId);
+  }
+  isConversationActive(conversationId) {
+    return this.sessionStore.isActive(conversationId);
+  }
+  shutdown() {
+    this.conversationRelay?.shutdown();
+    this.callSidToConversationId.clear();
+    this.sessionStore.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
+  }
+  handleWebSocketConnection(ws) {
+    this.assertCR("handleWebSocketConnection").handleConnection(ws);
+  }
+  // ===========================================================================
+  // Tool Registry
+  // ===========================================================================
+  /**
+   * List tools registered on this channel (for LLM discovery).
+   *
+   * In active mode, returns CR built-in protocol tools (playMedia, sendDigits,
+   * switchLanguage, endCall) plus any user-registered tools.
+   * In passive mode, returns only user-registered tools on the local registry —
+   * CR protocol tools are unavailable because there is no WebSocket to ship
+   * outgoingMessage frames over.
+   */
+  listTools() {
+    return this.conversationRelay ? this.conversationRelay.listTools() : Array.from(this.tools.values());
+  }
+  /**
+   * Register a tool on this channel. Overwrites any tool with the same name.
+   * In active mode, the tool is delegated to the embedded ConversationRelay so
+   * that protocol-tool outgoingMessage frames can be auto-shipped.
+   */
+  registerTool(tool) {
+    if (this.conversationRelay) {
+      this.conversationRelay.registerTool(tool);
+    } else {
+      this.tools.set(tool.name, tool);
+    }
+  }
+  /**
+   * Execute a registered tool by name.
+   *
+   * Active mode: if the tool returns an `outgoingMessage` (CR protocol tool),
+   * it is validated and auto-shipped via the ConversationRelay WebSocket.
+   * Passive mode: throws — CR protocol tools cannot dispatch without a WS.
+   */
+  async executeTool(conversationId, name, args) {
+    const cr = this.assertCR("executeTool");
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    return cr.executeTool(callSid, name, args);
+  }
+  /**
+   * Send DTMF digits to the caller.
+   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
+   */
+  sendDigits(conversationId, digits) {
+    const cr = this.assertCR("sendDigits");
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    cr.sendDigits(callSid, digits);
+  }
+  /**
+   * Play media from a URL to the caller.
+   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
+   */
+  sendPlay(conversationId, source, options) {
+    const cr = this.assertCR("sendPlay");
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    cr.sendPlay(callSid, source, options);
+  }
+  /**
+   * End the call with optional handoff data.
+   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
+   */
+  endCall(conversationId, handoffData) {
+    const cr = this.assertCR("endCall");
+    const callSid = this.findCallSid(conversationId);
+    if (!callSid) {
+      throw new Error(`No CallSid found for conversation ${conversationId}`);
+    }
+    cr.endCall(callSid, handoffData);
+  }
+  findCallSid(conversationId) {
+    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
+      if (convId === conversationId) {
+        return callSid;
+      }
+    }
+    return void 0;
+  }
+  // ===========================================================================
+  // Session Management
+  // ===========================================================================
+  startConversation(conversationId, profileId, serviceId) {
+    return this.sessionStore.start(conversationId, profileId, serviceId);
+  }
+  async endConversation(conversationId) {
+    await this.sessionStore.end(conversationId);
+  }
+  handleError(error, context) {
+    this.logger.error({ err: error, ...context }, "Channel error");
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
+      }
+    }
+  }
+  // ===========================================================================
+  // Incoming Call Handling — Maestro Only
+  // ===========================================================================
+  async handleIncomingCall(options) {
+    const cr = this.assertCR("handleIncomingCall");
+    const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
+    const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
+    const conversation = await this.conversationClient.createConversation(conversationName);
+    if (!isConversationId(conversation.id)) {
+      throw new Error(
+        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-9a-z]{26}. This indicates an issue with the Conversations API.`
+      );
+    }
+    const conversationId = conversation.id;
+    this.logger.debug(
+      { conversation_id: conversationId, call_sid: callSid },
+      "Created Maestro conversation for voice call"
+    );
+    const customerParticipant = await this.conversationClient.addOrFetchParticipant(
+      conversationId,
+      [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
+      "CUSTOMER"
+    );
+    const profileId = customerParticipant.profileId || "";
+    const customerParticipantId = customerParticipant.id;
+    const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
+      conversationId,
+      [{ channel: "VOICE", address: toNumber, channelId: callSid }],
+      "AI_AGENT"
+    );
+    const aiAgentParticipantId = aiAgentParticipant.id;
+    return cr.generateTwiML(
+      conversationRelayConfig,
+      {
+        conversation_id: conversationId,
+        profile_id: profileId,
+        customer_participant_id: customerParticipantId,
+        ai_agent_participant_id: aiAgentParticipantId
+      },
+      actionUrl ? { actionUrl } : void 0
+    );
+  }
+  // ===========================================================================
+  // ConversationRelay Callback Handling
+  // ===========================================================================
+  async handleConversationRelayCallback(payload, handoffHandler) {
+    this.logger.debug(
+      { call_sid: payload.CallSid, call_status: payload.CallStatus },
+      "ConversationRelay callback received"
+    );
+    if (payload.CallStatus === "in-progress" && payload.HandoffData) {
+      if (handoffHandler) {
+        try {
+          const response = await handoffHandler(payload);
+          return { status: 200, content: response, contentType: "application/xml" };
+        } catch (error) {
+          this.logger.error({ err: error }, "Handoff handler failed");
+          return { status: 500, content: "Handoff handler error", contentType: "text/plain" };
+        }
+      }
+      return { status: 501, content: "No handoff handler registered", contentType: "text/plain" };
+    }
+    if (payload.CallStatus === "completed") {
+      await this.closeConversationsForCall(payload.CallSid);
+    }
+    return { status: 200, content: "OK", contentType: "text/plain" };
+  }
+  async closeConversationsForCall(callSid) {
+    try {
+      const conversations = await this.conversationClient.listConversations({ channelId: callSid });
+      this.logger.info(
+        { call_sid: callSid, count: conversations.length },
+        "Closing conversations for completed call"
+      );
+      for (const conversation of conversations) {
+        if (!isConversationId(conversation.id)) {
+          this.logger.warn(
+            { conversation_id: conversation.id, call_sid: callSid },
+            "Invalid conversation ID format from Conversation Service. Skipping conversation close."
+          );
+          continue;
+        }
+        try {
+          await this.conversationClient.updateConversation(conversation.id, "CLOSED");
+          this.logger.debug({ conversation_id: conversation.id }, "Closed conversation");
+        } catch (error) {
+          this.logger.error(
+            { err: error, conversation_id: conversation.id },
+            "Failed to close conversation"
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error({ err: error, call_sid: callSid }, "Failed to list conversations for call");
     }
   }
 };
@@ -3756,602 +4657,7 @@ var ConversationRelay = class _ConversationRelay {
   }
 };
 
-// packages/core/src/channels/voice.ts
-var VoiceChannel = class {
-  config;
-  logger;
-  conversationClient;
-  activeConversations;
-  callbacks;
-  conversationRelay;
-  callSidToConversationId;
-  memoryRetriever;
-  constructor(deps) {
-    this.config = deps.config;
-    this.logger = deps.logger.child({ component: "channel" });
-    this.conversationClient = deps.conversationClient;
-    this.memoryRetriever = deps.memoryRetriever;
-    this.activeConversations = /* @__PURE__ */ new Map();
-    this.callbacks = {};
-    this.callSidToConversationId = /* @__PURE__ */ new Map();
-    this.conversationRelay = new ConversationRelay(deps.logger.child({ component: "crelay" }));
-    this.conversationRelay.onSessionStarted((callSid, _session, data) => {
-      this.handleSetupFromRelay(callSid, data);
-    });
-    this.conversationRelay.onPrompt((callSid, _message, data) => {
-      this.handlePromptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onInterrupt((callSid, data) => {
-      this.handleInterruptFromRelay(callSid, data);
-    });
-    this.conversationRelay.onDtmf((callSid, data) => {
-      const conversationId = this.callSidToConversationId.get(callSid);
-      if (conversationId) {
-        this.emitMessage(conversationId, {
-          messageType: "system",
-          message: `User pressed ${data.digit}`,
-          metadata: { type: "dtmf", digit: data.digit }
-        });
-      }
-    });
-    this.conversationRelay.onInfo((callSid, data) => {
-      const conversationId = this.callSidToConversationId.get(callSid);
-      if (conversationId) {
-        this.emitMessage(conversationId, {
-          messageType: "system",
-          message: JSON.stringify(data.info ?? {}),
-          metadata: { type: "info", info: data.info }
-        });
-      }
-    });
-    this.conversationRelay.onSessionEnded((callSid) => {
-      this.handleCloseFromRelay(callSid);
-    });
-    this.conversationRelay.onError((callSid, error) => {
-      this.handleError(error, { callSid });
-    });
-    this.logger.info("VoiceChannel initialized with Maestro support");
-  }
-  get channelType() {
-    return "voice";
-  }
-  // ===========================================================================
-  // Unified Message Emission
-  // ===========================================================================
-  emitMessage(conversationId, msg) {
-    const session = this.getConversationSession(conversationId);
-    const channelMessage = {
-      conversationId,
-      messageType: msg.messageType,
-      message: msg.message,
-      channel: "voice",
-      metadata: msg.metadata,
-      conversation: session ? {
-        profileId: session.profileId,
-        memory: msg.memory,
-        author: session.authorInfo?.address ?? "unknown",
-        serviceId: session.serviceId,
-        authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
-        startedAt: session.startedAt
-      } : void 0
-    };
-    if (this.callbacks.onMessage) {
-      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
-        this.logger.error({ err, conversation_id: conversationId }, "Error in message callback");
-      });
-    }
-  }
-  // ===========================================================================
-  // ConversationRelay → VoiceChannel Bridge
-  // ===========================================================================
-  handleSetupFromRelay(_callSid, data) {
-    const conversationId = this.handleSetupMessage(data);
-    this.emitMessage(conversationId, {
-      messageType: "system",
-      message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
-      metadata: {
-        type: "setup",
-        callSid: data.callSid,
-        from: data.from,
-        to: data.to,
-        direction: data.direction
-      }
-    });
-  }
-  handlePromptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in prompt");
-      return;
-    }
-    void this.handlePromptMessage(conversationId, data).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "Failed to handle prompt message"
-      );
-    });
-  }
-  handleInterruptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in interrupt");
-      return;
-    }
-    const parts = ["User interrupted"];
-    if (data.durationUntilInterruptMs !== void 0) {
-      parts.push(`after ${data.durationUntilInterruptMs}ms`);
-    }
-    if (data.utteranceUntilInterrupt) {
-      parts.push(`Last heard: '${data.utteranceUntilInterrupt}'`);
-    }
-    this.emitMessage(conversationId, {
-      messageType: "system",
-      message: parts.join(". "),
-      metadata: {
-        type: "interrupt",
-        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
-        durationUntilInterruptMs: data.durationUntilInterruptMs
-      }
-    });
-  }
-  handleCloseFromRelay(callSid) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in close");
-      return;
-    }
-    void this.handleWebSocketDisconnect(conversationId).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "WebSocket disconnect handler error"
-      );
-    });
-  }
-  // ===========================================================================
-  // Message Handlers
-  // ===========================================================================
-  handleSetupMessage(message) {
-    const { callSid, from, customParameters } = message;
-    let conversationId;
-    let profileId;
-    if (customParameters?.conversation_id && typeof customParameters.conversation_id === "string" && isConversationId(customParameters.conversation_id)) {
-      conversationId = customParameters.conversation_id;
-    } else {
-      conversationId = callSid;
-    }
-    if (customParameters?.profile_id && typeof customParameters.profile_id === "string" && isProfileId(customParameters.profile_id)) {
-      profileId = customParameters.profile_id;
-    }
-    this.callSidToConversationId.set(callSid, conversationId);
-    const session = this.startConversation(conversationId, profileId);
-    session.authorInfo = { address: from };
-    return conversationId;
-  }
-  async handlePromptMessage(conversationId, message) {
-    const transcript = message.voicePrompt;
-    const session = this.getConversationSession(conversationId);
-    let userMemory;
-    if (session) {
-      try {
-        userMemory = await this.memoryRetriever(session, transcript);
-        this.logger.debug({ conversation_id: conversationId }, "Retrieved memory for voice prompt");
-      } catch (error) {
-        this.logger.warn(
-          { err: error, conversation_id: conversationId },
-          "Failed to retrieve memory for voice prompt"
-        );
-      }
-    }
-    this.emitMessage(conversationId, {
-      messageType: "user",
-      message: transcript,
-      metadata: { type: "prompt", lang: message.lang, last: message.last },
-      memory: userMemory
-    });
-  }
-  async handleWebSocketDisconnect(conversationId) {
-    for (const [callSid, cId] of this.callSidToConversationId.entries()) {
-      if (cId === conversationId) {
-        this.callSidToConversationId.delete(callSid);
-        break;
-      }
-    }
-    await this.endConversation(conversationId);
-  }
-  // ===========================================================================
-  // Channel Interface
-  // ===========================================================================
-  getWebsocket(conversationId) {
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return this.conversationRelay.getWebSocket(callSid);
-      }
-    }
-    return null;
-  }
-  // Wrapping sync code in async to honor Channel interface's Promise<void> contract
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async sendResponse(conversationId, message, metadata) {
-    try {
-      let callSid;
-      for (const [cSid, cId] of this.callSidToConversationId.entries()) {
-        if (cId === conversationId) {
-          callSid = cSid;
-          break;
-        }
-      }
-      if (!callSid) {
-        throw new Error(`No CallSid found for conversation ${conversationId}`);
-      }
-      const last = metadata?.last === void 0 ? true : metadata.last;
-      this.conversationRelay.sendResponse(callSid, message, last);
-    } catch (error) {
-      this.handleError(error instanceof Error ? error : new Error(String(error)), {
-        conversationId,
-        message,
-        metadata
-      });
-      throw error;
-    }
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
-  on(event, callback) {
-    switch (event) {
-      case "message":
-        this.callbacks.onMessage = callback;
-        break;
-      case "conversationStarted":
-        this.callbacks.onConversationStarted = callback;
-        break;
-      case "conversationEnded":
-        this.callbacks.onConversationEnded = callback;
-        break;
-      case "error":
-        this.callbacks.onError = callback;
-        break;
-    }
-  }
-  getConversationSession(conversationId) {
-    return this.activeConversations.get(conversationId);
-  }
-  isConversationActive(conversationId) {
-    return this.activeConversations.has(conversationId);
-  }
-  shutdown() {
-    this.conversationRelay.shutdown();
-    this.callSidToConversationId.clear();
-    this.activeConversations.clear();
-    delete this.callbacks.onConversationStarted;
-    delete this.callbacks.onConversationEnded;
-    delete this.callbacks.onError;
-    delete this.callbacks.onMessage;
-  }
-  handleWebSocketConnection(ws) {
-    this.conversationRelay.handleConnection(ws);
-  }
-  // ===========================================================================
-  // Tool Registry (delegated to embedded ConversationRelay)
-  // ===========================================================================
-  /**
-   * List tools registered on this channel (for LLM discovery).
-   * Includes CR built-in protocol tools (playMedia, sendDigits, switchLanguage, endCall)
-   * plus any user-registered tools.
-   */
-  listTools() {
-    return this.conversationRelay.listTools();
-  }
-  /**
-   * Register a tool on this channel. Overwrites any tool with the same name.
-   */
-  registerTool(tool) {
-    this.conversationRelay.registerTool(tool);
-  }
-  /**
-   * Execute a registered tool by name.
-   *
-   * If the tool returns an `outgoingMessage` (CR protocol tool), it is validated
-   * and auto-shipped via the ConversationRelay WebSocket. The tool's result is
-   * returned unchanged for the caller to feed back to the LLM loop.
-   */
-  async executeTool(conversationId, name, args) {
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    return this.conversationRelay.executeTool(callSid, name, args);
-  }
-  /**
-   * Send DTMF digits to the caller.
-   * @throws if no active CallSid is mapped to the conversationId
-   */
-  sendDigits(conversationId, digits) {
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    this.conversationRelay.sendDigits(callSid, digits);
-  }
-  /**
-   * Play media from a URL to the caller.
-   * @throws if no active CallSid is mapped to the conversationId
-   */
-  sendPlay(conversationId, source, options) {
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    this.conversationRelay.sendPlay(callSid, source, options);
-  }
-  /**
-   * End the call with optional handoff data.
-   * @throws if no active CallSid is mapped to the conversationId
-   */
-  endCall(conversationId, handoffData) {
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    this.conversationRelay.endCall(callSid, handoffData);
-  }
-  findCallSid(conversationId) {
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return callSid;
-      }
-    }
-    return void 0;
-  }
-  // ===========================================================================
-  // Session Management
-  // ===========================================================================
-  startConversation(conversationId, profileId, serviceId) {
-    if (this.activeConversations.has(conversationId)) {
-      this.logger.debug({ conversation_id: conversationId }, "Conversation already active");
-      return this.activeConversations.get(conversationId);
-    }
-    const session = {
-      conversationId,
-      channel: this.channelType,
-      startedAt: /* @__PURE__ */ new Date(),
-      metadata: {},
-      profileId,
-      serviceId
-    };
-    this.activeConversations.set(conversationId, session);
-    this.logger.debug(
-      { conversation_id: conversationId, profile_id: profileId },
-      "Conversation started"
-    );
-    this.callbacks.onConversationStarted?.({ session });
-    return session;
-  }
-  async endConversation(conversationId) {
-    const session = this.activeConversations.get(conversationId);
-    if (session) {
-      if (this.callbacks.onConversationEnded) {
-        try {
-          await this.callbacks.onConversationEnded({ session });
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversationId },
-            "Error in conversation ended callback"
-          );
-        }
-      }
-      this.activeConversations.delete(conversationId);
-      this.logger.debug({ conversation_id: conversationId }, "Conversation ended");
-    }
-  }
-  handleError(error, context) {
-    this.logger.error({ err: error, ...context }, "Channel error");
-    if (this.callbacks.onError) {
-      if (context) {
-        this.callbacks.onError({ error, context });
-      } else {
-        this.callbacks.onError({ error });
-      }
-    }
-  }
-  // ===========================================================================
-  // Incoming Call Handling — Maestro Only
-  // ===========================================================================
-  async handleIncomingCall(options) {
-    const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
-    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
-    const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
-    const conversation = await this.conversationClient.createConversation(conversationName);
-    if (!isConversationId(conversation.id)) {
-      throw new Error(
-        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-9a-z]{26}. This indicates an issue with the Conversations API.`
-      );
-    }
-    const conversationId = conversation.id;
-    this.logger.debug(
-      { conversation_id: conversationId, call_sid: callSid },
-      "Created Maestro conversation for voice call"
-    );
-    const customerParticipant = await this.conversationClient.addOrFetchParticipant(
-      conversationId,
-      [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
-      "CUSTOMER"
-    );
-    const profileId = customerParticipant.profileId || "";
-    const customerParticipantId = customerParticipant.id;
-    const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
-      conversationId,
-      [{ channel: "VOICE", address: toNumber, channelId: callSid }],
-      "AI_AGENT"
-    );
-    const aiAgentParticipantId = aiAgentParticipant.id;
-    return this.conversationRelay.generateTwiML(
-      conversationRelayConfig,
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        customer_participant_id: customerParticipantId,
-        ai_agent_participant_id: aiAgentParticipantId
-      },
-      actionUrl ? { actionUrl } : void 0
-    );
-  }
-  // ===========================================================================
-  // ConversationRelay Callback Handling
-  // ===========================================================================
-  async handleConversationRelayCallback(payload, handoffHandler) {
-    this.logger.debug(
-      { call_sid: payload.CallSid, call_status: payload.CallStatus },
-      "ConversationRelay callback received"
-    );
-    if (payload.CallStatus === "in-progress" && payload.HandoffData) {
-      if (handoffHandler) {
-        try {
-          const response = await handoffHandler(payload);
-          return { status: 200, content: response, contentType: "application/xml" };
-        } catch (error) {
-          this.logger.error({ err: error }, "Handoff handler failed");
-          return { status: 500, content: "Handoff handler error", contentType: "text/plain" };
-        }
-      }
-      return { status: 501, content: "No handoff handler registered", contentType: "text/plain" };
-    }
-    if (payload.CallStatus === "completed") {
-      await this.closeConversationsForCall(payload.CallSid);
-    }
-    return { status: 200, content: "OK", contentType: "text/plain" };
-  }
-  async closeConversationsForCall(callSid) {
-    try {
-      const conversations = await this.conversationClient.listConversations({ channelId: callSid });
-      this.logger.info(
-        { call_sid: callSid, count: conversations.length },
-        "Closing conversations for completed call"
-      );
-      for (const conversation of conversations) {
-        if (!isConversationId(conversation.id)) {
-          this.logger.warn(
-            { conversation_id: conversation.id, call_sid: callSid },
-            "Invalid conversation ID format from Conversation Service. Skipping conversation close."
-          );
-          continue;
-        }
-        try {
-          await this.conversationClient.updateConversation(conversation.id, "CLOSED");
-          this.logger.debug({ conversation_id: conversation.id }, "Closed conversation");
-        } catch (error) {
-          this.logger.error(
-            { err: error, conversation_id: conversation.id },
-            "Failed to close conversation"
-          );
-        }
-      }
-    } catch (error) {
-      this.logger.error({ err: error, call_sid: callSid }, "Failed to list conversations for call");
-    }
-  }
-};
-
-// packages/core/src/channels/voice-webhook.ts
-var VoiceWebhookChannel = class extends MessagingChannel {
-  agentAddress;
-  constructor(deps, config) {
-    super(deps, config);
-    this.agentAddress = config?.agentAddress ?? this.config.phoneNumber;
-  }
-  get channelType() {
-    return "voice";
-  }
-  /**
-   * Check if a message is from the bot itself (by agent address/phone number)
-   */
-  isOwnMessage(authorAddress) {
-    return authorAddress === this.agentAddress;
-  }
-  /**
-   * Send voice response using Maestro Send API.
-   *
-   * The Send API records the communication in Maestro.
-   * The customer's own CR server is responsible for actual TTS playback.
-   * channelId (CallSid) is required for VOICE participants.
-   */
-  async sendResponse(conversationId, message, metadata) {
-    this.logger.debug(
-      {
-        conversation_id: conversationId,
-        message_length: message.length,
-        operation: "send_response"
-      },
-      "Sending voice response via Maestro Send API"
-    );
-    try {
-      const session = this.getConversationSession(conversationId);
-      if (!session) {
-        throw new Error(`No active session found for conversation ${conversationId}`);
-      }
-      if (!session.authorInfo) {
-        throw new Error(
-          `No author info found for conversation ${conversationId} - no inbound message received yet`
-        );
-      }
-      const channelId = typeof session.metadata?.channelId === "string" ? session.metadata.channelId : void 0;
-      if (!channelId) {
-        throw new Error(
-          `No channelId (CallSid) found in session metadata for conversation ${conversationId}`
-        );
-      }
-      const recipientAddress = session.authorInfo.address;
-      const participants = await this.conversationClient.listParticipants(conversationId);
-      const voiceParticipants = participants.filter(
-        (p) => Array.isArray(p.addresses) && p.addresses.some((addr) => addr.channel === "VOICE" && addr.address === this.agentAddress)
-      );
-      const agentParticipant = voiceParticipants.find((p) => p.type === "AI_AGENT" || p.type === "HUMAN_AGENT") ?? voiceParticipants[0];
-      if (!agentParticipant) {
-        throw new Error(
-          `Agent participant not found for conversation ${conversationId} with address ${this.agentAddress}`
-        );
-      }
-      this.logger.debug(
-        {
-          conversation_id: conversationId,
-          recipient_address: recipientAddress,
-          agent_participant_id: agentParticipant.id,
-          channel_id: channelId
-        },
-        "Sending voice message via Send API"
-      );
-      await this.conversationClient.sendCommunication(conversationId, {
-        author: {
-          address: this.agentAddress,
-          channel: "VOICE",
-          participantId: agentParticipant.id
-        },
-        recipients: [
-          {
-            address: recipientAddress,
-            channel: "VOICE",
-            participantId: session.authorInfo.participantId
-          }
-        ],
-        content: {
-          type: "TEXT",
-          text: message
-        },
-        channelId
-      });
-      this.logger.info(
-        { conversation_id: conversationId, channel_id: channelId },
-        "Voice response sent successfully via Send API"
-      );
-    } catch (error) {
-      this.logger.error({ err: error, conversation_id: conversationId }, "Send response error");
-      this.handleError(error instanceof Error ? error : new Error(String(error)), {
-        conversationId,
-        message,
-        metadata
-      });
-      throw error;
-    }
-  }
-};
+// packages/core/src/util/flex.ts
 var logger = createLogger({ name: "tac-flex" });
 function handleFlexHandoffLogic(formData, flexWorkflowSid) {
   if (!flexWorkflowSid) {
@@ -4743,8 +5049,8 @@ var TACServer = class {
   fastify;
   tac;
   config;
-  /** All enabled messaging channels — webhooks are fanned out to each one */
-  messagingChannels;
+  /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
+  conversationChannels;
   /** Voice channel instance */
   voiceChannel;
   constructor(tac, config = {}) {
@@ -4764,10 +5070,10 @@ var TACServer = class {
       }
     };
     this.voiceChannel = config.voiceChannel ?? tac.getChannel("voice");
-    this.messagingChannels = config.messagingChannels ?? [tac.getChannel("sms"), tac.getChannel("chat")].filter((ch) => ch != null);
-    if (this.messagingChannels.length === 0) {
+    this.conversationChannels = config.conversationChannels ?? [tac.getChannel("sms"), tac.getChannel("chat")].filter((ch) => ch != null);
+    if (this.conversationChannels.length === 0) {
       this.tac.logger.warn(
-        "TACServer: No messaging channels (SMS/Chat) configured. Messaging webhooks will not be registered. Register a MessagingChannel with tac.registerChannel() before creating TACServer to enable SMS/Chat."
+        "TACServer: No conversation channels (SMS/Chat) configured. Messaging webhooks will not be registered. Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat."
       );
     }
     if (config.fastifyInstance) {
@@ -4832,8 +5138,24 @@ var TACServer = class {
   }
   /**
    * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
+   *
+   * Voice routes (/twiml, /ws, /conversation-relay-callback) are only registered
+   * when a VoiceChannel is available, so SMS/Chat-only deployments don't expose
+   * dead 500-returning endpoints.
    */
   async setupRoutes() {
+    await this.setupVoiceRoutes();
+    this.setupMessagingRoutes();
+    this.setupCintelRoute();
+  }
+  async setupVoiceRoutes() {
+    const voiceChannel = this.voiceChannel;
+    if (!voiceChannel) {
+      this.tac.logger.debug(
+        "TACServer: No VoiceChannel registered. Voice routes (/twiml, /ws, /conversation-relay-callback) will not be registered."
+      );
+      return;
+    }
     this.fastify.post(
       this.config.webhookPaths.twiml || "/twiml",
       async (request, reply) => {
@@ -4846,11 +5168,7 @@ var TACServer = class {
           const host = request.headers.host;
           const websocketUrl = `${protocol === "https" ? "wss" : "ws"}://${host}${this.config.webhookPaths.ws || "/ws"}`;
           const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || "/conversation-relay-callback"}`;
-          if (!this.voiceChannel) {
-            await reply.code(500).send({ error: "Voice channel not available" });
-            return;
-          }
-          const twiml = await this.voiceChannel.handleIncomingCall({
+          const twiml = await voiceChannel.handleIncomingCall({
             toNumber,
             fromNumber,
             callSid,
@@ -4876,10 +5194,6 @@ var TACServer = class {
       this.config.webhookPaths.conversationRelayCallback || "/conversation-relay-callback",
       async (request, reply) => {
         try {
-          if (!this.voiceChannel) {
-            await reply.code(500).send({ error: "Voice channel not available" });
-            return;
-          }
           const formData = request.body;
           const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
           if (!parseResult.success) {
@@ -4890,7 +5204,7 @@ var TACServer = class {
             await reply.code(400).send({ error: "Invalid payload" });
             return;
           }
-          const result = await this.voiceChannel.handleConversationRelayCallback(
+          const result = await voiceChannel.handleConversationRelayCallback(
             parseResult.data,
             this.config.handoffHandler
           );
@@ -4920,71 +5234,73 @@ var TACServer = class {
             socket.close(1008, "Invalid signature");
             return;
           }
-          if (!this.voiceChannel) {
-            socket.terminate();
-            return;
-          }
-          this.voiceChannel.handleWebSocketConnection(socket);
+          voiceChannel.handleWebSocketConnection(socket);
         }
       );
     });
-    if (this.messagingChannels.length > 0) {
-      this.fastify.post(
-        this.config.webhookPaths.messaging || "/webhook",
-        async (request, reply) => {
-          const rawHeader = request.headers["i-twilio-idempotency-token"];
-          const idempotencyToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
-          for (const channel of this.messagingChannels) {
-            channel.processWebhook(request.body, idempotencyToken).catch((err) => {
-              this.fastify.log.error(
-                { err, channel: channel.channelType },
-                "Messaging webhook processing error"
-              );
-            });
-          }
-          await reply.code(200).send({ status: "ok" });
-        }
-      );
+  }
+  setupMessagingRoutes() {
+    if (this.conversationChannels.length === 0) {
+      return;
     }
-    if (this.config.webhookPaths.cintel) {
-      this.fastify.post(
-        this.config.webhookPaths.cintel,
-        async (request, reply) => {
-          if (!this.tac.isCintelEnabled()) {
-            await reply.code(400).send({
-              error: "Conversation Intelligence is not enabled",
-              message: "Set TWILIO_TAC_CI_CONFIGURATION_ID and memory credentials to enable CI processing"
-            });
-            return;
-          }
-          try {
-            this.fastify.log.info("Processing Conversation Intelligence webhook");
-            const result = await this.tac.processCintelEvent(request.body);
-            if (result.success) {
-              if (result.skipped) {
-                this.fastify.log.debug({ reason: result.skipReason }, "CI event skipped");
-              } else {
-                this.fastify.log.info(
-                  { eventType: result.eventType, createdCount: result.createdCount },
-                  "CI event processed"
-                );
-              }
-            } else {
-              this.fastify.log.error({ error: result.error }, "CI event processing failed");
-            }
-            await reply.send(result);
-          } catch (error) {
+    this.fastify.post(
+      this.config.webhookPaths.messaging || "/webhook",
+      async (request, reply) => {
+        const rawHeader = request.headers["i-twilio-idempotency-token"];
+        const idempotencyToken = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+        for (const channel of this.conversationChannels) {
+          channel.processWebhook?.(request.body, idempotencyToken).catch((err) => {
             this.fastify.log.error(
-              "CI webhook error: " + (error instanceof Error ? error.message : String(error))
+              { err, channel: channel.channelType },
+              "Conversation webhook processing error"
             );
-            await reply.code(500).send({
-              success: false,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
+          });
         }
-      );
+        await reply.code(200).send({ status: "ok" });
+      }
+    );
+  }
+  setupCintelRoute() {
+    if (!this.config.webhookPaths.cintel) {
+      return;
     }
+    this.fastify.post(
+      this.config.webhookPaths.cintel,
+      async (request, reply) => {
+        if (!this.tac.isCintelEnabled()) {
+          await reply.code(400).send({
+            error: "Conversation Intelligence is not enabled",
+            message: "Set TWILIO_TAC_CI_CONFIGURATION_ID and memory credentials to enable CI processing"
+          });
+          return;
+        }
+        try {
+          this.fastify.log.info("Processing Conversation Intelligence webhook");
+          const result = await this.tac.processCintelEvent(request.body);
+          if (result.success) {
+            if (result.skipped) {
+              this.fastify.log.debug({ reason: result.skipReason }, "CI event skipped");
+            } else {
+              this.fastify.log.info(
+                { eventType: result.eventType, createdCount: result.createdCount },
+                "CI event processed"
+              );
+            }
+          } else {
+            this.fastify.log.error({ error: result.error }, "CI event processing failed");
+          }
+          await reply.send(result);
+        } catch (error) {
+          this.fastify.log.error(
+            "CI webhook error: " + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({
+            success: false,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    );
   }
   /**
    * Start the server
@@ -5085,6 +5401,6 @@ var TACServer = class {
   }
 };
 
-export { AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationResponseSchema, ConversationSessionSchema, ConversationSummaryItemSchema, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, MessagingChannel, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendCommunicationParticipantAddressSchema, SendCommunicationRequestSchema, SendCommunicationResponseSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, VoiceWebhookChannel, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map
