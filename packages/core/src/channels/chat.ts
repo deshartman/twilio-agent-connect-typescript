@@ -8,6 +8,7 @@ import {
   ConversationId,
   ConversationSession,
   MemoryRetriever,
+  type SendMessageActionRequest,
 } from '../types/index';
 import type { ConversationClient } from '../clients/conversation';
 import type { TACConfig } from '../lib/config';
@@ -16,6 +17,7 @@ import { TACMemoryResponse } from '../lib/tac-memory-response';
 import {
   ConversationSessionStore,
   ConversationsWebhookProcessor,
+  ensureAgentParticipant,
   extractConversationId,
   extractProfileId,
   type MessagingWebhookPayload,
@@ -27,6 +29,14 @@ export interface ChatChannelConfig {
   agentAddress?: string | undefined;
   /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
   dedupCapacity?: number | undefined;
+  /**
+   * Conversations V1 service SID, forwarded as `channelSettings.chatService` on
+   * outbound SEND_MESSAGE actions. Read from `tac.conversationsV1ServiceSid`.
+   *
+   * TODO(conv-orch): Drop this option once the Actions API resolves the V1 Chat
+   * service SID server-side.
+   */
+  conversationsV1ServiceSid?: string | undefined;
 }
 
 /**
@@ -44,6 +54,10 @@ export class ChatChannel implements Channel {
   private readonly conversationClient: ConversationClient;
   private readonly memoryRetriever: MemoryRetriever;
   private readonly agentAddress: string;
+  /**
+   * TODO(conv-orch): Drop once Actions API resolves V1 Chat service SID server-side.
+   */
+  private readonly conversationsV1ServiceSid: string | undefined;
   private readonly callbacks: ChannelEvents = {};
   private readonly tools: Map<string, CRTool> = new Map();
   private readonly webhookProcessor: ConversationsWebhookProcessor;
@@ -65,6 +79,7 @@ export class ChatChannel implements Channel {
     this.conversationClient = deps.conversationClient;
     this.memoryRetriever = deps.memoryRetriever;
     this.agentAddress = channelConfig?.agentAddress ?? 'ai-assistant';
+    this.conversationsV1ServiceSid = channelConfig?.conversationsV1ServiceSid;
 
     const processorConfig: WebhookProcessorConfig | undefined =
       channelConfig?.dedupCapacity !== undefined
@@ -165,7 +180,7 @@ export class ChatChannel implements Channel {
   }
 
   /**
-   * Send chat response using Conversation Orchestrator Send API.
+   * Send chat response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
    */
   public async sendResponse(
     conversationId: ConversationId,
@@ -194,13 +209,19 @@ export class ChatChannel implements Channel {
         );
       }
 
-      // Get channelId (Chat Channel SID) from session metadata - REQUIRED for CHAT participants
+      // channelId (the per-conversation Chat Channel SID) lives in session.metadata.channelId,
+      // populated from the inbound COMMUNICATION_CREATED webhook. The V1 Chat backend needs
+      // it to pick the destination thread — without it, createAction 202s silently and the
+      // message never reaches the user. Throwing here only surfaces misuse (e.g. calling
+      // sendResponse before an inbound webhook has arrived).
       const chatChannelSid =
         typeof session.metadata?.channelId === 'string' ? session.metadata.channelId : undefined;
 
       if (!chatChannelSid) {
         throw new Error(
-          `No channelId found in session metadata for conversation ${conversationId}`
+          `Missing chat channelId in session.metadata.channelId for conversation ${conversationId}. ` +
+            'Inbound COMMUNICATION_CREATED webhooks populate this automatically; ' +
+            'sendResponse must not be called before an inbound message has arrived.'
         );
       }
 
@@ -208,50 +229,17 @@ export class ChatChannel implements Channel {
 
       const participants = await this.conversationClient.listParticipants(conversationId);
 
-      let agentParticipant = participants.find(p => p.type === 'AI_AGENT' || p.type === 'AGENT');
-
-      // Lazy-create AI_AGENT with 409 retry
+      const agentParticipant = await ensureAgentParticipant(
+        this.conversationClient,
+        this.logger,
+        conversationId,
+        participants,
+        { channel: 'CHAT', address: this.agentAddress, channelId: chatChannelSid }
+      );
       if (!agentParticipant) {
-        this.logger.debug(
-          {
-            conversation_id: conversationId,
-            agent_address: this.agentAddress,
-            channel_id: chatChannelSid,
-          },
-          'No AI_AGENT participant found, creating one'
+        throw new Error(
+          `Failed to resolve AI_AGENT participant for conversation ${conversationId}`
         );
-
-        try {
-          agentParticipant = await this.conversationClient.addParticipant(
-            conversationId,
-            [{ channel: 'CHAT' as const, address: this.agentAddress, channelId: chatChannelSid }],
-            'AI_AGENT'
-          );
-          this.logger.info(
-            {
-              conversation_id: conversationId,
-              participant_id: agentParticipant.id,
-            },
-            'Created AI_AGENT participant'
-          );
-        } catch (error) {
-          this.logger.warn(
-            { err: error, conversation_id: conversationId },
-            'Failed to create AI_AGENT participant, attempting to list participants again'
-          );
-
-          const retriedParticipants =
-            await this.conversationClient.listParticipants(conversationId);
-          agentParticipant = retriedParticipants.find(
-            p => p.type === 'AI_AGENT' || p.type === 'AGENT'
-          );
-
-          if (!agentParticipant) {
-            throw new Error(
-              `Failed to create or find AI_AGENT participant for conversation ${conversationId}`
-            );
-          }
-        }
       }
 
       this.logger.debug(
@@ -262,32 +250,41 @@ export class ChatChannel implements Channel {
           agent_participant_id: agentParticipant.id,
           agent_address: this.agentAddress,
         },
-        'Sending chat message via Send API'
+        'Sending chat message via Actions API'
       );
 
-      await this.conversationClient.sendCommunication(conversationId, {
-        author: {
-          address: this.agentAddress,
-          channel: 'CHAT',
-          participantId: agentParticipant.id,
-        },
-        recipients: [
-          {
-            address: recipientAddress,
+      const actionRequest: SendMessageActionRequest = {
+        type: 'SEND_MESSAGE',
+        payload: {
+          from: {
             channel: 'CHAT',
-            participantId: session.authorInfo.participantId,
+            participantId: agentParticipant.id,
           },
-        ],
-        content: {
-          type: 'TEXT',
-          text: message,
+          to: [
+            {
+              channel: 'CHAT',
+              ...(session.authorInfo.participantId
+                ? { participantId: session.authorInfo.participantId }
+                : { address: recipientAddress }),
+            },
+          ],
+          content: { text: message },
+          // TODO(conv-orch): Drop `chatService` once the Actions API resolves the V1
+          // Chat service SID server-side.
+          channelSettings: {
+            channelId: chatChannelSid,
+            ...(this.conversationsV1ServiceSid
+              ? { chatService: this.conversationsV1ServiceSid }
+              : {}),
+          },
         },
-        channelId: chatChannelSid,
-      });
+      };
+
+      await this.conversationClient.createAction(conversationId, actionRequest);
 
       this.logger.info(
         { conversation_id: conversationId, channel_id: chatChannelSid },
-        'Chat message sent successfully via Send API'
+        'Chat message sent successfully via Actions API'
       );
     } catch (error) {
       this.logger.error({ err: error, conversation_id: conversationId }, 'Send response error');

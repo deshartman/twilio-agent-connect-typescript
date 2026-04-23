@@ -65,6 +65,15 @@ export class TAC {
   private readonly channels: Map<ChannelType, Channel>;
   private cintelProcessor?: OperatorResultProcessor;
   private memoryStoreId!: MemoryStoreId;
+  /**
+   * Cached from conversationConfig.conversationsV1Bridge?.serviceId at init.
+   * ChatChannel forwards this as `channelSettings.chatService` on outbound
+   * SEND_MESSAGE actions.
+   *
+   * TODO(conv-orch): Drop this field once the Actions API resolves the V1
+   * Chat service SID server-side — see ConversationsV1BridgeSchema.
+   */
+  public conversationsV1ServiceSid?: string;
 
   // Callback registrations
   private messageReadyCallback?: MessageReadyCallback;
@@ -113,6 +122,12 @@ export class TAC {
         );
       }
       tac.memoryStoreId = fetchedMemoryStoreId;
+      // TODO(conv-orch): Drop once the Actions API resolves V1 Chat service SID
+      // server-side. ChatChannel forwards this as channelSettings.chatService.
+      const v1ServiceId = conversationConfig.conversationsV1Bridge?.serviceId;
+      if (v1ServiceId !== undefined) {
+        tac.conversationsV1ServiceSid = v1ServiceId;
+      }
       tac.memoryClient = new MemoryClient(tac.config, tac.logger.child({ component: 'memory' }));
 
       tac.knowledgeClient = new KnowledgeClient(
