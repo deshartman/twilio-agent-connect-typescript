@@ -5118,7 +5118,7 @@ var TACServer = class {
       const authToken = this.tac.getConfig().authToken;
       let isValid;
       if (request.url.includes("bodySHA256=")) {
-        const body = typeof request.body === "string" ? request.body : JSON.stringify(request.body);
+        const body = request.rawBody ?? "";
         isValid = twilio2.validateRequestWithBody(authToken, signature, url, body);
       } else {
         const params = request.body || {};
@@ -5223,9 +5223,17 @@ var TACServer = class {
         { websocket: true },
         (socket, request) => {
           const signature = request.headers["x-twilio-signature"];
-          const url = this.getWebhookUrl(request);
           const authToken = this.tac.getConfig().authToken;
-          const isValid = twilio2.validateRequest(authToken, signature, url, {});
+          const proto = request.headers["x-forwarded-proto"] || "https";
+          const host = request.headers["x-forwarded-host"] || request.headers.host || "";
+          const wsProto = proto === "https" ? "wss" : "ws";
+          const fullUrl = new URL(`${wsProto}://${host}${request.url}`);
+          const params = {};
+          fullUrl.searchParams.forEach((value, key) => {
+            params[key] = value;
+          });
+          const url = fullUrl.origin + fullUrl.pathname;
+          const isValid = twilio2.validateRequest(authToken, signature, url, params);
           if (!isValid) {
             this.fastify.log.warn(
               { url, hasSignature: !!signature },
@@ -5316,6 +5324,19 @@ var TACServer = class {
       if (!this.fastify.hasDecorator("gracefulShutdown")) {
         await this.fastify.register(gracefulShutdown2);
       }
+      this.fastify.removeContentTypeParser("application/json");
+      this.fastify.addContentTypeParser(
+        "application/json",
+        { parseAs: "string" },
+        (request, body, done) => {
+          request.rawBody = body;
+          try {
+            done(null, JSON.parse(body));
+          } catch (err) {
+            done(err, void 0);
+          }
+        }
+      );
       this.registerWebhookValidation();
       await this.setupRoutes();
       this.fastify.gracefulShutdown(async (signal) => {
