@@ -8,6 +8,7 @@ import {
   ConversationId,
   TACMemoryResponse,
 } from '@twilio/tac-core';
+import { ConversationRelay } from '@twilio/tac-conversationrelay';
 import { createTestTAC } from './helpers/tac';
 
 describe('VoiceChannel', () => {
@@ -38,8 +39,12 @@ describe('VoiceChannel', () => {
       new TACMemoryResponse({ observations: [], summaries: [], communications: [] })
     );
 
-    const channel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
-    return { channel, config, logger, conversationClient, memoryRetriever };
+    const conversationRelay = new ConversationRelay(logger.child({ component: 'crelay' }));
+    const channel = new VoiceChannel(
+      { config, logger, conversationClient, memoryRetriever },
+      { conversationRelay }
+    );
+    return { channel, config, logger, conversationClient, memoryRetriever, conversationRelay };
   };
 
   describe('getWebsocket()', () => {
@@ -207,7 +212,9 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps());
+      const channel = new VoiceChannel(tac.getChannelDeps(), {
+        conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
+      });
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -234,7 +241,9 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps());
+      const channel = new VoiceChannel(tac.getChannelDeps(), {
+        conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
+      });
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -260,7 +269,9 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps());
+      const channel = new VoiceChannel(tac.getChannelDeps(), {
+        conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
+      });
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
@@ -276,7 +287,9 @@ describe('VoiceChannel', () => {
 
     it('should clean up silently when no callback is registered', async () => {
       const tac = await createTestTAC(getTestConfig());
-      const channel = new VoiceChannel(tac.getChannelDeps());
+      const channel = new VoiceChannel(tac.getChannelDeps(), {
+        conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
+      });
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();

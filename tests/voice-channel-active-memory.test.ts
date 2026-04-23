@@ -8,7 +8,11 @@ import {
   TACMemoryResponse,
   ChannelMessage,
 } from '@twilio/tac-core';
+import { ConversationRelay } from '@twilio/tac-conversationrelay';
 import { createTestTAC } from './helpers/tac';
+
+const makeCR = (logger: ReturnType<typeof createLogger>): ConversationRelay =>
+  new ConversationRelay(logger.child({ component: 'crelay' }));
 
 describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   let voiceChannel: VoiceChannel;
@@ -107,7 +111,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient, memoryRetriever },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
@@ -157,7 +164,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const conversationClient = createMockConversationClient();
 
       // No memoryRetriever passed
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
@@ -194,7 +204,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient, memoryRetriever },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
@@ -233,7 +246,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient, memoryRetriever },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
@@ -275,7 +291,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const systemMessages: ChannelMessage[] = [];
       const interruptReceived = new Promise<void>(resolve => {
@@ -318,12 +337,15 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test-tac', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({
-        config: tac.getConfig(),
-        logger,
-        conversationClient,
-        memoryRetriever,
-      });
+      voiceChannel = new VoiceChannel(
+        {
+          config: tac.getConfig(),
+          logger,
+          conversationClient,
+          memoryRetriever,
+        },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       const messageReady = new Promise<void>(resolve => {
@@ -389,7 +411,10 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel({ config, logger, conversationClient, memoryRetriever });
+      voiceChannel = new VoiceChannel(
+        { config, logger, conversationClient, memoryRetriever },
+        { conversationRelay: makeCR(logger) }
+      );
 
       const captured: ChannelMessage[] = [];
       let resolveSecond: () => void;

@@ -16,6 +16,7 @@ import {
   ConversationSession,
   TACMemoryResponse,
   TACServer,
+  ConversationRelay,
 } from 'twilio-agent-connect';
 // Load environment variables from parent directory
 config({ path: '../.env' });
@@ -27,7 +28,13 @@ const openai = new OpenAI({
 
 // Initialize TAC and channels
 const tac = await TAC.create({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac.getChannelDeps());
+
+// Active voice mode: construct a ConversationRelay and pass it to VoiceChannel.
+// VoiceChannel handles the CR ↔ Maestro bridge (setup, prompt, interrupt events
+// become unified ChannelMessages). Omit `conversationRelay` for passive mode
+// (webhook-only / BYO-CR).
+const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
+const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
 const smsChannel = new SMSChannel(tac.getChannelDeps());
 
 // Register channels
