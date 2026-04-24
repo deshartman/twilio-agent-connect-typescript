@@ -4,7 +4,7 @@ import {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
-} from '@twilio/tac-conversationrelay';
+} from '../src/tools';
 
 describe('ConversationRelay Tools', () => {
   // =========================================================================

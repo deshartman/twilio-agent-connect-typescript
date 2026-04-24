@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createLogger } from '@twilio/tac-core';
-import { SilenceDetector } from '@twilio/tac-conversationrelay';
-import type { SilenceDetectorConfig, CallSid } from '@twilio/tac-conversationrelay';
+import { createLogger } from '../src/lib/logger';
+import { SilenceDetector } from '../src/lib/silence-detector';
+import type { SilenceDetectorConfig, CallSid } from '../src/types';
 
 describe('SilenceDetector', () => {
   let detector: SilenceDetector;

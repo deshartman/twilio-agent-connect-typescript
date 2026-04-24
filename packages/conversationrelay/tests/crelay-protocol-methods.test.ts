@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createLogger } from '@twilio/tac-core';
-import { ConversationRelay } from '@twilio/tac-conversationrelay';
-import type { CallSid } from '@twilio/tac-conversationrelay';
+import { createLogger } from '../src/lib/logger';
+import { ConversationRelay } from '../src/crelay';
+import type { CallSid } from '../src/types';
 
 describe('ConversationRelay Protocol Methods', () => {
   let conversationRelay: ConversationRelay;

@@ -5,7 +5,7 @@ import {
   SwitchLanguageMessageSchema,
   EndMessageSchema,
   OutgoingMessageSchema,
-} from '@twilio/tac-conversationrelay';
+} from '../src/types';
 
 describe('ConversationRelay Outgoing Messages', () => {
   // =========================================================================
