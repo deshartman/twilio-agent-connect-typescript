@@ -8,7 +8,6 @@
  * All CR events are emitted as unified 'message' events with conversation bundle.
  */
 
-import { WebSocket } from 'ws';
 import {
   ConversationRelay,
   type CallSid,
@@ -395,18 +394,6 @@ export class VoiceChannel implements Channel {
     return this.conversationRelay;
   }
 
-  public getWebsocket(conversationId: ConversationId): WebSocket | null {
-    if (!this.conversationRelay) {
-      return null;
-    }
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return this.conversationRelay.getWebSocket(callSid);
-      }
-    }
-    return null;
-  }
-
   // Wrapping sync code in async to honor Channel interface's Promise<void> contract
   // eslint-disable-next-line @typescript-eslint/require-await
   public async sendResponse(
@@ -631,10 +618,6 @@ export class VoiceChannel implements Channel {
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
     delete this.callbacks.onMessage;
-  }
-
-  public handleWebSocketConnection(ws: WebSocket): void {
-    this.assertCR('handleWebSocketConnection').handleConnection(ws);
   }
 
   // ===========================================================================

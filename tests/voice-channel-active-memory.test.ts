@@ -126,7 +126,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -179,7 +180,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -219,7 +221,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -261,7 +264,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -306,7 +310,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
 
@@ -358,7 +363,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       tac.registerChannel(voiceChannel);
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -429,7 +435,8 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       });
 
       const mockWs = createMockWebSocket();
-      voiceChannel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
 

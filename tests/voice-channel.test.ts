@@ -46,15 +46,6 @@ describe('VoiceChannel', () => {
     return { channel, config, logger, conversationClient, memoryRetriever, conversationRelay };
   };
 
-  describe('getWebsocket()', () => {
-    it('should return null for unknown conversation', () => {
-      const { channel } = createVoiceChannel();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ws = channel.getWebsocket('CA_unknown' as any);
-      expect(ws).toBeNull();
-    });
-  });
-
   describe('isConversationActive()', () => {
     it('should return false for unknown conversation', () => {
       const { channel } = createVoiceChannel();
@@ -64,13 +55,11 @@ describe('VoiceChannel', () => {
   });
 
   describe('shutdown()', () => {
-    it('should clear WebSocket references on shutdown', () => {
+    it('clears session state on shutdown', () => {
       const { channel } = createVoiceChannel();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(channel.getWebsocket('CH_test' as any)).toBeNull();
+      expect(channel.isConversationActive('CH_test' as ConversationId)).toBe(false);
       channel.shutdown();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(channel.getWebsocket('CH_test' as any)).toBeNull();
+      expect(channel.isConversationActive('CH_test' as ConversationId)).toBe(false);
     });
   });
 
@@ -214,7 +203,8 @@ describe('VoiceChannel', () => {
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      channel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (channel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
@@ -243,7 +233,8 @@ describe('VoiceChannel', () => {
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      channel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (channel as any).conversationRelay.handleConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
@@ -271,7 +262,8 @@ describe('VoiceChannel', () => {
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      channel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (channel as any).conversationRelay.handleConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
 
       mockWs._emit('close');
@@ -289,7 +281,8 @@ describe('VoiceChannel', () => {
       tac.registerChannel(channel);
 
       const mockWs = createMockWebSocket();
-      channel.handleWebSocketConnection(mockWs);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (channel as any).conversationRelay.handleConnection(mockWs);
       mockWs._emit('message', Buffer.from(setupMessage));
       expect(channel.isConversationActive('conv_conversation_01ktestabcdefghijklmnopqrs')).toBe(true);
 
@@ -493,7 +486,8 @@ describe('VoiceChannel', () => {
       const primeChannel = () => {
         const { channel } = createVoiceChannel();
         const ws = createMockWebSocket();
-        channel.handleWebSocketConnection(ws);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (channel as any).conversationRelay.handleConnection(ws);
         ws._emit('message', Buffer.from(setupMessage));
         ws.send.mockClear();
         return { channel, ws };

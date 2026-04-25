@@ -76,13 +76,6 @@ describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
       );
     });
 
-    it('handleWebSocketConnection throws', () => {
-      const channel = makeChannel();
-      expect(() =>
-        channel.handleWebSocketConnection({} as unknown as Parameters<typeof channel.handleWebSocketConnection>[0])
-      ).toThrow(/handleWebSocketConnection requires an active ConversationRelay/);
-    });
-
     it('sendDigits / sendPlay / endCall throw', () => {
       const channel = makeChannel();
       expect(() => channel.sendDigits(TEST_CONVERSATION_ID, '1234')).toThrow(
@@ -101,11 +94,6 @@ describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
       await expect(channel.executeTool(TEST_CONVERSATION_ID, 'tool_name', {})).rejects.toThrow(
         /executeTool requires an active ConversationRelay/
       );
-    });
-
-    it('getWebsocket returns null (not a throw — this is a lookup, not a CR call)', () => {
-      const channel = makeChannel();
-      expect(channel.getWebsocket(TEST_CONVERSATION_ID)).toBeNull();
     });
   });
 
