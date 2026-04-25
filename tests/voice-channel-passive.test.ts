@@ -16,7 +16,7 @@ import { ConversationRelay } from '@twilio/tac-conversationrelay';
  * ChannelMessages exactly like SMS/Chat. CR-exclusive methods throw with
  * a clear message.
  *
- * Active-mode-specific coverage (CR bridge, handleIncomingCall TwiML,
+ * Active-mode-specific coverage (CR bridge, createConversationForCall,
  * interrupt handling, etc.) lives in voice-channel.test.ts and
  * voice-channel-active-memory.test.ts.
  */
@@ -74,17 +74,6 @@ describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
       await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'hi')).rejects.toThrow(
         /VoiceChannel\.sendResponse requires an active ConversationRelay/
       );
-    });
-
-    it('handleIncomingCall throws', async () => {
-      const channel = makeChannel();
-      await expect(
-        channel.handleIncomingCall({
-          toNumber: '+15551234567',
-          fromNumber: '+15559876543',
-          conversationRelayConfig: { url: 'wss://example/ws', welcomeGreeting: 'hi' },
-        })
-      ).rejects.toThrow(/handleIncomingCall requires an active ConversationRelay/);
     });
 
     it('handleWebSocketConnection throws', () => {

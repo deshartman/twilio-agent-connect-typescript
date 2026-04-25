@@ -15,7 +15,6 @@ import {
   type SetupMessage,
   type PromptMessage,
   type InterruptMessage,
-  type ConversationRelayConfig,
   type ConversationRelayCallbackPayload,
   type CRTool,
 } from '@twilio/tac-conversationrelay';
@@ -70,24 +69,17 @@ export interface VoiceChannelConfig {
  *
  * **Active mode** (`conversationRelay` provided): Handles voice via
  * ConversationRelay WebSocket (CR). Creates Maestro conversations in
- * handleIncomingCall(). WebSocket events are the source of user turns;
- * passive Maestro webhook COMMUNICATION_CREATED events are dropped to
- * avoid double-emits.
+ * createConversationForCall(). WebSocket events are the source of user
+ * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
+ * to avoid double-emits. Wire `createConversationForCall` and
+ * `handleConversationRelayCallback` into `CRelayServer`'s callbacks
+ * (onIncomingCall / onCRCallback) — CRelayServer owns the /twiml, /ws,
+ * and /conversation-relay-callback routes.
  *
  * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.
  * Inbound user turns come through Maestro webhooks just like SMS/Chat.
  * sendResponse throws because the Actions API rejects `channel: 'VOICE'`;
  * outbound voice requires a CR WebSocket.
- *
- * TODO(server-split): `handleWebSocketConnection` and `handleIncomingCall`
- * currently live here because TACServer owns the /ws, /twiml, and
- * /conversation-relay-callback routes. The cleaner architecture is for
- * tac-cr to own those routes entirely (so Twilio voice numbers point at a
- * CR server and Conversations webhooks point at TACServer), and for
- * VoiceChannel to be a pure Maestro-bridge consumed by the CR server's
- * route handlers via callbacks/methods. That split is deferred as its own
- * follow-up PR; see the two-server architecture note in the merge-lessons
- * doc for the sketch.
  */
 export class VoiceChannel implements Channel {
   protected readonly config: TACConfig;
@@ -779,21 +771,6 @@ export class VoiceChannel implements Channel {
   // ===========================================================================
   // Incoming Call Handling — Maestro Only
   // ===========================================================================
-
-  public async handleIncomingCall(options: {
-    toNumber: string;
-    fromNumber: string;
-    callSid?: string;
-    actionUrl?: string;
-    conversationRelayConfig: ConversationRelayConfig;
-  }): Promise<string> {
-    const cr = this.assertCR('handleIncomingCall');
-    const { actionUrl, conversationRelayConfig, ...maestroInput } = options;
-
-    const ids = await this.createConversationForCall(maestroInput);
-
-    return cr.generateTwiML(conversationRelayConfig, ids, actionUrl ? { actionUrl } : undefined);
-  }
 
   /**
    * Create the Maestro conversation for an incoming voice call and return the

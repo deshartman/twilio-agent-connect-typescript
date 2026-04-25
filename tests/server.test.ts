@@ -88,7 +88,7 @@ describe('TACServer Webhook Validation', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -113,7 +113,7 @@ describe('TACServer Webhook Validation', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -137,7 +137,7 @@ describe('TACServer Webhook Validation', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -166,7 +166,7 @@ describe('TACServer Webhook Validation', () => {
 
       server = new TACServer(tac, {
         development: true,
-        voice: { port: currentPort },
+        port: currentPort,
       });
 
       await server.start();
@@ -196,7 +196,7 @@ describe('TACServer Webhook Validation', () => {
 
       server = new TACServer(tac, {
         development: true,
-        voice: { port: currentPort },
+        port: currentPort,
       });
 
       await server.start();
@@ -226,7 +226,7 @@ describe('TACServer Webhook Validation', () => {
 
       server = new TACServer(tac, {
         development: true,
-        voice: { port: currentPort },
+        port: currentPort,
       });
 
       await server.start();
@@ -255,7 +255,7 @@ describe('TACServer Webhook Validation', () => {
 
       server = new TACServer(tac, {
         development: true,
-        voice: { port: currentPort },
+        port: currentPort,
       });
 
       await server.start();
@@ -290,7 +290,7 @@ describe('TACServer Webhook Validation', () => {
 
       server = new TACServer(tac, {
         development: true,
-        voice: { port: currentPort },
+        port: currentPort,
       });
 
       await server.start();
@@ -322,7 +322,7 @@ describe('TACServer Webhook Validation', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -395,7 +395,7 @@ describe('TACServer idempotency token', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -426,7 +426,7 @@ describe('TACServer idempotency token', () => {
 
     server = new TACServer(tac, {
       development: true,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -523,7 +523,7 @@ describe('TACServer customization', () => {
 
     server = new TACServer(tac, {
       fastifyInstance: customApp,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     expect(server.fastify).toBe(customApp);
@@ -542,7 +542,7 @@ describe('TACServer customization', () => {
 
     server = new TACServer(tac, {
       fastifyInstance: customApp,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     await server.start();
@@ -553,16 +553,7 @@ describe('TACServer customization', () => {
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ status: 'ok' });
 
-    // User hook also fires on TAC's own routes
-    const twiml = await fetch(`http://localhost:${actualPort}/twiml`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA123',
-    });
-    expect(twiml.status).not.toBe(404); // TAC /twiml is mounted
-    expect(twiml.headers.get('x-user-hook')).toBe('yes');
-
-    // User hook also fires on the /webhook (messaging) route
+    // User hook also fires on the /webhook (messaging) route — TAC's own route
     const sms = await fetch(`http://localhost:${actualPort}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -575,34 +566,32 @@ describe('TACServer customization', () => {
   it('does not crash when user pre-registers plugins TAC also needs', async () => {
     const Fastify = (await import('fastify')).default;
     const formbody = (await import('@fastify/formbody')).default;
-    const websocket = (await import('@fastify/websocket')).default;
 
     const customApp = Fastify({ logger: false });
-    // Simulate a user who registers formbody + websocket themselves for their
-    // own routes. start() should detect and skip duplicate registration.
+    // Simulate a user who registers formbody themselves for their own routes.
+    // start() should detect and skip duplicate registration.
     await customApp.register(formbody);
-    await customApp.register(websocket);
 
     server = new TACServer(tac, {
       fastifyInstance: customApp,
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     // Must not throw
     await server.start();
 
     // TAC's form-body-parsed routes still work
-    const resp = await fetch(`http://localhost:${getActualPort(server)}/twiml`, {
+    const resp = await fetch(`http://localhost:${getActualPort(server)}/webhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA123',
+      body: 'From=%2B15551234567&Body=hi',
     });
     expect(resp.status).not.toBe(404);
   });
 
   it('creates a default Fastify instance when none is provided', () => {
     server = new TACServer(tac, {
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     expect(server.fastify).toBeDefined();
@@ -611,7 +600,7 @@ describe('TACServer customization', () => {
 
   it('exposes the same Fastify instance before and after start()', async () => {
     server = new TACServer(tac, {
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     const before = server.fastify;
@@ -623,7 +612,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a custom route to server.fastify after construction', async () => {
     server = new TACServer(tac, {
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     server.fastify.get('/health', async () => ({ status: 'ok' }));
@@ -637,7 +626,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a hook to server.fastify after construction', async () => {
     server = new TACServer(tac, {
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     server.fastify.addHook('onSend', async (_request, reply, payload) => {
@@ -655,7 +644,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a custom error handler on server.fastify', async () => {
     server = new TACServer(tac, {
-      voice: { port: currentPort },
+      port: currentPort,
     });
 
     class MyError extends Error {}
@@ -680,94 +669,8 @@ describe('TACServer customization', () => {
   });
 });
 
-// describe('TACServer WebSocket signature validation') moved to
-// packages/conversationrelay/tests/crelay-server-routes.test.ts (Phase 2).
-
-
-// Conditional route registration — setupVoiceRoutes returns early when no
-// VoiceChannel is available, so SMS/Chat-only deployments don't expose dead
-// voice endpoints.
-describe('TACServer conditional route registration', () => {
-  let tac: TAC;
-  let server: TACServer;
-  let currentPort: number;
-
-  const getActualPort = (srv: TACServer): number => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const address = (srv as any).fastify.server.address();
-    return typeof address === 'string' ? 0 : address.port;
-  };
-
-  beforeEach(async () => {
-    mockValidateRequest.mockReset();
-    mockValidateRequestWithBody.mockReset();
-    mockValidateRequest.mockReturnValue(true);
-    mockValidateRequestWithBody.mockReturnValue(true);
-    currentPort = getNextPort();
-
-    const config = new TACConfig(SHARED_TEST_CONFIG);
-    tac = await createTestTAC(config);
-  });
-
-  afterEach(async () => {
-    if (server) {
-      await server.stop();
-    }
-  });
-
-  it('does not register voice routes when no VoiceChannel is configured', async () => {
-    // Register only SMS — no VoiceChannel on TAC, none in TACServer config.
-    const smsChannel = new SMSChannel(tac.getChannelDeps());
-    tac.registerChannel(smsChannel);
-
-    server = new TACServer(tac, { voice: { port: currentPort } });
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    // /twiml and /conversation-relay-callback should return 404 — the routes
-    // are never registered, so Fastify's default not-found handler fires.
-    const twimlResp = await fetch(`http://localhost:${actualPort}/twiml`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CA_x&From=%2B15551&To=%2B15552',
-    });
-    expect(twimlResp.status).toBe(404);
-
-    const crCallbackResp = await fetch(
-      `http://localhost:${actualPort}/conversation-relay-callback`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: 'CallSid=CA_x&CallStatus=completed',
-      }
-    );
-    expect(crCallbackResp.status).toBe(404);
-
-    // Messaging route is still alive — smsChannel is registered.
-    const webhookResp = await fetch(`http://localhost:${actualPort}/webhook`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'eventType=CONVERSATION_CREATED',
-    });
-    expect(webhookResp.status).toBe(200);
-  });
-
-  it('registers voice routes when a VoiceChannel is configured', async () => {
-    const voiceChannel = new VoiceChannel(tac.getChannelDeps());
-    tac.registerChannel(voiceChannel);
-
-    server = new TACServer(tac, { voice: { port: currentPort } });
-    await server.start();
-    const actualPort = getActualPort(server);
-
-    // With a VoiceChannel registered, /twiml is reachable — it will 500 because
-    // the passive-mode VoiceChannel throws on handleIncomingCall, but it's
-    // *registered*, which is what this test cares about (not 404).
-    const twimlResp = await fetch(`http://localhost:${actualPort}/twiml`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'CallSid=CA_x&From=%2B15551&To=%2B15552',
-    });
-    expect(twimlResp.status).not.toBe(404);
-  });
-});
+// Voice-route tests — describe('TACServer WebSocket signature validation')
+// and describe('TACServer conditional route registration') have both moved
+// to packages/conversationrelay/tests/crelay-server-routes.test.ts. TACServer
+// itself no longer owns voice routes; CRelayServer serves /twiml, /ws, and
+// /conversation-relay-callback.

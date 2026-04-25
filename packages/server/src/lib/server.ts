@@ -5,29 +5,18 @@ import Fastify, {
   FastifyReply,
 } from 'fastify';
 import formbody from '@fastify/formbody';
-import websocket from '@fastify/websocket';
 import gracefulShutdown from 'fastify-graceful-shutdown';
-import type { WebSocket } from 'ws';
 
-import {
-  VoiceServerConfig,
-  VoiceServerConfigSchema,
-  TAC,
-  VoiceChannel,
-  SMSChannel,
-  ChatChannel,
-  type Channel,
-} from '@twilio/tac-core';
-import {
-  type ConversationRelayCallbackPayload,
-  ConversationRelayCallbackPayloadSchema,
-  type ConversationRelayConfig,
-  registerSignatureValidation,
-  validateWebSocketSignature,
-} from '@twilio/tac-conversationrelay';
+import { TAC, SMSChannel, ChatChannel, type Channel } from '@twilio/tac-core';
+import { registerSignatureValidation } from '@twilio/tac-conversationrelay';
 
 /**
  * Server configuration options
+ *
+ * TACServer handles Conversation Orchestrator (Maestro) webhooks only. Voice
+ * routes (/twiml, /ws, /conversation-relay-callback) live on
+ * `CRelayServer` in `@twilio/tac-conversationrelay` — see the two-process
+ * deployment story in the README.
  */
 export interface TACServerConfig {
   /** Fastify server options (ignored if `fastifyInstance` is provided) */
@@ -43,30 +32,21 @@ export interface TACServerConfig {
    */
   fastifyInstance?: FastifyInstance;
 
-  /** Voice server configuration */
-  voice?: Partial<VoiceServerConfig>;
+  /** Server host (default: 0.0.0.0) */
+  host?: string;
+
+  /** Server port (default: 3000) */
+  port?: number;
 
   /** Custom webhook paths */
   webhookPaths?: {
     messaging?: string;
-    twiml?: string;
-    ws?: string;
-    conversationRelayCallback?: string;
     /** Path for Conversation Intelligence webhook (optional - only registered if provided) */
     cintel?: string;
   };
 
-  /** ConversationRelay configuration (welcomeGreeting, transcription, TTS, interaction settings, etc.) */
-  conversationRelayConfig?: Partial<Omit<ConversationRelayConfig, 'url'>>;
-
-  /** Handler for voice handoff requests (returns TwiML string) */
-  handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>;
-
   /** Enable development features */
   development?: boolean;
-
-  /** Voice channel instance (alternative to registering on TAC) */
-  voiceChannel?: VoiceChannel;
 
   /**
    * Channels consuming Conversation Orchestrator webhooks (SMS, Chat, and
@@ -83,24 +63,13 @@ export interface TACServerConfig {
  * Default server configuration
  */
 const DEFAULT_CONFIG = {
-  voice: {
-    host: '0.0.0.0',
-    port: 3000,
-  },
+  host: '0.0.0.0',
+  port: 3000,
   webhookPaths: {
     messaging: '/webhook',
-    twiml: '/twiml',
-    ws: '/ws',
-    conversationRelayCallback: '/conversation-relay-callback',
-  },
-  conversationRelayConfig: {
-    welcomeGreeting: 'Hello! Set up your welcome greeting in the server config.',
   },
   development: false,
-} satisfies Omit<
-  TACServerConfig,
-  'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'conversationChannels'
->;
+} satisfies Omit<TACServerConfig, 'fastify' | 'fastifyInstance' | 'conversationChannels'>;
 
 /**
  * Batteries-included Fastify server for TAC
@@ -129,17 +98,10 @@ export class TACServer {
   public readonly fastify: FastifyInstance;
   private readonly tac: TAC;
   private readonly config: Required<
-    Omit<
-      TACServerConfig,
-      'fastify' | 'fastifyInstance' | 'handoffHandler' | 'voiceChannel' | 'conversationChannels'
-    >
-  > & {
-    handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>;
-  };
+    Omit<TACServerConfig, 'fastify' | 'fastifyInstance' | 'conversationChannels'>
+  >;
   /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
   private readonly conversationChannels: Channel[];
-  /** Voice channel instance */
-  private readonly voiceChannel: VoiceChannel | undefined;
 
   constructor(tac: TAC, config: TACServerConfig = {}) {
     this.tac = tac;
@@ -151,15 +113,11 @@ export class TACServer {
         ...DEFAULT_CONFIG.webhookPaths,
         ...config.webhookPaths,
       },
-      // Deep merge conversationRelayConfig to preserve defaults while allowing overrides
-      conversationRelayConfig: {
-        ...DEFAULT_CONFIG.conversationRelayConfig,
-        ...config.conversationRelayConfig,
-      },
     };
 
-    // Resolve channels (always VoiceChannel + SMS + Chat with Maestro)
-    this.voiceChannel = config.voiceChannel ?? tac.getChannel<VoiceChannel>('voice');
+    // Fan-out channels for /webhook: SMS + Chat (and passive VoiceChannel if
+    // registered on TAC). Active VoiceChannels are driven by CRelayServer on
+    // a separate process/port — they don't participate in TACServer routes.
     this.conversationChannels =
       config.conversationChannels ??
       (
@@ -201,121 +159,13 @@ export class TACServer {
   }
 
   /**
-   * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
-   *
-   * Voice routes (/twiml, /ws, /conversation-relay-callback) are only registered
-   * when a VoiceChannel is available, so SMS/Chat-only deployments don't expose
-   * dead 500-returning endpoints.
+   * Setup routes — Maestro webhook fan-out and optional Conversation
+   * Intelligence webhook. Voice routes are served by CRelayServer in the
+   * tac-conversationrelay package.
    */
-  private async setupRoutes(): Promise<void> {
-    await this.setupVoiceRoutes();
+  private setupRoutes(): void {
     this.setupMessagingRoutes();
     this.setupCintelRoute();
-  }
-
-  private async setupVoiceRoutes(): Promise<void> {
-    const voiceChannel = this.voiceChannel;
-    if (!voiceChannel) {
-      this.tac.logger.debug(
-        'TACServer: No VoiceChannel registered. Voice routes (/twiml, /ws, /conversation-relay-callback) will not be registered.'
-      );
-      return;
-    }
-
-    // Voice webhook (POST - Twilio calls this when an incoming call arrives)
-    this.fastify.post(
-      this.config.webhookPaths.twiml || '/twiml',
-      async (request: FastifyRequest, reply: FastifyReply) => {
-        try {
-          const formData = request.body as Record<string, string>;
-          const callSid = formData['CallSid'] || '';
-          const fromNumber = formData['From'] || '';
-          const toNumber = formData['To'] || '';
-
-          const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
-          const host = request.headers.host as string;
-          const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws || '/ws'}`;
-          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback'}`;
-
-          const twiml = await voiceChannel.handleIncomingCall({
-            toNumber,
-            fromNumber,
-            callSid,
-            actionUrl: callbackUrl,
-            conversationRelayConfig: {
-              url: websocketUrl,
-              ...this.config.conversationRelayConfig,
-            },
-          });
-
-          await reply.type('application/xml').send(twiml);
-        } catch (error) {
-          this.fastify.log.error(
-            'TwiML generation error: ' + (error instanceof Error ? error.message : String(error))
-          );
-          await reply.code(500).send({
-            error: 'Internal server error',
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    );
-
-    // ConversationRelay callback endpoint
-    this.fastify.post(
-      this.config.webhookPaths.conversationRelayCallback || '/conversation-relay-callback',
-      async (request: FastifyRequest, reply: FastifyReply) => {
-        try {
-          const formData = request.body as Record<string, string>;
-          const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
-
-          if (!parseResult.success) {
-            this.fastify.log.error(
-              { errors: parseResult.error.errors },
-              'Invalid ConversationRelay callback payload'
-            );
-            await reply.code(400).send({ error: 'Invalid payload' });
-            return;
-          }
-
-          const result = await voiceChannel.handleConversationRelayCallback(
-            parseResult.data,
-            this.config.handoffHandler
-          );
-
-          await reply.code(result.status).type(result.contentType).send(result.content);
-        } catch (error) {
-          this.fastify.log.error(
-            'ConversationRelay callback error: ' +
-              (error instanceof Error ? error.message : String(error))
-          );
-          await reply.code(500).send({ error: 'Internal server error' });
-        }
-      }
-    );
-
-    // Voice WebSocket endpoint
-    await this.fastify.register(fastify => {
-      fastify.get(
-        this.config.webhookPaths.ws || '/ws',
-        { websocket: true },
-        (socket: WebSocket, request: FastifyRequest) => {
-          const authToken = this.tac.getConfig().authToken;
-          const isValid = validateWebSocketSignature(request, authToken);
-
-          if (!isValid) {
-            this.fastify.log.warn(
-              { url: request.url, hasSignature: !!request.headers['x-twilio-signature'] },
-              'WebSocket connection rejected: invalid Twilio signature'
-            );
-            socket.close(1008, 'Invalid signature');
-            return;
-          }
-
-          voiceChannel.handleWebSocketConnection(socket);
-        }
-      );
-    });
   }
 
   private setupMessagingRoutes(): void {
@@ -397,9 +247,6 @@ export class TACServer {
       if (!this.fastify.hasContentTypeParser('application/x-www-form-urlencoded')) {
         await this.fastify.register(formbody);
       }
-      if (!this.fastify.hasDecorator('websocketServer')) {
-        await this.fastify.register(websocket);
-      }
       if (!this.fastify.hasDecorator('gracefulShutdown')) {
         await this.fastify.register(gracefulShutdown);
       }
@@ -426,36 +273,27 @@ export class TACServer {
       });
 
       // Set up routes (must be after plugin registration)
-      await this.setupRoutes();
+      this.setupRoutes();
 
-      // Configure graceful shutdown. Force-close channel WebSockets first so the
-      // wait loop below exits on its next tick instead of hanging up to 30s on
-      // long-lived Twilio CR connections.
-      this.fastify.gracefulShutdown(async (signal: string) => {
+      this.fastify.gracefulShutdown((signal: string) => {
         this.fastify.log.info({ signal }, 'Received shutdown signal');
         this.tac.shutdown();
-        await this.waitForWebSocketsToClose();
       });
 
-      // Start Fastify server
-      const voiceConfig = VoiceServerConfigSchema.parse(this.config.voice);
       await this.fastify.listen({
-        host: voiceConfig.host,
-        port: voiceConfig.port,
+        host: this.config.host,
+        port: this.config.port,
       });
 
       // Read the actual bound port (port 0 asks the OS for an ephemeral port,
-      // so voiceConfig.port would log `0` instead of the real port number).
+      // so config.port would log `0` instead of the real port number).
       const address = this.fastify.server.address();
-      const boundPort = typeof address === 'object' && address ? address.port : voiceConfig.port;
+      const boundPort = typeof address === 'object' && address ? address.port : this.config.port;
 
       this.fastify.log.info(
         {
-          host: voiceConfig.host,
+          host: this.config.host,
           port: boundPort,
-          twiml_webhook: this.config.webhookPaths.twiml,
-          ws_websocket: this.config.webhookPaths.ws,
-          conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,
           messaging_webhook: this.config.webhookPaths.messaging,
           ...(this.config.webhookPaths.cintel && {
             cintel_webhook: this.config.webhookPaths.cintel,
@@ -467,52 +305,6 @@ export class TACServer {
       this.fastify.log.error({ err: error }, 'Failed to start TAC Server');
       throw error;
     }
-  }
-
-  /**
-   * Wait for all WebSocket connections to close
-   */
-  private async waitForWebSocketsToClose(timeoutMs = 30000): Promise<void> {
-    const wsServer = this.fastify.websocketServer;
-    if (!wsServer || wsServer.clients.size === 0) {
-      return;
-    }
-
-    this.fastify.log.info(
-      { websocket_count: wsServer.clients.size },
-      'Waiting for WebSocket connections to close...'
-    );
-
-    const startTime = Date.now();
-
-    return new Promise<void>(resolve => {
-      const checkInterval = setInterval(() => {
-        const clientCount = wsServer.clients.size;
-
-        if (clientCount === 0) {
-          clearInterval(checkInterval);
-          this.fastify.log.info('All WebSocket connections closed');
-          resolve();
-          return;
-        }
-
-        // Check for timeout
-        if (Date.now() - startTime >= timeoutMs) {
-          clearInterval(checkInterval);
-          this.fastify.log.warn(
-            { remaining_websockets: clientCount },
-            'Timeout waiting for WebSockets to close, proceeding with shutdown'
-          );
-          resolve();
-          return;
-        }
-
-        this.fastify.log.info(
-          { remaining_websockets: clientCount },
-          'Waiting for WebSockets to close...'
-        );
-      }, 5000);
-    });
   }
 
   /**

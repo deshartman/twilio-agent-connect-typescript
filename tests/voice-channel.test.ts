@@ -74,92 +74,89 @@ describe('VoiceChannel', () => {
     });
   });
 
-  describe('handleIncomingCall', () => {
-    it('should apply conversationRelayConfig to generated TwiML', async () => {
+  describe('createConversationForCall', () => {
+    it('creates a Maestro conversation and returns the four CR customParameter IDs', async () => {
       const { channel, conversationClient } = createVoiceChannel();
 
-      vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
-        id: 'conv_conversation_01testconversation00000002',
-      } as any);
-      vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
-        id: 'PA_test',
-        profileId: 'mem_test',
-      } as any);
+      const createConvSpy = vi
+        .spyOn(conversationClient, 'createConversation')
+        .mockResolvedValue({
+          id: 'conv_conversation_01testconversation00000002',
+        } as any);
+      const addParticipantSpy = vi
+        .spyOn(conversationClient, 'addOrFetchParticipant')
+        .mockResolvedValueOnce({
+          id: 'PA_customer',
+          profileId: 'mem_profile_test',
+        } as any)
+        .mockResolvedValueOnce({
+          id: 'PA_agent',
+          profileId: null,
+        } as any);
 
-      const twiml = await channel.handleIncomingCall({
+      const ids = await channel.createConversationForCall({
         toNumber: '+15559876543',
         fromNumber: '+15551234567',
-        conversationRelayConfig: {
-          url: 'wss://example.com/conversation-relay',
-          transcriptionProvider: 'Deepgram',
-          interruptible: 'any',
-          hints: 'technical support, billing',
-        },
+        callSid: 'CA_test_123',
       });
 
-      expect(twiml).toContain('transcriptionProvider="Deepgram"');
-      expect(twiml).toContain('interruptible="any"');
-      expect(twiml).toContain('hints="technical support, billing"');
+      expect(ids).toEqual({
+        conversation_id: 'conv_conversation_01testconversation00000002',
+        profile_id: 'mem_profile_test',
+        customer_participant_id: 'PA_customer',
+        ai_agent_participant_id: 'PA_agent',
+      });
+
+      expect(createConvSpy).toHaveBeenCalledTimes(1);
+      expect(createConvSpy.mock.calls[0][0]).toMatch(/^tac-voice-\+15551234567-\d{8}T\d{6}Z$/);
+
+      expect(addParticipantSpy).toHaveBeenCalledTimes(2);
+      expect(addParticipantSpy).toHaveBeenNthCalledWith(
+        1,
+        'conv_conversation_01testconversation00000002',
+        [{ channel: 'VOICE', address: '+15551234567', channelId: 'CA_test_123' }],
+        'CUSTOMER'
+      );
+      expect(addParticipantSpy).toHaveBeenNthCalledWith(
+        2,
+        'conv_conversation_01testconversation00000002',
+        [{ channel: 'VOICE', address: '+15559876543', channelId: 'CA_test_123' }],
+        'AI_AGENT'
+      );
     });
 
-    it('should apply multi-language config to handleIncomingCall', async () => {
+    it('returns an empty string for profile_id when the customer participant has none', async () => {
       const { channel, conversationClient } = createVoiceChannel();
 
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
-        id: 'conv_conversation_01testconversation00000002',
+        id: 'conv_conversation_01testconversation00000003',
       } as any);
       vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
-        id: 'PA_test',
-        profileId: 'mem_test',
+        id: 'PA_x',
+        profileId: null,
       } as any);
 
-      const twiml = await channel.handleIncomingCall({
+      const ids = await channel.createConversationForCall({
         toNumber: '+15559876543',
         fromNumber: '+15551234567',
-        conversationRelayConfig: {
-          url: 'wss://example.com/conversation-relay',
-          language: 'en-US',
-          languages: [
-            {
-              code: 'en-US',
-              ttsProvider: 'Google',
-              voice: 'en-US-Journey-O',
-            },
-            {
-              code: 'es-ES',
-              ttsProvider: 'Google',
-              voice: 'es-ES-Standard-A',
-            },
-          ],
-        },
       });
 
-      expect(twiml).toContain('language="en-US"');
-      expect(twiml).toContain('<Language code="en-US"');
-      expect(twiml).toContain('<Language code="es-ES"');
+      expect(ids.profile_id).toBe('');
     });
 
-    it('should include welcomeGreeting in TwiML', async () => {
+    it('throws when Conversation Service returns an invalid conversation id', async () => {
       const { channel, conversationClient } = createVoiceChannel();
 
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
-        id: 'conv_conversation_01testconversation00000002',
-      } as any);
-      vi.spyOn(conversationClient, 'addOrFetchParticipant').mockResolvedValue({
-        id: 'PA_test',
-        profileId: 'mem_test',
+        id: 'not-a-valid-conversation-id',
       } as any);
 
-      const twiml = await channel.handleIncomingCall({
-        toNumber: '+15559876543',
-        fromNumber: '+15551234567',
-        conversationRelayConfig: {
-          url: 'wss://example.com/conversation-relay',
-          welcomeGreeting: 'Hello! How can I help you today?',
-        },
-      });
-
-      expect(twiml).toContain('welcomeGreeting="Hello! How can I help you today?"');
+      await expect(
+        channel.createConversationForCall({
+          toNumber: '+15559876543',
+          fromNumber: '+15551234567',
+        })
+      ).rejects.toThrow(/Invalid conversation ID/);
     });
   });
 

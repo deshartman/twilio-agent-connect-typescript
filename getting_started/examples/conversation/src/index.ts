@@ -17,6 +17,7 @@ import {
   TACMemoryResponse,
   TACServer,
   ConversationRelay,
+  CRelayServer,
 } from 'twilio-agent-connect';
 // Load environment variables from parent directory
 config({ path: '../.env' });
@@ -323,24 +324,42 @@ tac.onMessageReady(async msg => {
   }
 });
 
-// Create and start server
-const server = new TACServer(tac, {
-  voice: {
-    host: '0.0.0.0',
-    port: 8000,
-  },
+// Two-server deployment:
+//   - TACServer  (:8000) serves /webhook — Conversation Orchestrator fan-out
+//     for SMS / Chat / passive voice. Point your Conversations Service webhook
+//     URL here.
+//   - CRelayServer (:8001) serves /twiml, /ws, /conversation-relay-callback —
+//     the voice stack. Point your Twilio voice number's webhook here.
+//
+// The two callbacks thread VoiceChannel through CRelayServer without CR
+// importing from tac-core: createConversationForCall returns the four Maestro
+// IDs that get spliced into <ConversationRelay> customParameters, and
+// handleConversationRelayCallback closes the Maestro conversation when the
+// call ends. Data flows as plain records — CR never learns about Maestro.
+const tacServer = new TACServer(tac, {
+  host: '0.0.0.0',
+  port: 8000,
+  development: true,
+});
+
+const crServer = new CRelayServer(conversationRelay, {
+  authToken: tac.getConfig().authToken,
+  host: '0.0.0.0',
+  port: 8001,
   conversationRelayConfig: {
     welcomeGreeting: 'Hello! What can I tell you about Conversations today?',
     ttsProvider: 'ElevenLabs',
     voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
+  onIncomingCall: input => voiceChannel.createConversationForCall(input),
+  onCRCallback: payload => voiceChannel.handleConversationRelayCallback(payload),
   development: true,
 });
 
 try {
-  await server.start();
-  console.log('Server started successfully');
+  await Promise.all([tacServer.start(), crServer.start()]);
+  console.log('Both servers started: TACServer :8000, CRelayServer :8001');
 } catch (error) {
-  console.error('Failed to start server:', error);
+  console.error('Failed to start servers:', error);
   process.exit(1);
 }
