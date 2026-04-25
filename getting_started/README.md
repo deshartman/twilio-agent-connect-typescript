@@ -41,7 +41,7 @@ cp .env.example .env
 
 See the **Environment Variables** section below for details.
 
-### Install Example Dependencies and Run the Server
+### Install Example Dependencies and Run the Servers
 
 From the `getting_started/examples/conversation` directory:
 
@@ -51,18 +51,55 @@ npm install
 npm run dev
 ```
 
-The server will start on `http://localhost:8000` (as configured in the example). The TAC framework defaults to port 3000, but examples use 8000 for development convenience to avoid conflicts with other services.
+The example starts **two Fastify servers in one process**:
 
-### Expose Your Server
+| Server | Port | What it serves | Twilio points at it from |
+|---|---|---|---|
+| `TACServer` | `:8000` | `POST /webhook` — Conversation Orchestrator fan-out (SMS, Chat, passive voice) | Conversation Configuration → Webhook > Callback method |
+| `ConversationRelayServer` | `:8001` | `POST /twiml`, `WS /ws`, `POST /conversation-relay-callback` — the voice stack | Phone Number → Voice Configuration webhook |
 
-In another terminal, start ngrok:
+The two servers exist because `@twilio/tac-conversationrelay` is deliberately standalone with zero dependency on `@twilio/tac-core`. See the root [README](../README.md) for the architectural background.
+
+### Expose Your Servers (two ngrok tunnels)
+
+ngrok forwards one port per tunnel, so you need two. Two separate terminals:
 
 ```bash
-ngrok http 8000
-# Copy the ngrok URL (e.g., https://abc123.ngrok.io)
+ngrok http 8000    # → TACServer (Conversation Orchestrator webhooks)
+ngrok http 8001    # → ConversationRelayServer (voice)
 ```
 
-Update `VOICE_PUBLIC_DOMAIN` in your `.env` file with the full ngrok URL (including `https://`).
+Copy both URLs — they are different hosts (e.g. `https://abc123.ngrok.app` for Maestro and `https://xyz789.ngrok.app` for voice).
+
+**Tip — reserved subdomains for a sane dev loop.** Both the phone-number Voice webhook and the Conversation Configuration callback are baked into Twilio config, so with random tunnels you paste two URLs into the console on every ngrok restart. With reserved ngrok subdomains you paste them once:
+
+```bash
+ngrok http --url sierra-des.ngrok.dev 8000   # stable Maestro URL
+ngrok http --url cr-des.ngrok.dev     8001   # stable voice URL
+```
+
+### Configure Twilio (two URLs, two console pages)
+
+**Voice — phone number webhook → `:8001` tunnel**
+
+1. Console → **Phone Numbers → Manage → Active numbers → your number**.
+2. Under **Voice Configuration**, set:
+   - **A call comes in**: Webhook
+   - **URL**: `https://<voice-ngrok>/twiml`
+   - **HTTP**: `POST`
+
+You don't configure `/ws` or `/conversation-relay-callback` anywhere — the TwiML returned from `/twiml` points them back at the same host, derived from the incoming request.
+
+**SMS / Maestro — Conversation Configuration webhook → `:8000` tunnel**
+
+1. Console → **Products & services → Conversation Orchestrator → Conversation Configurations → your configuration**.
+2. In the **Overview** tab, click **Edit**.
+3. Set **Webhook > Callback method** to `https://<maestro-ngrok>/webhook` with HTTP method `POST`.
+4. Save.
+
+Inbound SMS flows to Maestro first, then out to `/webhook` — you do **not** set a Messaging webhook on the phone number page.
+
+> `VOICE_PUBLIC_DOMAIN` in `.env.example` is legacy and not consumed by the current examples. The voice `/twiml` response derives its WebSocket URL from the request host, so whichever hostname Twilio hits `/twiml` on is the one `/ws` and `/conversation-relay-callback` will resolve to.
 
 ## Environment Variables
 
@@ -84,7 +121,7 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 
 ### Optional
 
-- `VOICE_PUBLIC_DOMAIN`: Your ngrok domain (required for voice channel)
+- `VOICE_PUBLIC_DOMAIN`: Legacy — not consumed by the current examples. `ConversationRelayServer` derives the voice host from the incoming `/twiml` request; set your ngrok URL on the Twilio phone number instead.
 - `TWILIO_REGION`: Twilio region subdomain for API routing
 - `OPENAI_API_KEY`: Your OpenAI API key (for OpenAI example)
 

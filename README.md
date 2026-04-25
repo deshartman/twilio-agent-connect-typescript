@@ -69,6 +69,24 @@ The voice stack (`/twiml`, `/ws`, `/conversation-relay-callback`) runs on `Conve
 
 The split is enforced by the package layout: `@twilio/tac-conversationrelay` has **zero** dependency on `@twilio/tac-core`. Run CR standalone (drive your own LLM via CR events), run Conversation Orchestrator standalone (SMS/Chat/passive-voice only), or wire them together via two optional callbacks on `ConversationRelayServer` — see [`packages/conversationrelay/README.md`](packages/conversationrelay/README.md).
 
+#### Exposing two ports for local dev
+
+ngrok forwards one port per tunnel, so a voice + Maestro setup needs two tunnels and two separate Twilio console entries:
+
+```bash
+ngrok http 8000    # → TACServer       (Conversation Orchestrator webhooks)
+ngrok http 8001    # → ConversationRelayServer (voice)
+```
+
+| What you're wiring | Twilio console page | URL |
+|---|---|---|
+| Phone-number Voice webhook | Phone Numbers → Active numbers → your number → Voice Configuration | `https://<voice-ngrok>/twiml` (POST) |
+| Conversation Configuration webhook | Conversation Orchestrator → Conversation Configurations → Overview → Edit | `https://<maestro-ngrok>/webhook` (POST) |
+
+`/ws` and `/conversation-relay-callback` aren't configured separately — the voice server derives them from the `/twiml` request host. Inbound SMS routes through Maestro, not the Messaging webhook on the phone number page.
+
+**Dev-loop tip.** With ephemeral tunnels you re-paste both URLs into the console on every ngrok restart. Reserved ngrok subdomains (`ngrok http --url <subdomain>.ngrok.dev <port>`) let you paste them once. See [`getting_started/examples/conversation/README.md`](getting_started/examples/conversation/README.md) for the end-to-end walkthrough.
+
 ```mermaid
 graph LR
     subgraph Twilio["Twilio APIs"]

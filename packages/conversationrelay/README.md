@@ -145,27 +145,37 @@ Two patterns come up in nearly every production voice agent. Neither is a CR pro
 
 ### Silence handling — `SilenceHandler`
 
-CR only emits `{type: 'prompt'}` when STT has a transcript. If the caller goes quiet, the WebSocket stays open and you'll never be told. `SilenceHandler` is a per-`CallSid` timer with progressive reminders:
+CR only emits `{type: 'prompt'}` when STT has a transcript. If the caller goes quiet, the WebSocket stays open and you'll never be told. `SilenceHandler` is a **per-session** timer with progressive reminders — construct one instance per WebSocket connection and let it die with the session.
 
 ```typescript
 import { SilenceHandler } from '@twilio/tac-conversationrelay';
 
-const handler = new SilenceHandler({
-  thresholdSeconds: 15,
-  reminders: ['Are you still there?', 'Hello?', 'Ending due to inactivity'],
-  onSilence: (callSid, reminder, isTerminal) => {
-    if (isTerminal) cr.executeTool(callSid, 'end_call', { reason: 'silence' });
-    else cr.sendResponse(callSid, reminder);
-  },
-}, logger);
+cr.onSessionStarted((callSid) => {
+  const handler = new SilenceHandler(
+    {
+      thresholdSeconds: 15,
+      reminders: ['Are you still there?', 'Hello?', 'Ending due to inactivity'],
+      onSilence: (reminder, isTerminal) => {
+        if (isTerminal) cr.endCall(callSid);
+        else cr.sendResponse(callSid, reminder);
+      },
+    },
+    logger
+  );
+  handlers.set(callSid, handler);
+  handler.reset();
+});
 
-cr.onSessionStarted((callSid) => handler.reset(callSid));
-cr.onPrompt((callSid) => handler.reset(callSid));
-cr.onInterrupt((callSid) => handler.reset(callSid));
-cr.onSessionEnded((callSid) => handler.stop(callSid));
+cr.onPrompt((callSid) => handlers.get(callSid)?.reset());
+cr.onInterrupt((callSid) => handlers.get(callSid)?.reset());
+cr.onDtmf((callSid) => handlers.get(callSid)?.reset());
+cr.onSessionEnded((callSid) => {
+  handlers.get(callSid)?.stop();
+  handlers.delete(callSid);
+});
 ```
 
-Reset on every signal of life — including DTMF (common footgun: keypad input doesn't fire `onPrompt`). Call `stop(callSid)` on session end and `shutdown()` on process exit so timers don't leak. Use `setEnabled(false)` to disable globally without losing state (e.g. during listen-mode) and `setEnabled(true)` then `reset(callSid)` to re-arm.
+Reset on every signal of life — including DTMF (common footgun: keypad input doesn't fire `onPrompt`). Use `setEnabled(false)` to temporarily disable (e.g. during listen-mode) and `setEnabled(true)` + `reset()` to re-arm. The handler's lifetime is the session's lifetime — don't share instances across calls.
 
 ### Listen mode (response suppression)
 

@@ -83,6 +83,13 @@ ngrok http 8001   # Voice numbers          → ConversationRelayServer
 
 Copy both ngrok URLs — they are different (e.g. `https://abc123.ngrok.io` for Maestro and `https://xyz789.ngrok.io` for voice).
 
+> **Dev-loop tip.** Both webhook URLs are baked into Twilio config (phone-number page + Conversation Configuration), so ephemeral tunnels mean re-pasting two URLs every restart. Reserved ngrok subdomains let you paste them once:
+>
+> ```bash
+> ngrok http --url sierra-des.ngrok.dev 8000
+> ngrok http --url cr-des.ngrok.dev     8001
+> ```
+
 ### 5. Configure Twilio Webhooks
 
 **SMS (→ TACServer on :8000):**

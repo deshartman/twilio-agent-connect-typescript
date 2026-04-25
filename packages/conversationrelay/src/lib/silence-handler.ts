@@ -1,27 +1,33 @@
 /**
- * SilenceHandler - Progressive reminder system for silent callers
+ * SilenceHandler — Progressive reminder system for silent callers (per-session).
  *
- * Monitors call silence and triggers progressive reminders after a threshold.
+ * One instance per WebSocket session. Scalar state only — the handler lives
+ * and dies with its session. Constructed by `ConversationRelay` on CR `setup`
+ * (if silence config was supplied), and stopped on WS close.
+ *
  * Based on the simple-conversation-relay SilenceHandler pattern.
  */
 
-import type { CallSid } from '../types';
 import type { Logger } from './logger';
 
 /**
  * Configuration for silence handling behavior
  */
 export interface SilenceHandlerConfig {
-  /** Threshold in seconds before triggering silence callback */
+  /** Threshold in seconds before triggering the onSilence callback */
   thresholdSeconds: number;
   /** Array of reminder messages to send on each silence timeout */
   reminders: string[];
-  /** Callback when silence is detected */
-  onSilence: (callSid: CallSid, reminder: string, isTerminal: boolean) => void;
+  /**
+   * Callback fired on each silence timeout. `isTerminal` is true on the final
+   * reminder — typical handling is to end the call via `endCall` rather than
+   * send another reminder.
+   */
+  onSilence: (reminder: string, isTerminal: boolean) => void;
 }
 
 /**
- * SilenceHandler monitors call silence and triggers progressive reminders
+ * SilenceHandler — per-session silence monitor.
  *
  * @example
  * ```typescript
@@ -33,33 +39,25 @@ export interface SilenceHandlerConfig {
  *       'Hello? Can you hear me?',
  *       'Ending call due to inactivity',
  *     ],
- *     onSilence: (callSid, reminder, isTerminal) => {
- *       if (isTerminal) {
- *         crelayVoice.endCall(callSid);
- *       } else {
- *         crelayVoice.sendResponse(callSid, reminder);
- *       }
+ *     onSilence: (reminder, isTerminal) => {
+ *       if (isTerminal) cr.endCall(callSid);
+ *       else cr.sendResponse(callSid, reminder);
  *     },
  *   },
  *   logger
  * );
  *
- * // Reset timer when user speaks
- * handler.reset(callSid);
- *
- * // Stop monitoring when call ends
- * handler.stop(callSid);
- *
- * // Disable without losing state (resumes on setEnabled(true))
- * handler.setEnabled(false);
+ * handler.reset();                 // start (or restart) the timer
+ * handler.setEnabled(false);       // disable (clears timer; reset is caller's job)
+ * handler.stop();                  // stop monitoring for good
  * ```
  */
 export class SilenceHandler {
-  private readonly timers: Map<CallSid, NodeJS.Timeout> = new Map();
-  private readonly reminderIndex: Map<CallSid, number> = new Map();
+  private timer: NodeJS.Timeout | null = null;
+  private reminderIndex = 0;
+  private enabled = true;
   private readonly config: SilenceHandlerConfig;
   private readonly logger: Logger;
-  private enabled = true;
 
   constructor(config: SilenceHandlerConfig, logger: Logger) {
     this.config = config;
@@ -67,35 +65,36 @@ export class SilenceHandler {
   }
 
   /**
-   * Reset the silence timer for a call
-   * Call this whenever the user provides input (prompt, DTMF, etc.)
+   * Reset the silence timer. Call on any signal of life from the caller
+   * (prompt, interrupt, DTMF). Also used to start the timer for the first
+   * time. No-op if the handler is currently disabled.
    */
-  public reset(callSid: CallSid): void {
-    this.clearTimer(callSid);
-    this.reminderIndex.set(callSid, 0);
+  public reset(): void {
+    this.clearTimer();
+    this.reminderIndex = 0;
     if (this.enabled) {
-      this.startTimer(callSid);
+      this.startTimer();
     }
-    this.logger.debug({ call_sid: callSid, enabled: this.enabled }, 'Silence timer reset');
+    this.logger.debug({ enabled: this.enabled }, 'Silence timer reset');
   }
 
   /**
-   * Stop monitoring silence for a call
-   * Call this when the call ends or silence handling should be disabled
+   * Stop monitoring. Clears the timer and resets the reminder index. Call on
+   * session end.
    */
-  public stop(callSid: CallSid): void {
-    this.clearTimer(callSid);
-    this.reminderIndex.delete(callSid);
-    this.logger.debug({ call_sid: callSid }, 'Silence monitoring stopped');
+  public stop(): void {
+    this.clearTimer();
+    this.reminderIndex = 0;
+    this.logger.debug('Silence monitoring stopped');
   }
 
   /**
-   * Enable or disable silence handling globally.
+   * Enable or disable silence handling.
    *
-   * When disabled: timers are cleared for all active calls, no new timers
-   * fire on `reset()`. When re-enabled: callers must invoke `reset()` to
-   * start timers again (this is deliberate — the re-enabler decides which
-   * calls still deserve silence monitoring).
+   * When disabled: the active timer is cleared, `reset()` becomes a no-op,
+   * and no reminders fire. When re-enabled: the caller must invoke `reset()`
+   * to re-arm the timer — this is deliberate, so the re-enabler decides when
+   * the clock restarts.
    */
   public setEnabled(enabled: boolean): void {
     if (this.enabled === enabled) {
@@ -103,9 +102,7 @@ export class SilenceHandler {
     }
     this.enabled = enabled;
     if (!enabled) {
-      for (const callSid of Array.from(this.timers.keys())) {
-        this.clearTimer(callSid);
-      }
+      this.clearTimer();
     }
     this.logger.info({ enabled }, `Silence handling ${enabled ? 'enabled' : 'disabled'}`);
   }
@@ -115,74 +112,42 @@ export class SilenceHandler {
     return this.enabled;
   }
 
-  /**
-   * Start the silence timer for a call
-   * @private Internal method
-   */
-  private startTimer(callSid: CallSid): void {
-    const timer = setTimeout(() => {
-      const index = this.reminderIndex.get(callSid) || 0;
+  /** Whether a timer is currently scheduled */
+  public isActive(): boolean {
+    return this.timer !== null;
+  }
+
+  // ===========================================================================
+  // Internal
+  // ===========================================================================
+
+  private startTimer(): void {
+    this.timer = setTimeout(() => {
+      const index = this.reminderIndex;
       const isTerminal = index >= this.config.reminders.length - 1;
       const reminder =
         this.config.reminders[index] ||
         this.config.reminders[this.config.reminders.length - 1] ||
         'Are you still there?';
 
-      this.logger.info(
-        { call_sid: callSid, reminder_index: index, is_terminal: isTerminal },
-        'Silence detected'
-      );
+      this.logger.info({ reminder_index: index, is_terminal: isTerminal }, 'Silence detected');
 
-      this.config.onSilence(callSid, reminder, isTerminal);
+      this.config.onSilence(reminder, isTerminal);
 
       if (!isTerminal) {
-        this.reminderIndex.set(callSid, index + 1);
-        this.startTimer(callSid);
+        this.reminderIndex = index + 1;
+        this.startTimer();
       } else {
-        // Terminal reminder - stop monitoring
-        this.stop(callSid);
+        // Terminal reminder — stop monitoring.
+        this.stop();
       }
     }, this.config.thresholdSeconds * 1000);
-
-    this.timers.set(callSid, timer);
   }
 
-  /**
-   * Clear the active timer for a call
-   * @private Internal method
-   */
-  private clearTimer(callSid: CallSid): void {
-    const timer = this.timers.get(callSid);
-    if (timer) {
-      clearTimeout(timer);
-      this.timers.delete(callSid);
+  private clearTimer(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
-  }
-
-  /**
-   * Shutdown the handler and clear all timers
-   * Call this when the application is shutting down
-   */
-  public shutdown(): void {
-    for (const timer of this.timers.values()) {
-      clearTimeout(timer);
-    }
-    this.timers.clear();
-    this.reminderIndex.clear();
-    this.logger.info('Silence handler shutdown complete');
-  }
-
-  /**
-   * Get the number of active silence monitors
-   */
-  public getActiveCount(): number {
-    return this.timers.size;
-  }
-
-  /**
-   * Check if silence monitoring is active for a call
-   */
-  public isActive(callSid: CallSid): boolean {
-    return this.timers.has(callSid);
   }
 }
