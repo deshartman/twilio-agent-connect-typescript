@@ -251,6 +251,8 @@ export class ConversationRelay {
               to: message.to,
               startedAt: new Date(),
               customParameters: message.customParameters,
+              listenMode: false,
+              suppressedCount: 0,
             };
             this.sessions.set(callSid, session);
 
@@ -334,6 +336,48 @@ export class ConversationRelay {
   /** Check if a session exists for a CallSid */
   public hasSession(callSid: CallSid): boolean {
     return this.sessions.has(callSid);
+  }
+
+  // ===========================================================================
+  // Listen Mode
+  // ===========================================================================
+
+  /**
+   * Toggle listen-mode for a session. When enabled, outgoing speech-equivalent
+   * messages (`text`, `play`, `language`) are suppressed for this CallSid;
+   * DTMF and end-call still work. Typical use: outbound IVR navigation where
+   * the agent listens for a human before speaking.
+   *
+   * No-op (with a debug log) if no session exists for the CallSid — common
+   * during call-end races.
+   */
+  public setListenMode(callSid: CallSid, enabled: boolean): void {
+    const session = this.sessions.get(callSid);
+    if (!session) {
+      this.logger.debug(
+        { call_sid: callSid, enabled },
+        'setListenMode called for unknown CallSid — ignoring'
+      );
+      return;
+    }
+    session.listenMode = enabled;
+    this.logger.info(
+      { call_sid: callSid, listen_mode: enabled },
+      `Listen-mode ${enabled ? 'enabled' : 'disabled'}`
+    );
+  }
+
+  /** Whether listen-mode is active for a CallSid. False if no session exists. */
+  public isListenMode(callSid: CallSid): boolean {
+    return this.sessions.get(callSid)?.listenMode ?? false;
+  }
+
+  /**
+   * Count of messages suppressed by listen-mode on this session. Returns 0
+   * for unknown CallSids. Primarily for tests and diagnostics.
+   */
+  public getSuppressedMessageCount(callSid: CallSid): number {
+    return this.sessions.get(callSid)?.suppressedCount ?? 0;
   }
 
   // ===========================================================================

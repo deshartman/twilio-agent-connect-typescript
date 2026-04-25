@@ -442,4 +442,19 @@ export interface CRelaySession {
   to: string;
   startedAt: Date;
   customParameters?: Record<string, string> | undefined;
+
+  /**
+   * When true, `sendResponse` / `sendPlay` / `switchLanguage` are suppressed
+   * for this session — the agent listens but does not speak. `sendDigits`
+   * and `endCall` are never suppressed (DTMF navigation and termination
+   * must always work). Toggle via `ConversationRelay.setListenMode` or the
+   * `set_listen_mode` built-in tool.
+   */
+  listenMode: boolean;
+
+  /**
+   * Count of outgoing protocol messages suppressed by listen-mode on this
+   * session. Test-observable; not intended for production logic.
+   */
+  suppressedCount: number;
 }
