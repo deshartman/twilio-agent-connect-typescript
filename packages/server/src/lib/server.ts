@@ -8,7 +8,6 @@ import formbody from '@fastify/formbody';
 import websocket from '@fastify/websocket';
 import gracefulShutdown from 'fastify-graceful-shutdown';
 import type { WebSocket } from 'ws';
-import twilio from 'twilio';
 
 import {
   VoiceServerConfig,
@@ -23,6 +22,8 @@ import {
   type ConversationRelayCallbackPayload,
   ConversationRelayCallbackPayloadSchema,
   type ConversationRelayConfig,
+  registerSignatureValidation,
+  validateWebSocketSignature,
 } from '@twilio/tac-conversationrelay';
 
 /**
@@ -199,67 +200,6 @@ export class TACServer {
     }
   }
 
-  private getForwardedProto(request: FastifyRequest): string {
-    const raw = request.headers['x-forwarded-proto'] as string | undefined;
-    return raw?.split(',')[0]?.trim() || 'https';
-  }
-
-  private getForwardedHost(request: FastifyRequest): string {
-    const raw = (request.headers['x-forwarded-host'] as string | undefined) || request.headers.host;
-    return raw?.split(',')[0]?.trim() || '';
-  }
-
-  /**
-   * Get the full URL for webhook validation
-   * Handles X-Forwarded-* headers for proxy/ngrok scenarios
-   */
-  private getWebhookUrl(request: FastifyRequest): string {
-    const proto = this.getForwardedProto(request);
-    const host = this.getForwardedHost(request);
-    return `${proto}://${host}${request.url}`;
-  }
-
-  /**
-   * Register global Twilio webhook signature validation hook
-   */
-  private registerWebhookValidation(): void {
-    this.fastify.addHook('preHandler', (request, reply, done): void => {
-      // Skip GET requests — WebSocket upgrades are validated in the route handler
-      if (request.method === 'GET') {
-        done();
-        return;
-      }
-
-      const signature = request.headers['x-twilio-signature'] as string;
-      const url = this.getWebhookUrl(request);
-      const authToken = this.tac.getConfig().authToken;
-
-      let isValid: boolean;
-
-      // Check if this is a JSON body webhook (has bodySHA256 in query string)
-      if (request.url.includes('bodySHA256=')) {
-        const body = (request as FastifyRequest & { rawBody?: string }).rawBody ?? '';
-        isValid = twilio.validateRequestWithBody(authToken, signature, url, body);
-      } else {
-        // Form-encoded validation - use parsed params
-        const params = (request.body as Record<string, string>) || {};
-        isValid = twilio.validateRequest(authToken, signature, url, params);
-      }
-
-      if (!isValid) {
-        this.fastify.log.warn(
-          { url, hasSignature: !!signature },
-          'Invalid Twilio webhook signature'
-        );
-        void reply.code(403).send({ error: 'Invalid webhook signature' });
-        done();
-        return;
-      }
-
-      done();
-    });
-  }
-
   /**
    * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
    *
@@ -360,25 +300,12 @@ export class TACServer {
         this.config.webhookPaths.ws || '/ws',
         { websocket: true },
         (socket: WebSocket, request: FastifyRequest) => {
-          const signature = request.headers['x-twilio-signature'] as string;
           const authToken = this.tac.getConfig().authToken;
-
-          const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
-          const host =
-            (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
-          const wsProto = proto === 'https' ? 'wss' : 'ws';
-          const fullUrl = new URL(`${wsProto}://${host}${request.url}`);
-          const params: Record<string, string> = {};
-          fullUrl.searchParams.forEach((value, key) => {
-            params[key] = value;
-          });
-          const url = fullUrl.origin + fullUrl.pathname;
-
-          const isValid = twilio.validateRequest(authToken, signature, url, params);
+          const isValid = validateWebSocketSignature(request, authToken);
 
           if (!isValid) {
             this.fastify.log.warn(
-              { url, hasSignature: !!signature },
+              { url: request.url, hasSignature: !!request.headers['x-twilio-signature'] },
               'WebSocket connection rejected: invalid Twilio signature'
             );
             socket.close(1008, 'Invalid signature');
@@ -494,7 +421,9 @@ export class TACServer {
       );
 
       // Register webhook signature validation (must be after formbody for body access)
-      this.registerWebhookValidation();
+      registerSignatureValidation(this.fastify, {
+        authToken: this.tac.getConfig().authToken,
+      });
 
       // Set up routes (must be after plugin registration)
       await this.setupRoutes();

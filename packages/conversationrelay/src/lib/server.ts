@@ -8,10 +8,10 @@ import formbody from '@fastify/formbody';
 import websocket from '@fastify/websocket';
 import gracefulShutdown from 'fastify-graceful-shutdown';
 import type { WebSocket } from 'ws';
-import twilio from 'twilio';
 
 import { ConversationRelay } from '../crelay';
 import type { ConversationRelayConfig } from '../types';
+import { registerSignatureValidation, validateWebSocketSignature } from './signature';
 
 /**
  * Server configuration for standalone ConversationRelay (without Maestro)
@@ -104,7 +104,9 @@ export class CRelayServer {
       await this.fastify.register(gracefulShutdown);
 
       // Webhook signature validation is always on — see PR #69
-      this.registerWebhookValidation();
+      registerSignatureValidation(this.fastify, {
+        authToken: this.config.authToken,
+      });
 
       // Setup routes
       await this.setupRoutes();
@@ -145,41 +147,6 @@ export class CRelayServer {
   }
 
   /**
-   * Register webhook signature validation on POST routes. The WebSocket
-   * `/ws` route is validated in its own handler (see setupRoutes).
-   */
-  private registerWebhookValidation(): void {
-    this.fastify.addHook('preHandler', async (request, reply) => {
-      // Skip GET requests — WebSocket upgrades are validated in the route handler
-      if (request.method === 'GET') {
-        return;
-      }
-
-      const signature = request.headers['x-twilio-signature'] as string;
-      const url = this.getWebhookUrl(request);
-      const params = (request.body as Record<string, string>) || {};
-      const isValid = twilio.validateRequest(this.config.authToken, signature, url, params);
-
-      if (!isValid) {
-        this.fastify.log.warn({ url }, 'Invalid Twilio webhook signature');
-        // Returning the reply short-circuits the Fastify lifecycle so the route
-        // handler is not invoked after we send 403.
-        return reply.code(403).send({ error: 'Invalid webhook signature' });
-      }
-    });
-  }
-
-  /**
-   * Build the full URL the way Twilio signed it. Honours X-Forwarded-*
-   * headers for proxy/ngrok scenarios.
-   */
-  private getWebhookUrl(request: FastifyRequest): string {
-    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
-    const host = (request.headers['x-forwarded-host'] as string) || request.headers.host || '';
-    return `${proto}://${host}${request.url}`;
-  }
-
-  /**
    * Setup routes
    */
   private async setupRoutes(): Promise<void> {
@@ -217,13 +184,14 @@ export class CRelayServer {
         this.config.webhookPaths.ws!,
         { websocket: true },
         (socket: WebSocket, request: FastifyRequest) => {
-          const signature = request.headers['x-twilio-signature'] as string;
-          const url = this.getWebhookUrl(request);
-          const isValid = twilio.validateRequest(this.config.authToken, signature, url, {});
+          const isValid = validateWebSocketSignature(request, this.config.authToken);
 
           if (!isValid) {
             this.fastify.log.warn(
-              { url, hasSignature: !!signature },
+              {
+                url: request.url,
+                hasSignature: !!request.headers['x-twilio-signature'],
+              },
               'WebSocket connection rejected: invalid Twilio signature'
             );
             socket.close(1008, 'Invalid signature');

@@ -14,6 +14,14 @@ export { CRelayServer } from './lib/server';
 // Server types
 export type { CRelayServerConfig } from './lib/server';
 
+// Shared Twilio signature-validation helpers
+export {
+  registerSignatureValidation,
+  validateWebSocketSignature,
+  getDefaultWebhookUrl,
+} from './lib/signature';
+export type { RegisterSignatureValidationOptions } from './lib/signature';
+
 // Logger helpers (CR has its own logger — no dep on @twilio/tac-core)
 export { createLogger } from './lib/logger';
 export type { Logger } from './lib/logger';
