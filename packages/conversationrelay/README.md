@@ -9,35 +9,39 @@ Pure ConversationRelay protocol utility for voice-only Twilio applications. Can 
 - Event routing via callbacks
 - TwiML generation for `<ConversationRelay>` noun
 - Built-in protocol tool registry — LLM-discoverable, auto-ships outgoing messages
-- Standalone server option (no Maestro required)
+- Standalone server option (no Conversation Orchestrator required)
 
 ## Architecture
 
+```mermaid
+graph LR
+    Twilio["Twilio ConvRelay<br/>(voice)"]
+
+    subgraph CR["ConversationRelay package"]
+        direction TB
+        Registry["tool registry<br/>─────<br/>play_media<br/>send_digits<br/>switch_language<br/>end_call<br/>+ user tools"]:::cr
+        Callbacks["callbacks<br/>─────<br/>onPrompt<br/>onDtmf<br/>onInterrupt<br/>onSession* (Started / Ended)<br/>onError / onInfo"]:::cr
+        API["public API<br/>─────<br/>sendResponse(callSid, text)<br/>listTools()<br/>executeTool(callSid, name, args)<br/>↳ auto-ships protocol outgoingMessage<br/>&nbsp;&nbsp;&nbsp;via Twilio WS"]:::cr
+    end
+
+    User["User<br/>LLM<br/>loop"]:::you
+
+    Twilio <-->|WS| CR
+    CR <--> User
+
+    classDef cr fill:#e7f0ff,stroke:#5b8def,color:#000
+    classDef you fill:#ffe5e5,stroke:#cc3333,color:#000
+    style Twilio fill:#f3f3f3,stroke:#888,color:#000
+    style CR fill:#f8fbff,stroke:#5b8def,stroke-width:2px,color:#000
 ```
- +------------+         +-------------------------------------------------+
- |  Twilio    |         |  ConversationRelay (this package)               |
- | ConvRelay  |<---WS-->|                                                 |    +---------+
- |  (voice)   |         |   +-------------------+   +-----------------+   |<-->|  User   |
- +------------+         |   | tool registry     |   | callbacks       |   |    |  LLM    |
-                        |   |  playMedia        |   |  onPrompt       |   |    |  loop   |
-                        |   |  sendDigits       |   |  onDtmf         |   |    +---------+
-                        |   |  switchLanguage   |   |  onInterrupt    |   |         ^
-                        |   |  endCall          |   |  onSession*     |   |         |
-                        |   |  + user tools     |   |  onError/Info   |   |         |
-                        |   +-------------------+   +-----------------+   |         |
-                        |                                                 |         |
-                        |   public API:                                   |         |
-                        |     sendResponse(callSid, text)                 |         |
-                        |     listTools()                                 |         |
-                        |     executeTool(callSid, name, args)            |         |
-                        |       +-- auto-ships protocol outgoingMessage   |         |
-                        |          via Twilio WS                          |         |
-                        +-------------------------------------------------+         |
-                                                                                    |
-    LLM SDK (OpenAI, Anthropic, Google...) lives in USER code, never in CR. --------+
-    Tool format conversion via CRTool.toOpenAIFormat() / toAnthropicFormat()
-    at call site.
-```
+
+> **LLM SDK (OpenAI, Anthropic, Google, …) lives in USER code, never in CR.**
+> Tool format conversion via `CRTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
+
+## When to use this package
+
+- **Voice-only app, no Conversation Orchestrator / no multi-channel** → use this package standalone. Session identity is the `CallSid`; you own LLM, history, and memory.
+- **Voice + SMS / Chat, cross-channel identity, Twilio Memory** → use [`twilio-agent-connect`](../../README.md) (tac-core). This package is still used under the hood — tac-core's `VoiceChannel` embeds a `ConversationRelay` instance and integrates it with Conversation Orchestrator Conversations.
 
 ## Installation
 
@@ -45,88 +49,45 @@ Pure ConversationRelay protocol utility for voice-only Twilio applications. Can 
 npm install @twilio/tac-conversationrelay
 ```
 
-## Usage
+## Setup
 
-### Option 1: Standalone Server (Recommended)
+Both modes start the same way: construct `ConversationRelay`, register callbacks, pass the instance to `ConversationRelayServer`, start the server, point a Twilio voice number at `https://<host>:<port>/twiml`. What changes is whether you wire the server's optional callbacks to Conversation Orchestrator.
+
+### Standalone mode (no Conversation Orchestrator)
+
+Point your Twilio voice number at `/twiml` and drive your own LLM via `cr.onPrompt` / `cr.sendResponse`. No Conversation Orchestrator conversation is created; session identity is the `CallSid`.
+
+Working example: **[`getting_started/examples/crelay/`](../../getting_started/examples/crelay/)** — OpenAI-backed voice agent, with interruption handling, tool dispatch, and env setup. Read its README to go end-to-end.
+
+The minimum server wiring:
 
 ```typescript
 import { ConversationRelay, ConversationRelayServer } from '@twilio/tac-conversationrelay';
 
-const conversationRelay = new ConversationRelay();
-
-// Register event callbacks
-conversationRelay.onSessionStarted((callSid, session, data) => {
-  console.log(`Call started: ${callSid}`);
+const cr = new ConversationRelay();
+cr.onPrompt(async (callSid, message) => {
+  const reply = await yourLLM.chat(message);
+  cr.sendResponse(callSid, reply);
 });
 
-conversationRelay.onPrompt(async (callSid, message, data) => {
-  console.log(`User said: ${message}`);
-
-  // Generate your response (LLM, business logic, etc.)
-  const response = await generateResponse(message);
-
-  // Send response back to caller
-  conversationRelay.sendResponse(callSid, response);
-});
-
-conversationRelay.onSessionEnded((callSid) => {
-  console.log(`Call ended: ${callSid}`);
-});
-
-// Create and start server
-if (!process.env.TWILIO_AUTH_TOKEN) {
-  throw new Error('TWILIO_AUTH_TOKEN is required');
-}
-const server = new ConversationRelayServer(conversationRelay, {
-  host: '0.0.0.0',
-  port: 3000,
-  conversationRelayConfig: {
-    welcomeGreeting: 'Hello! How can I help you today?',
-    transcriptionProvider: 'Deepgram',
-    ttsProvider: 'Google',
-  },
-  authToken: process.env.TWILIO_AUTH_TOKEN, // required — always-on signature validation
-});
-
-await server.start();
+await new ConversationRelayServer(cr, {
+  authToken: process.env.TWILIO_AUTH_TOKEN!,
+  port: 8001,
+}).start();
 ```
 
-### Option 2: Library Only (Bring Your Own Server)
+### Integrated mode (with tac-core / Conversation Orchestrator)
 
-```typescript
-import { ConversationRelay } from '@twilio/tac-conversationrelay';
-import Fastify from 'fastify';
-import websocket from '@fastify/websocket';
+`ConversationRelayServer` exposes two optional callbacks — `onIncomingCall` and `onConversationRelayCallback` — that let you splice Conversation Orchestrator into the TwiML / callback paths without this package importing from tac-core. Wire them to `VoiceChannel` methods that return plain data records:
 
-const fastify = Fastify();
-const conversationRelay = new ConversationRelay();
+- `onIncomingCall` is called on `POST /twiml`. Return a `Record<string, string>` of customParameters; CR splices them into the `<ConversationRelay>` TwiML element. `VoiceChannel.createConversationForCall` returns the four Conversation Orchestrator IDs (`conversation_id`, `profile_id`, `customer_participant_id`, `ai_agent_participant_id`), which arrive on the CR `setup` frame at WebSocket connect.
+- `onConversationRelayCallback` is called when Twilio POSTs the URL declared as `<ConversationRelay action="…">` — at call-end (`CallStatus: 'completed'`) and on handoff requests. Return `{ status, content, contentType }`; `VoiceChannel.handleConversationRelayCallback` closes the Conversation Orchestrator conversation and returns handoff TwiML when applicable.
 
-// Register callbacks
-conversationRelay.onPrompt((callSid, message) => {
-  const response = generateResponse(message);
-  conversationRelay.sendResponse(callSid, response);
-});
+Omit both callbacks → standalone behaviour. Pass both → integrated. The package itself has **zero** dependency on `@twilio/tac-core`.
 
-// TwiML endpoint
-fastify.post('/twiml', (req, res) => {
-  const wsUrl = `wss://${req.headers.host}/ws`;
-  const twiml = conversationRelay.generateTwiML(
-    { url: wsUrl, welcomeGreeting: 'Hello!' },
-    { conversation_id: req.body.CallSid }
-  );
-  res.type('application/xml').send(twiml);
-});
+Working example: **[`getting_started/examples/conversation/`](../../getting_started/examples/conversation/)** — voice + SMS with Conversation Orchestrator, memory, and profile. Two Fastify servers in one process (TACServer :8000 for Conversation Orchestrator webhooks, ConversationRelayServer :8001 for voice).
 
-// WebSocket endpoint
-await fastify.register(websocket);
-fastify.get('/ws', { websocket: true }, (socket) => {
-  conversationRelay.handleConnection(socket);
-});
-
-await fastify.listen({ port: 3000 });
-```
-
-## API Reference
+## API reference
 
 ### ConversationRelay
 
@@ -161,139 +122,78 @@ Main class for ConversationRelay protocol handling.
 
 ### ConversationRelayServer
 
-Standalone Fastify server for voice-only applications.
+Standalone Fastify server wrapping a `ConversationRelay` instance. Serves `/twiml`, `/ws`, and `/conversation-relay-callback` (plus a silent `/webhook` sink for Conversation Orchestrator misconfigurations).
 
 **Constructor:**
 ```typescript
-new ConversationRelayServer(conversationRelay: ConversationRelay, config?: ConversationRelayServerConfig)
+new ConversationRelayServer(conversationRelay: ConversationRelay, config: ConversationRelayServerConfig)
 ```
 
-**Config Options:**
-- `host` - Server host (default: '0.0.0.0')
-- `port` - Server port (default: 3000)
-- `webhookPaths` - Custom paths for endpoints
-- `conversationRelayConfig` - CR configuration
-- `development` - Enable pretty logging
-- `authToken` - **Required.** Twilio auth token used to validate every incoming webhook and WebSocket upgrade. Signature validation is always on (see PR #69).
-- `onIncomingCall?` - Optional callback invoked on POST `/twiml`. Receives `{ toNumber, fromNumber, callSid }`, returns `Promise<CustomParameters>` (a plain `Record<string, string>`). The record is spliced into the `<ConversationRelay>` TwiML element as `<Parameter>` pairs and arrives on the CR WebSocket `setup` message. Omit for standalone — CR renders TwiML with `{ conversation_id: CallSid }`.
-- `onConversationRelayCallback?` - Optional callback invoked on POST `/conversation-relay-callback`. Twilio fires this at the URL declared as `<ConversationRelay action="…">` — on call-end (CallStatus `completed`) and when the CR `end` message carries `handoffData`. Receives the validated `ConversationRelayCallbackPayload`, returns `Promise<{ status, content, contentType }>`; the route echoes whatever the callback returns (typical handoff response: `status: 200`, `contentType: 'application/xml'`, `content: '<Response><Dial>…</Dial></Response>'`). Omit for standalone — route is a 200 OK no-op and call-end is observable via `cr.onSessionEnded`.
+**Config options:**
+- `host` — default `'0.0.0.0'`
+- `port` — default `3000`
+- `webhookPaths` — override any of `twiml`, `ws`, `callback`, `webhook`
+- `conversationRelayConfig` — TwiML attributes (welcomeGreeting, ttsProvider, voice, transcriptionProvider, etc.)
+- `development` — enable pino-pretty logging
+- `authToken` — **required**. Twilio auth token; signature validation is always on
+- `onIncomingCall?` — optional. `(input) => Promise<CustomParameters>`. Splices returned record into `<ConversationRelay>` as `<Parameter>` elements. Omit for standalone (CR emits `{ conversation_id: callSid }`)
+- `onConversationRelayCallback?` — optional. `(payload) => Promise<{ status, content, contentType }>`. Called when Twilio POSTs the TwiML `action` URL (call-end and handoff). Omit for standalone (200 OK no-op)
 
-### Two modes: standalone vs integrated
+## Voice-turn patterns
 
-**Standalone** — drive your own LLM via CR events. Zero TAC, zero Maestro.
+Two patterns come up in nearly every production voice agent. Neither is a CR protocol feature — CR emits no "silence" event and has no "listen-only" mode. Both are user-space patterns; this package ships a helper for the first.
+
+### Silence detection — `SilenceDetector`
+
+CR only emits `{type: 'prompt'}` when STT has a transcript. If the caller goes quiet, the WebSocket stays open and you'll never be told. `SilenceDetector` is a per-`CallSid` timer with progressive reminders:
 
 ```typescript
-const conversationRelay = new ConversationRelay();
-conversationRelay.onPrompt(async (callSid, prompt) => {
-  const reply = await myLLM.chat(prompt);
-  conversationRelay.sendResponse(callSid, reply);
-});
+import { SilenceDetector } from '@twilio/tac-conversationrelay';
 
-const server = new ConversationRelayServer(conversationRelay, {
-  authToken: process.env.TWILIO_AUTH_TOKEN!,
-  port: 8001,
-  conversationRelayConfig: { welcomeGreeting: 'Hello!' },
-});
-await server.start();
+const detector = new SilenceDetector({
+  thresholdSeconds: 15,
+  reminders: ['Are you still there?', 'Hello?', 'Ending due to inactivity'],
+  onSilence: (callSid, reminder, isTerminal) => {
+    if (isTerminal) cr.executeTool(callSid, 'end_call', { reason: 'silence' });
+    else cr.sendResponse(callSid, reminder);
+  },
+}, logger);
+
+cr.onSessionStarted((callSid) => detector.reset(callSid));
+cr.onPrompt((callSid) => detector.reset(callSid));
+cr.onInterrupt((callSid) => detector.reset(callSid));
+cr.onSessionEnded((callSid) => detector.stop(callSid));
 ```
 
-**Integrated with `@twilio/tac-core`** — wire the two optional callbacks into `VoiceChannel` so each call gets a Maestro conversation with memory, profile, and cross-channel identity. CR itself still has zero dependency on tac-core; the callbacks cross the seam with plain data records.
+Reset on every signal of life — including DTMF (common footgun: keypad input doesn't fire `onPrompt`). Call `stop(callSid)` on session end and `shutdown()` on process exit so timers don't leak.
+
+### Listen mode (response suppression)
+
+Sometimes the agent should listen but not speak — typically during sensitive-input flows (credit cards, one-time codes). There's no CR protocol for this: the way to stop the agent speaking is to skip `sendResponse`. Gate it on a per-call flag:
 
 ```typescript
-import { TAC, VoiceChannel, TACServer } from '@twilio/tac-core';
-import { ConversationRelay, ConversationRelayServer } from '@twilio/tac-conversationrelay';
+const listenMode = new Map<string, boolean>();
 
-const tac = await TAC.create({ config: TACConfig.fromEnv() });
-const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
-const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
-tac.registerChannel(voiceChannel);
-
-const crServer = new ConversationRelayServer(conversationRelay, {
-  authToken: tac.getConfig().authToken,
-  port: 8001,
-  conversationRelayConfig: { welcomeGreeting: 'Welcome!' },
-  // Integrated wiring: plain data across the seam.
-  onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
-  onConversationRelayCallback: (payload) => voiceChannel.handleConversationRelayCallback(payload),
-});
-
-// TACServer on :8000 serves Maestro webhooks (/webhook + optional /cintel).
-// ConversationRelayServer on :8001 serves voice (/twiml + /ws + /conversation-relay-callback).
-await Promise.all([new TACServer(tac, { port: 8000 }).start(), crServer.start()]);
-```
-
-## Tools
-
-### Built-in protocol tools
-
-Four CR protocol tools are auto-registered on every `ConversationRelay` instance:
-
-| Tool | Purpose |
-|------|---------|
-| `playMediaTool` | Play audio URL to the caller |
-| `sendDigitsTool` | Send DTMF digits |
-| `switchLanguageTool` | Change TTS / transcription language mid-call |
-| `endCallTool` | Terminate the call, optional handoff data |
-
-Each tool is a `CRTool` exposing `name`, `description`, `parameters` (JSON schema), `implementation`, plus format helpers `toOpenAIFormat()`, `toAnthropicFormat()`, `toJSON()`.
-
-Remove any built-in you don't want discoverable:
-
-```typescript
-conversationRelay.unregisterTool('end_call');
-```
-
-### Tool flow (LLM dispatch)
-
-Hand the tool list to your LLM, then dispatch each tool call back through CR. For protocol tools, `executeTool` validates and auto-ships the `outgoingMessage` via the WebSocket — you never have to shuttle it yourself.
-
-```typescript
-import OpenAI from 'openai';
-
-const openai = new OpenAI();
-
-conversationRelay.onPrompt(async (callSid, message) => {
-  const tools = conversationRelay
-    .listTools()
-    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: [/* system + history + user */],
-    tools,
-  });
-
-  const choice = completion.choices[0];
-
-  // Send spoken response
-  if (choice?.message?.content) {
-    conversationRelay.sendResponse(callSid, choice.message.content);
-  }
-
-  // Dispatch tool calls — CR ships protocol outgoingMessages automatically
-  for (const call of choice?.message?.tool_calls ?? []) {
-    await conversationRelay.executeTool(
-      callSid,
-      call.function.name,
-      JSON.parse(call.function.arguments)
-    );
-  }
+cr.onPrompt(async (callSid, prompt) => {
+  const reply = await yourLLM.run(prompt);
+  if (!listenMode.get(callSid)) cr.sendResponse(callSid, reply);
+  // else: swallow the reply, but still update your history
 });
 ```
 
-### Authoring custom tools
+Keep running the LLM — just skip the wire write. If you skip the LLM too, your history loses context and the next turn becomes incoherent. Exit listen-mode on a known signal (N turns, specific utterance, or an LLM-triggered tool) so calls don't strand a silent agent.
+
+## Authoring custom tools
 
 ```typescript
 import { defineTool } from '@twilio/tac-conversationrelay';
 
-const lookupOrderTool = defineTool(
+const lookupOrder = defineTool(
   'lookup_order',
   'Fetch order status by order ID',
   {
     type: 'object',
-    properties: {
-      orderId: { type: 'string', description: 'Order identifier' },
-    },
+    properties: { orderId: { type: 'string' } },
     required: ['orderId'],
   },
   async ({ orderId }: { orderId: string }) => {
@@ -302,91 +202,10 @@ const lookupOrderTool = defineTool(
   }
 );
 
-conversationRelay.registerTool(lookupOrderTool);
+cr.registerTool(lookupOrder);
 ```
 
-User-authored tools without an `outgoingMessage` field simply return their result. `executeTool` hands that result back to you — feed it to the LLM loop.
-
-## Best-practice patterns
-
-Silence handling and listen-mode are **not** CR protocol operations, so they are not built-in tools. They're small patterns you wire in user code — both rely on primitives this package provides.
-
-### Silence detection
-
-Use the `SilenceDetector` helper to track gaps between prompts and take action (warn, end call, etc.) when the caller has been quiet for too long:
-
-```typescript
-import { ConversationRelay, SilenceDetector, createLogger } from '@twilio/tac-conversationrelay';
-
-const logger = createLogger();
-const conversationRelay = new ConversationRelay(logger);
-const silenceDetectors = new Map<string, SilenceDetector>();
-
-conversationRelay.onSessionStarted((callSid) => {
-  const detector = new SilenceDetector(
-    {
-      thresholdSeconds: 15,
-      reminders: ['Are you still there?', 'Hello? Can you hear me?', 'Ending call due to inactivity'],
-      onSilence: (silencedCallSid, reminder, isTerminal) => {
-        if (isTerminal) {
-          conversationRelay.endCall(silencedCallSid);
-        } else {
-          conversationRelay.sendResponse(silencedCallSid, reminder);
-        }
-      },
-    },
-    logger
-  );
-  silenceDetectors.set(callSid, detector);
-});
-
-conversationRelay.onPrompt((callSid) => {
-  silenceDetectors.get(callSid)?.reset(callSid);
-});
-
-conversationRelay.onSessionEnded((callSid) => {
-  silenceDetectors.get(callSid)?.stop(callSid);
-  silenceDetectors.delete(callSid);
-});
-```
-
-### Listen-mode (response suppression)
-
-Sometimes you want the agent to listen but not speak — e.g., during a verification flow where the caller is reading a code aloud. Gate your `sendResponse` calls with a per-call flag:
-
-```typescript
-const listenMode = new Map<string, boolean>();
-
-conversationRelay.onPrompt(async (callSid, message) => {
-  // ... run your LLM loop, build `response` ...
-  if (!listenMode.get(callSid)) {
-    conversationRelay.sendResponse(callSid, response);
-  }
-});
-
-// Register a user tool the LLM can call to toggle listen-mode
-import { defineTool } from '@twilio/tac-conversationrelay';
-
-conversationRelay.registerTool(
-  defineTool(
-    'set_listen_mode',
-    'Toggle whether the agent speaks aloud. Use during sensitive input flows.',
-    {
-      type: 'object',
-      properties: { enabled: { type: 'boolean' } },
-      required: ['enabled'],
-    },
-    ({ enabled }: { enabled: boolean }) => {
-      // `executeTool` receives the callSid internally; capture it via closure
-      // in your session initializer, or key this tool per-call.
-      listenMode.set(currentCallSid, enabled);
-      return { success: true };
-    }
-  )
-);
-```
-
-Both patterns compose cleanly with the tool registry — register the gating tool once and the LLM can toggle behavior via function calls.
+User tools without an `outgoingMessage` return their result for the LLM loop to consume. Built-in protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) return `{outgoingMessage}` and `executeTool` auto-ships it via the WebSocket — your call site doesn't branch.
 
 ## License
 
