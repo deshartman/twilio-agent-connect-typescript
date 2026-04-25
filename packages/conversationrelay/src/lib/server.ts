@@ -10,7 +10,12 @@ import gracefulShutdown from 'fastify-graceful-shutdown';
 import type { WebSocket } from 'ws';
 
 import { ConversationRelay } from '../crelay';
-import type { ConversationRelayConfig } from '../types';
+import {
+  ConversationRelayCallbackPayloadSchema,
+  type ConversationRelayConfig,
+  type ConversationRelayCallbackPayload,
+  type CustomParameters,
+} from '../types';
 import { registerSignatureValidation, validateWebSocketSignature } from './signature';
 
 /**
@@ -46,6 +51,42 @@ export interface CRelayServerConfig {
    * of TACServer (see PR #69).
    */
   authToken: string;
+
+  /**
+   * Called on POST /twiml when an incoming call arrives. Return a record of
+   * custom parameters that CRelayServer will splice into the `<ConversationRelay>`
+   * TwiML element (rendered by `conversationRelay.generateTwiML`).
+   *
+   * Integrated mode (with `@twilio/tac-core`): wire this to
+   * `voiceChannel.createConversationForCall(input)` — the four Maestro IDs
+   * (conversation_id, profile_id, customer_participant_id, ai_agent_participant_id)
+   * flow to CR as customParameters and arrive at the CR WebSocket on the
+   * `setup` message.
+   *
+   * Standalone mode: omit this — CR generates TwiML with `{}` as customParameters
+   * and the caller drives their own LLM via CR event subscriptions.
+   */
+  onIncomingCall?: (input: {
+    toNumber: string;
+    fromNumber: string;
+    callSid?: string;
+  }) => Promise<CustomParameters>;
+
+  /**
+   * Called on POST /conversation-relay-callback when Twilio fires the CR
+   * action URL (call ended, handoff requested, etc.). Return the HTTP
+   * response the server should echo back to Twilio.
+   *
+   * Integrated mode: wire this to
+   * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
+   * — core closes the Maestro conversation and returns any handoff TwiML.
+   *
+   * Standalone mode: omit this — CRelayServer replies 200 OK no-op and the
+   * caller handles call-end via the CR `onSessionEnded` event subscription.
+   */
+  onCRCallback?: (
+    payload: ConversationRelayCallbackPayload
+  ) => Promise<{ status: number; content: string; contentType: string }>;
 }
 
 /**
@@ -58,9 +99,14 @@ export class CRelayServer {
   private readonly fastify: FastifyInstance;
   private readonly conversationRelay: ConversationRelay;
   private readonly config: Required<
-    Omit<CRelayServerConfig, 'fastify' | 'conversationRelayConfig'>
+    Omit<
+      CRelayServerConfig,
+      'fastify' | 'conversationRelayConfig' | 'onIncomingCall' | 'onCRCallback'
+    >
   > & {
     conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
+    onIncomingCall?: CRelayServerConfig['onIncomingCall'];
+    onCRCallback?: CRelayServerConfig['onCRCallback'];
   };
 
   constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig) {
@@ -80,6 +126,8 @@ export class CRelayServer {
       },
       development: config.development ?? false,
       authToken: config.authToken,
+      ...(config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {}),
+      ...(config.onCRCallback ? { onCRCallback: config.onCRCallback } : {}),
     };
 
     this.fastify = Fastify({
@@ -151,20 +199,30 @@ export class CRelayServer {
    */
   private async setupRoutes(): Promise<void> {
     // TwiML endpoint (incoming call)
+    // Standalone mode: no onIncomingCall callback → emit TwiML with CallSid
+    //   as conversation_id (caller's own LLM loop has no Maestro conversation).
+    // Integrated mode: onIncomingCall returns Maestro IDs as customParameters,
+    //   which land on the CR WebSocket `setup` message.
     this.fastify.post(
       this.config.webhookPaths.twiml!,
       async (request: FastifyRequest, reply: FastifyReply) => {
         try {
           const formData = request.body as Record<string, string>;
           const callSid = formData['CallSid'] || '';
+          const toNumber = formData['To'] || '';
+          const fromNumber = formData['From'] || '';
           const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
           const host = request.headers.host as string;
           const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws!}`;
           const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.callback!}`;
 
+          const customParams: CustomParameters = this.config.onIncomingCall
+            ? await this.config.onIncomingCall({ toNumber, fromNumber, callSid })
+            : { conversation_id: callSid };
+
           const twiml = this.conversationRelay.generateTwiML(
             { url: websocketUrl, ...this.config.conversationRelayConfig },
-            { conversation_id: callSid },
+            customParams,
             { actionUrl: callbackUrl }
           );
 
@@ -203,11 +261,39 @@ export class CRelayServer {
       );
     });
 
-    // Callback endpoint (call ended)
+    // ConversationRelay action URL (call ended / handoff request).
+    // Standalone mode: no onCRCallback → 200 OK no-op. Caller handles call-end
+    //   via `cr.onSessionEnded` event subscription.
+    // Integrated mode: onCRCallback closes the Maestro conversation and
+    //   returns handoff TwiML (or 200 OK for normal completion).
     this.fastify.post(
       this.config.webhookPaths.callback!,
-      async (_request: FastifyRequest, reply: FastifyReply) => {
-        await reply.code(200).send('OK');
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!this.config.onCRCallback) {
+          await reply.code(200).send('OK');
+          return;
+        }
+
+        const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          this.fastify.log.error(
+            { errors: parseResult.error.errors },
+            'Invalid ConversationRelay callback payload'
+          );
+          await reply.code(400).send({ error: 'Invalid payload' });
+          return;
+        }
+
+        try {
+          const result = await this.config.onCRCallback(parseResult.data);
+          await reply.code(result.status).type(result.contentType).send(result.content);
+        } catch (error) {
+          this.fastify.log.error(
+            'ConversationRelay callback error: ' +
+              (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({ error: 'Internal server error' });
+        }
       }
     );
 

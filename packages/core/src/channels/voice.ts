@@ -788,14 +788,36 @@ export class VoiceChannel implements Channel {
     conversationRelayConfig: ConversationRelayConfig;
   }): Promise<string> {
     const cr = this.assertCR('handleIncomingCall');
-    const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
+    const { actionUrl, conversationRelayConfig, ...maestroInput } = options;
+
+    const ids = await this.createConversationForCall(maestroInput);
+
+    return cr.generateTwiML(conversationRelayConfig, ids, actionUrl ? { actionUrl } : undefined);
+  }
+
+  /**
+   * Create the Maestro conversation for an incoming voice call and return the
+   * four IDs that CR needs to inject as TwiML customParameters. No CR, no
+   * TwiML — pure Maestro work. Wire this to `CRelayServer.onIncomingCall` so
+   * the CR server renders the TwiML with these IDs as customParameters.
+   */
+  public async createConversationForCall(input: {
+    toNumber: string;
+    fromNumber: string;
+    callSid?: string;
+  }): Promise<{
+    conversation_id: string;
+    profile_id: string;
+    customer_participant_id: string;
+    ai_agent_participant_id: string;
+  }> {
+    const { toNumber, fromNumber, callSid } = input;
 
     const timestamp = new Date().toISOString().replaceAll(/[-:.]/g, '').slice(0, 15) + 'Z';
     const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
 
     const conversation = await this.conversationClient.createConversation(conversationName);
 
-    // Validate the conversation ID format
     if (!isConversationId(conversation.id)) {
       throw new Error(
         `Invalid conversation ID returned from Conversation Service: ${conversation.id}. ` +
@@ -816,26 +838,19 @@ export class VoiceChannel implements Channel {
       [{ channel: 'VOICE', address: fromNumber, channelId: callSid }],
       'CUSTOMER'
     );
-    const profileId = customerParticipant.profileId || '';
-    const customerParticipantId = customerParticipant.id;
 
     const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: 'VOICE', address: toNumber, channelId: callSid }],
       'AI_AGENT'
     );
-    const aiAgentParticipantId = aiAgentParticipant.id;
 
-    return cr.generateTwiML(
-      conversationRelayConfig,
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        customer_participant_id: customerParticipantId,
-        ai_agent_participant_id: aiAgentParticipantId,
-      },
-      actionUrl ? { actionUrl } : undefined
-    );
+    return {
+      conversation_id: conversationId,
+      profile_id: customerParticipant.profileId || '',
+      customer_participant_id: customerParticipant.id,
+      ai_agent_participant_id: aiAgentParticipant.id,
+    };
   }
 
   // ===========================================================================
