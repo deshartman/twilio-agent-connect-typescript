@@ -57,44 +57,47 @@ TWILIO_CONVERSATION_CONFIGURATION_ID=conv_configuration_xxxxxxxxxxxxxxxxxxxxxxxx
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 3. Run the Server
+### 3. Run the Servers
 
 ```bash
 npm run dev
 ```
 
-The server starts on `http://localhost:8000` with endpoints:
+The example starts **two Fastify servers** in the same process:
 
-- `POST /webhook` - SMS webhook endpoint
-- `POST /twiml` - Voice webhook endpoint (generates TwiML)
-- `WS /ws` - Voice WebSocket endpoint
-- `POST /conversation-relay-callback` - Voice callback endpoint
+| Server | Port | Endpoints |
+|---|---|---|
+| `TACServer` (Maestro webhooks) | `8000` | `POST /webhook` — Conversation Orchestrator fan-out (SMS) |
+| `CRelayServer` (voice) | `8001` | `POST /twiml`, `WS /ws`, `POST /conversation-relay-callback` |
 
-### 4. Expose Your Server
+The split exists because `@twilio/tac-conversationrelay` is deliberately a standalone package with no dependency on `@twilio/tac-core` — the two servers are composed via two optional callbacks (`onIncomingCall`, `onCRCallback`) that carry plain data records, not protocol types.
 
-In another terminal, start ngrok:
+### 4. Expose Your Servers
+
+ngrok (or your tunnel of choice) only forwards one port at a time, so you need two tunnels. In two separate terminals:
 
 ```bash
-ngrok http 8000
+ngrok http 8000   # SMS / Maestro webhooks → TACServer
+ngrok http 8001   # Voice numbers          → CRelayServer
 ```
 
-Copy the ngrok URL (e.g., `https://abc123.ngrok.io`).
+Copy both ngrok URLs — they are different (e.g. `https://abc123.ngrok.io` for Maestro and `https://xyz789.ngrok.io` for voice).
 
 ### 5. Configure Twilio Webhooks
 
-**SMS:**
+**SMS (→ TACServer on :8000):**
 
 1. In the [Console](https://1console.twilio.com/), go to **Products & services** > **Conversation Orchestrator** > **Conversation Configurations**.
 2. Select your conversation configuration.
 3. In the **Overview** tab, click **Edit**.
-4. Set **Webhook > Callback method** to `https://abc123.ngrok.io/webhook` with HTTP method `POST`.
+4. Set **Webhook > Callback method** to `https://<maestro-ngrok>/webhook` with HTTP method `POST`.
 5. Click **Save changes**.
 
-**Voice:**
+**Voice (→ CRelayServer on :8001):**
 
 1. In the [Console](https://1console.twilio.com/), go to **Products & services** > **Numbers & senders**.
 2. Select your Twilio phone number.
-3. Under **Voice configuration**, set the webhook URL to `https://abc123.ngrok.io/twiml` with HTTP method `POST`.
+3. Under **Voice configuration**, set the webhook URL to `https://<voice-ngrok>/twiml` with HTTP method `POST`.
 
 ## Example Conversations
 

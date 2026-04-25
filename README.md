@@ -59,7 +59,18 @@ TAC uses **Maestro Conversations Service** for unified conversation orchestratio
 
 All channels require `TWILIO_CONVERSATION_CONFIGURATION_ID` to be configured in your environment.
 
-For advanced use cases, `VoiceChannel` also supports **passive mode** — construct it without a `conversationRelay` option and it consumes Maestro webhooks only (no WebSocket, no outbound). Useful for BYO-CR setups, inbound-only transcript analysis, or anywhere you don't want `TACServer` to manage the CR WebSocket.
+For advanced use cases, `VoiceChannel` also supports **passive mode** — construct it without a `conversationRelay` option and it consumes Maestro webhooks only (no WebSocket, no outbound). Useful for BYO-CR setups, inbound-only transcript analysis, or anywhere you don't want `CRelayServer` to manage the CR WebSocket.
+
+### Two servers, two ports
+
+The voice stack (`/twiml`, `/ws`, `/conversation-relay-callback`) runs on `CRelayServer` from `@twilio/tac-conversationrelay`. The Maestro fan-out (`/webhook`, optional `/cintel`) runs on `TACServer` from `@twilio/tac-server`. Typical deployment runs both, on separate ports:
+
+| Server | Port | Twilio config |
+|---|---|---|
+| `CRelayServer` | `:8001` | Point voice numbers at `https://<host>:8001/twiml` |
+| `TACServer` | `:8000` | Point Conversations Service webhooks at `https://<host>:8000/webhook` |
+
+The split is enforced by the package layout: `@twilio/tac-conversationrelay` has **zero** dependency on `@twilio/tac-core`. Run CR standalone (drive your own LLM via CR events), run Maestro standalone (SMS/Chat/passive-voice only), or wire them together via two optional callbacks on `CRelayServer` — see [`packages/conversationrelay/README.md`](packages/conversationrelay/README.md).
 
 ```
           Twilio WS         +-------------------------+
@@ -125,6 +136,8 @@ import {
   SMSChannel,
   ConversationId,
   TACServer,
+  ConversationRelay,
+  CRelayServer,
 } from 'twilio-agent-connect';
 
 config();
@@ -133,7 +146,8 @@ const openai = new OpenAI();
 
 // Initialize TAC and channels
 const tac = await TAC.create({ config: TACConfig.fromEnv() });
-const voiceChannel = new VoiceChannel(tac.getChannelDeps());
+const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
+const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
 const smsChannel = new SMSChannel(tac.getChannelDeps());
 
 // Register channels
@@ -187,19 +201,29 @@ tac.onMessageReady(async msg => {
   return llmResponse;
 });
 
-const server = new TACServer(tac);
-await server.start();
+// Two servers: TACServer for Maestro webhooks, CRelayServer for voice.
+const tacServer = new TACServer(tac, { port: 8000 });
+const crServer = new CRelayServer(conversationRelay, {
+  authToken: tac.getConfig().authToken,
+  port: 8001,
+  // Integrated mode: creates the Maestro conversation for each incoming call
+  // and closes it when the call ends. Omit these callbacks for standalone CR
+  // (drive your own LLM via CR events).
+  onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
+  onCRCallback:   (payload) => voiceChannel.handleConversationRelayCallback(payload),
+});
+
+await Promise.all([tacServer.start(), crServer.start()]);
 ```
 
-> **Note**: The framework defaults to port 3000 (configurable via `TACServer` constructor). Examples override to port 8000 to avoid conflicts with common development services. For production, consider using the default or setting via environment configuration.
+> **Note**: Point Twilio voice numbers at `https://<host>:8001/twiml` (CRelayServer) and Conversations Service webhooks at `https://<host>:8000/webhook` (TACServer). See the [getting started guide](getting_started/README.md) for complete setup instructions and `.env` configuration details.
 
-> **Note**: See the [getting started guide](getting_started/README.md) for complete setup instructions and `.env` configuration details.
-
-**That's it!** The server automatically:
-- Creates Fastify app with `/twiml`, `/ws`, and `/webhook` endpoints
-- Handles both Voice and SMS conversations
-- Provides conversation memory and user profile in the `msg.conversation` bundle
-- Routes responses through the appropriate channel
+**That's it!** The two servers together:
+- `CRelayServer` — `/twiml` + `/ws` + `/conversation-relay-callback` for voice
+- `TACServer` — `/webhook` for Conversation Orchestrator fan-out (SMS / Chat / passive voice)
+- Handle Voice, SMS, and Chat conversations via a single unified `onMessageReady` callback
+- Provide conversation memory and user profile in the `msg.conversation` bundle
+- Route responses through the appropriate channel
 
 For configuration details and environment variables, see the [getting started guide](getting_started/README.md).
 
@@ -218,7 +242,7 @@ await app.register(cors, { origin: '*' });
 
 const server = new TACServer(tac, { fastifyInstance: app });
 
-// Add routes alongside TAC's voice/messaging/CI webhooks
+// Add routes alongside TAC's messaging/CI webhooks
 server.fastify.get('/health', async () => ({ status: 'ok' }));
 
 await server.start();

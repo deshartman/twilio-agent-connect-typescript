@@ -175,6 +175,52 @@ new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConf
 - `conversationRelayConfig` - CR configuration
 - `development` - Enable pretty logging
 - `authToken` - **Required.** Twilio auth token used to validate every incoming webhook and WebSocket upgrade. Signature validation is always on (see PR #69).
+- `onIncomingCall?` - Optional callback invoked on POST `/twiml`. Receives `{ toNumber, fromNumber, callSid }`, returns `Promise<CustomParameters>` (a plain `Record<string, string>`). The record is spliced into the `<ConversationRelay>` TwiML element as `<Parameter>` pairs and arrives on the CR WebSocket `setup` message. Omit for standalone — CR renders TwiML with `{ conversation_id: CallSid }`.
+- `onCRCallback?` - Optional callback invoked on POST `/conversation-relay-callback`. Receives the validated `ConversationRelayCallbackPayload`, returns `Promise<{ status, content, contentType }>`. The route echoes whatever the callback returns. Omit for standalone — route is a 200 OK no-op and call-end is observable via `cr.onSessionEnded`.
+
+### Two modes: standalone vs integrated
+
+**Standalone** — drive your own LLM via CR events. Zero TAC, zero Maestro.
+
+```typescript
+const conversationRelay = new ConversationRelay();
+conversationRelay.onPrompt(async (callSid, prompt) => {
+  const reply = await myLLM.chat(prompt);
+  conversationRelay.sendResponse(callSid, reply);
+});
+
+const server = new CRelayServer(conversationRelay, {
+  authToken: process.env.TWILIO_AUTH_TOKEN!,
+  port: 8001,
+  conversationRelayConfig: { welcomeGreeting: 'Hello!' },
+});
+await server.start();
+```
+
+**Integrated with `@twilio/tac-core`** — wire the two optional callbacks into `VoiceChannel` so each call gets a Maestro conversation with memory, profile, and cross-channel identity. CR itself still has zero dependency on tac-core; the callbacks cross the seam with plain data records.
+
+```typescript
+import { TAC, VoiceChannel, TACServer } from '@twilio/tac-core';
+import { ConversationRelay, CRelayServer } from '@twilio/tac-conversationrelay';
+
+const tac = await TAC.create({ config: TACConfig.fromEnv() });
+const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
+const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
+tac.registerChannel(voiceChannel);
+
+const crServer = new CRelayServer(conversationRelay, {
+  authToken: tac.getConfig().authToken,
+  port: 8001,
+  conversationRelayConfig: { welcomeGreeting: 'Welcome!' },
+  // Integrated wiring: plain data across the seam.
+  onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
+  onCRCallback:   (payload) => voiceChannel.handleConversationRelayCallback(payload),
+});
+
+// TACServer on :8000 serves Maestro webhooks (/webhook + optional /cintel).
+// CRelayServer on :8001 serves voice (/twiml + /ws + /conversation-relay-callback).
+await Promise.all([new TACServer(tac, { port: 8000 }).start(), crServer.start()]);
+```
 
 ## Tools
 
