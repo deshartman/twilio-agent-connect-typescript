@@ -352,7 +352,7 @@ const crServer = new ConversationRelayServer(conversationRelay, {
     voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
   onIncomingCall: input => voiceChannel.createConversationForCall(input),
-  onCRCallback: payload => voiceChannel.handleConversationRelayCallback(payload),
+  onConversationRelayCallback: payload => voiceChannel.handleConversationRelayCallback(payload),
   development: true,
 });
 

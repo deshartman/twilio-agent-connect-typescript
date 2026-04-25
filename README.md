@@ -210,7 +210,7 @@ const crServer = new ConversationRelayServer(conversationRelay, {
   // and closes it when the call ends. Omit these callbacks for standalone CR
   // (drive your own LLM via CR events).
   onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
-  onCRCallback:   (payload) => voiceChannel.handleConversationRelayCallback(payload),
+  onConversationRelayCallback: (payload) => voiceChannel.handleConversationRelayCallback(payload),
 });
 
 await Promise.all([tacServer.start(), crServer.start()]);

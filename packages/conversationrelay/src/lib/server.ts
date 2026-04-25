@@ -73,18 +73,29 @@ export interface ConversationRelayServerConfig {
   }) => Promise<CustomParameters>;
 
   /**
-   * Called on POST /conversation-relay-callback when Twilio fires the CR
-   * action URL (call ended, handoff requested, etc.). Return the HTTP
-   * response the server should echo back to Twilio.
+   * Called on POST /conversation-relay-callback when Twilio POSTs to the URL
+   * declared as the `action` attribute of the `<ConversationRelay>` TwiML
+   * element. Twilio fires this at call-end (CallStatus: completed) and when
+   * a handoff is requested via the CR `end` message with `handoffData`.
    *
-   * Integrated mode: wire this to
+   * The payload includes CallSid, CallStatus, From, To, AccountSid, and —
+   * for handoffs — the user-supplied HandoffData JSON string. The return
+   * value is the HTTP response the server echoes back to Twilio:
+   *   - status 200 + contentType 'application/xml' + TwiML content →
+   *     Twilio executes the returned verbs (typical handoff path: return
+   *     `<Dial>` TwiML to bridge to a human agent).
+   *   - status 200 + 'text/plain' + 'OK' → acknowledge and hang up (the
+   *     normal call-completed path).
+   *
+   * Integrated mode: wire to
    * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
-   * — core closes the Maestro conversation and returns any handoff TwiML.
+   * — VoiceChannel closes the Maestro conversation on `completed` and
+   * delegates handoffs to your handler.
    *
-   * Standalone mode: omit this — ConversationRelayServer replies 200 OK no-op and the
-   * caller handles call-end via the CR `onSessionEnded` event subscription.
+   * Standalone mode: omit — the route replies 200 OK no-op and call-end is
+   * observable via the CR `onSessionEnded` event subscription.
    */
-  onCRCallback?: (
+  onConversationRelayCallback?: (
     payload: ConversationRelayCallbackPayload
   ) => Promise<{ status: number; content: string; contentType: string }>;
 }
@@ -101,12 +112,12 @@ export class ConversationRelayServer {
   private readonly config: Required<
     Omit<
       ConversationRelayServerConfig,
-      'fastify' | 'conversationRelayConfig' | 'onIncomingCall' | 'onCRCallback'
+      'fastify' | 'conversationRelayConfig' | 'onIncomingCall' | 'onConversationRelayCallback'
     >
   > & {
     conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
     onIncomingCall?: ConversationRelayServerConfig['onIncomingCall'];
-    onCRCallback?: ConversationRelayServerConfig['onCRCallback'];
+    onConversationRelayCallback?: ConversationRelayServerConfig['onConversationRelayCallback'];
   };
 
   constructor(conversationRelay: ConversationRelay, config: ConversationRelayServerConfig) {
@@ -118,7 +129,7 @@ export class ConversationRelayServer {
       webhookPaths: {
         twiml: config.webhookPaths?.twiml ?? '/twiml',
         ws: config.webhookPaths?.ws ?? '/ws',
-        callback: config.webhookPaths?.callback ?? '/callback',
+        callback: config.webhookPaths?.callback ?? '/conversation-relay-callback',
         webhook: config.webhookPaths?.webhook ?? '/webhook',
       },
       conversationRelayConfig: config.conversationRelayConfig ?? {
@@ -127,7 +138,9 @@ export class ConversationRelayServer {
       development: config.development ?? false,
       authToken: config.authToken,
       ...(config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {}),
-      ...(config.onCRCallback ? { onCRCallback: config.onCRCallback } : {}),
+      ...(config.onConversationRelayCallback
+        ? { onConversationRelayCallback: config.onConversationRelayCallback }
+        : {}),
     };
 
     this.fastify = Fastify({
@@ -262,14 +275,14 @@ export class ConversationRelayServer {
     });
 
     // ConversationRelay action URL (call ended / handoff request).
-    // Standalone mode: no onCRCallback → 200 OK no-op. Caller handles call-end
-    //   via `cr.onSessionEnded` event subscription.
-    // Integrated mode: onCRCallback closes the Maestro conversation and
-    //   returns handoff TwiML (or 200 OK for normal completion).
+    // Standalone mode: no onConversationRelayCallback → 200 OK no-op. Caller
+    //   handles call-end via `cr.onSessionEnded` event subscription.
+    // Integrated mode: onConversationRelayCallback closes the Maestro
+    //   conversation and returns handoff TwiML (or 200 OK for normal completion).
     this.fastify.post(
       this.config.webhookPaths.callback!,
       async (request: FastifyRequest, reply: FastifyReply) => {
-        if (!this.config.onCRCallback) {
+        if (!this.config.onConversationRelayCallback) {
           await reply.code(200).send('OK');
           return;
         }
@@ -285,7 +298,7 @@ export class ConversationRelayServer {
         }
 
         try {
-          const result = await this.config.onCRCallback(parseResult.data);
+          const result = await this.config.onConversationRelayCallback(parseResult.data);
           await reply.code(result.status).type(result.contentType).send(result.content);
         } catch (error) {
           this.fastify.log.error(

@@ -5,7 +5,7 @@
  *   - POST /twiml                         → always generates TwiML; customParameters
  *                                           come from onIncomingCall if supplied.
  *   - GET  /ws (upgrade)                  → validates x-twilio-signature against wss://.
- *   - POST /conversation-relay-callback   → 200 no-op, or delegates to onCRCallback.
+ *   - POST /conversation-relay-callback   → 200 no-op, or delegates to onConversationRelayCallback.
  *
  * Integration with VoiceChannel is out of scope here — the callbacks are stubbed
  * with vi.fn(). The tac-core ↔ CR wiring is exercised by the example integration
@@ -13,11 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConversationRelayServer, ConversationRelay } from '../src/index';
-import type {
-  ConversationRelayServerConfig,
-  CustomParameters,
-  ConversationRelayCallbackPayload,
-} from '../src/index';
+import type { ConversationRelayServerConfig, CustomParameters } from '../src/index';
 import { createLogger } from '../src/lib/logger';
 import WebSocket from 'ws';
 
@@ -99,14 +95,17 @@ describe('ConversationRelayServer: signature validation on POST routes', () => {
     server = makeServer();
     await server.start();
 
-    const response = await fetch(`http://localhost:${getActualPort(server)}/callback`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Twilio-Signature': 'invalid',
-      },
-      body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
-    });
+    const response = await fetch(
+      `http://localhost:${getActualPort(server)}/conversation-relay-callback`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Twilio-Signature': 'invalid',
+        },
+        body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
+      }
+    );
 
     expect(response.status).toBe(403);
   });
@@ -278,22 +277,25 @@ describe('ConversationRelayServer: /conversation-relay-callback handling', () =>
     if (server) await server.stop().catch(() => {});
   });
 
-  it('returns 200 OK no-op when no onCRCallback is supplied (standalone mode)', async () => {
+  it('returns 200 OK no-op when no onConversationRelayCallback is supplied (standalone mode)', async () => {
     server = makeServer();
     await server.start();
 
-    const res = await fetch(`http://localhost:${getActualPort(server)}/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
-    });
+    const res = await fetch(
+      `http://localhost:${getActualPort(server)}/conversation-relay-callback`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'AccountSid=AC123&CallSid=CA123&CallStatus=completed&From=%2B1234&To=%2B5678',
+      }
+    );
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('OK');
   });
 
-  it('delegates to onCRCallback and echoes its response (integrated mode)', async () => {
-    const onCRCallback = vi.fn(
+  it('delegates to onConversationRelayCallback and echoes its response (integrated mode)', async () => {
+    const onConversationRelayCallback = vi.fn(
       async (): Promise<{ status: number; content: string; contentType: string }> => ({
         status: 200,
         content: '<Response><Dial>+15559999999</Dial></Response>',
@@ -301,40 +303,46 @@ describe('ConversationRelayServer: /conversation-relay-callback handling', () =>
       })
     );
 
-    server = makeServer({ onCRCallback });
+    server = makeServer({ onConversationRelayCallback });
     await server.start();
 
-    const res = await fetch(`http://localhost:${getActualPort(server)}/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'AccountSid=AC123&CallSid=CA_handoff&CallStatus=in-progress&From=%2B1234&To=%2B5678&Direction=inbound&HandoffData=%7B%22reason%22%3A%22escalate%22%7D',
-    });
+    const res = await fetch(
+      `http://localhost:${getActualPort(server)}/conversation-relay-callback`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'AccountSid=AC123&CallSid=CA_handoff&CallStatus=in-progress&From=%2B1234&To=%2B5678&Direction=inbound&HandoffData=%7B%22reason%22%3A%22escalate%22%7D',
+      }
+    );
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/xml');
     expect(await res.text()).toBe('<Response><Dial>+15559999999</Dial></Response>');
 
-    expect(onCRCallback).toHaveBeenCalledTimes(1);
-    const payload = onCRCallback.mock.calls[0]![0] as ConversationRelayCallbackPayload;
+    expect(onConversationRelayCallback).toHaveBeenCalledTimes(1);
+    const payload = onConversationRelayCallback.mock.calls[0]![0];
     expect(payload.CallSid).toBe('CA_handoff');
     expect(payload.CallStatus).toBe('in-progress');
     expect(payload.HandoffData).toBe('{"reason":"escalate"}');
   });
 
   it('returns 400 when the callback payload fails schema validation', async () => {
-    const onCRCallback = vi.fn();
-    server = makeServer({ onCRCallback });
+    const onConversationRelayCallback = vi.fn();
+    server = makeServer({ onConversationRelayCallback });
     await server.start();
 
-    const res = await fetch(`http://localhost:${getActualPort(server)}/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      // Missing AccountSid + CallSid — schema demands them.
-      body: 'CallStatus=completed',
-    });
+    const res = await fetch(
+      `http://localhost:${getActualPort(server)}/conversation-relay-callback`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        // Missing AccountSid + CallSid — schema demands them.
+        body: 'CallStatus=completed',
+      }
+    );
 
     expect(res.status).toBe(400);
-    expect(onCRCallback).not.toHaveBeenCalled();
+    expect(onConversationRelayCallback).not.toHaveBeenCalled();
   });
 });
 

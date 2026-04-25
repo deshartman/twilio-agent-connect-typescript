@@ -70,7 +70,7 @@ The example starts **two Fastify servers** in the same process:
 | `TACServer` (Maestro webhooks) | `8000` | `POST /webhook` — Conversation Orchestrator fan-out (SMS) |
 | `ConversationRelayServer` (voice) | `8001` | `POST /twiml`, `WS /ws`, `POST /conversation-relay-callback` |
 
-The split exists because `@twilio/tac-conversationrelay` is deliberately a standalone package with no dependency on `@twilio/tac-core` — the two servers are composed via two optional callbacks (`onIncomingCall`, `onCRCallback`) that carry plain data records, not protocol types.
+The split exists because `@twilio/tac-conversationrelay` is deliberately a standalone package with no dependency on `@twilio/tac-core` — the two servers are composed via two optional callbacks (`onIncomingCall`, `onConversationRelayCallback`) that carry plain data records, not protocol types.
 
 ### 4. Expose Your Servers
 

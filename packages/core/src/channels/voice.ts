@@ -72,7 +72,7 @@ export interface VoiceChannelConfig {
  * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
  * to avoid double-emits. Wire `createConversationForCall` and
  * `handleConversationRelayCallback` into `ConversationRelayServer`'s callbacks
- * (onIncomingCall / onCRCallback) — ConversationRelayServer owns the /twiml, /ws,
+ * (onIncomingCall / onConversationRelayCallback) — ConversationRelayServer owns the /twiml, /ws,
  * and /conversation-relay-callback routes.
  *
  * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.

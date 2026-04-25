@@ -3389,18 +3389,29 @@ interface ConversationRelayServerConfig {
         callSid?: string;
     }) => Promise<CustomParameters>;
     /**
-     * Called on POST /conversation-relay-callback when Twilio fires the CR
-     * action URL (call ended, handoff requested, etc.). Return the HTTP
-     * response the server should echo back to Twilio.
+     * Called on POST /conversation-relay-callback when Twilio POSTs to the URL
+     * declared as the `action` attribute of the `<ConversationRelay>` TwiML
+     * element. Twilio fires this at call-end (CallStatus: completed) and when
+     * a handoff is requested via the CR `end` message with `handoffData`.
      *
-     * Integrated mode: wire this to
+     * The payload includes CallSid, CallStatus, From, To, AccountSid, and —
+     * for handoffs — the user-supplied HandoffData JSON string. The return
+     * value is the HTTP response the server echoes back to Twilio:
+     *   - status 200 + contentType 'application/xml' + TwiML content →
+     *     Twilio executes the returned verbs (typical handoff path: return
+     *     `<Dial>` TwiML to bridge to a human agent).
+     *   - status 200 + 'text/plain' + 'OK' → acknowledge and hang up (the
+     *     normal call-completed path).
+     *
+     * Integrated mode: wire to
      * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
-     * — core closes the Maestro conversation and returns any handoff TwiML.
+     * — VoiceChannel closes the Maestro conversation on `completed` and
+     * delegates handoffs to your handler.
      *
-     * Standalone mode: omit this — ConversationRelayServer replies 200 OK no-op and the
-     * caller handles call-end via the CR `onSessionEnded` event subscription.
+     * Standalone mode: omit — the route replies 200 OK no-op and call-end is
+     * observable via the CR `onSessionEnded` event subscription.
      */
-    onCRCallback?: (payload: ConversationRelayCallbackPayload) => Promise<{
+    onConversationRelayCallback?: (payload: ConversationRelayCallbackPayload) => Promise<{
         status: number;
         content: string;
         contentType: string;
@@ -4867,7 +4878,7 @@ interface VoiceChannelConfig {
  * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
  * to avoid double-emits. Wire `createConversationForCall` and
  * `handleConversationRelayCallback` into `ConversationRelayServer`'s callbacks
- * (onIncomingCall / onCRCallback) — ConversationRelayServer owns the /twiml, /ws,
+ * (onIncomingCall / onConversationRelayCallback) — ConversationRelayServer owns the /twiml, /ws,
  * and /conversation-relay-callback routes.
  *
  * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.

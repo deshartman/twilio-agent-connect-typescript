@@ -4754,7 +4754,7 @@ var ConversationRelayServer = class {
       webhookPaths: {
         twiml: config.webhookPaths?.twiml ?? "/twiml",
         ws: config.webhookPaths?.ws ?? "/ws",
-        callback: config.webhookPaths?.callback ?? "/callback",
+        callback: config.webhookPaths?.callback ?? "/conversation-relay-callback",
         webhook: config.webhookPaths?.webhook ?? "/webhook"
       },
       conversationRelayConfig: config.conversationRelayConfig ?? {
@@ -4763,7 +4763,7 @@ var ConversationRelayServer = class {
       development: config.development ?? false,
       authToken: config.authToken,
       ...config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {},
-      ...config.onCRCallback ? { onCRCallback: config.onCRCallback } : {}
+      ...config.onConversationRelayCallback ? { onConversationRelayCallback: config.onConversationRelayCallback } : {}
     };
     this.fastify = Fastify({
       logger: this.config.development ? {
@@ -4866,7 +4866,7 @@ var ConversationRelayServer = class {
     this.fastify.post(
       this.config.webhookPaths.callback,
       async (request, reply) => {
-        if (!this.config.onCRCallback) {
+        if (!this.config.onConversationRelayCallback) {
           await reply.code(200).send("OK");
           return;
         }
@@ -4880,7 +4880,7 @@ var ConversationRelayServer = class {
           return;
         }
         try {
-          const result = await this.config.onCRCallback(parseResult.data);
+          const result = await this.config.onConversationRelayCallback(parseResult.data);
           await reply.code(result.status).type(result.contentType).send(result.content);
         } catch (error) {
           this.fastify.log.error(

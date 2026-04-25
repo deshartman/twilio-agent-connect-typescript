@@ -185,12 +185,12 @@ const crServer = new ConversationRelayServer(conversationRelay, {
   },
   // Integrated mode — return plain data records; CR stays ignorant of Maestro.
   onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
-  onCRCallback:   (payload) => voiceChannel.handleConversationRelayCallback(payload),
+  onConversationRelayCallback: (payload) => voiceChannel.handleConversationRelayCallback(payload),
 });
 ```
 
 - `onIncomingCall` returns `Record<string, string>` — the customParameters that get spliced into the `<ConversationRelay>` TwiML element. CR always calls `conversationRelay.generateTwiML()` itself. Omit the callback for standalone mode (caller drives their own LLM via CR events); CR will use `{ conversation_id: CallSid }`.
-- `onCRCallback` returns `{ status, content, contentType }` — the HTTP response. Omit for standalone (200 OK no-op; caller handles call-end via `cr.onSessionEnded`).
+- `onConversationRelayCallback` returns `{ status, content, contentType }` — the HTTP response for the URL declared as `<ConversationRelay action="…">`. Twilio fires this at call-end and on handoff requests. Omit for standalone (200 OK no-op; caller handles call-end via `cr.onSessionEnded`).
 - Turn-by-turn traffic (`onPrompt` / `onInterrupt` / `onDtmf` / `onInfo`) does **not** go through callbacks. VoiceChannel subscribes to these on the shared `ConversationRelay` instance in its constructor and emits `ChannelMessage`s via `onMessageReady` — the regular data path, unchanged.
 
 ### TACServer (`packages/server/src/lib/server.ts`)

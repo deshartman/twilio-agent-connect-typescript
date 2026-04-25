@@ -176,7 +176,7 @@ new ConversationRelayServer(conversationRelay: ConversationRelay, config?: Conve
 - `development` - Enable pretty logging
 - `authToken` - **Required.** Twilio auth token used to validate every incoming webhook and WebSocket upgrade. Signature validation is always on (see PR #69).
 - `onIncomingCall?` - Optional callback invoked on POST `/twiml`. Receives `{ toNumber, fromNumber, callSid }`, returns `Promise<CustomParameters>` (a plain `Record<string, string>`). The record is spliced into the `<ConversationRelay>` TwiML element as `<Parameter>` pairs and arrives on the CR WebSocket `setup` message. Omit for standalone — CR renders TwiML with `{ conversation_id: CallSid }`.
-- `onCRCallback?` - Optional callback invoked on POST `/conversation-relay-callback`. Receives the validated `ConversationRelayCallbackPayload`, returns `Promise<{ status, content, contentType }>`. The route echoes whatever the callback returns. Omit for standalone — route is a 200 OK no-op and call-end is observable via `cr.onSessionEnded`.
+- `onConversationRelayCallback?` - Optional callback invoked on POST `/conversation-relay-callback`. Twilio fires this at the URL declared as `<ConversationRelay action="…">` — on call-end (CallStatus `completed`) and when the CR `end` message carries `handoffData`. Receives the validated `ConversationRelayCallbackPayload`, returns `Promise<{ status, content, contentType }>`; the route echoes whatever the callback returns (typical handoff response: `status: 200`, `contentType: 'application/xml'`, `content: '<Response><Dial>…</Dial></Response>'`). Omit for standalone — route is a 200 OK no-op and call-end is observable via `cr.onSessionEnded`.
 
 ### Two modes: standalone vs integrated
 
@@ -214,7 +214,7 @@ const crServer = new ConversationRelayServer(conversationRelay, {
   conversationRelayConfig: { welcomeGreeting: 'Welcome!' },
   // Integrated wiring: plain data across the seam.
   onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
-  onCRCallback:   (payload) => voiceChannel.handleConversationRelayCallback(payload),
+  onConversationRelayCallback: (payload) => voiceChannel.handleConversationRelayCallback(payload),
 });
 
 // TACServer on :8000 serves Maestro webhooks (/webhook + optional /cintel).
