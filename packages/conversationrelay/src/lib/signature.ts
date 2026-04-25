@@ -1,7 +1,7 @@
 /**
  * Shared Twilio signature-validation helpers for Fastify servers.
  *
- * Used by CRelayServer (CR package) and TACServer (core package) to avoid
+ * Used by ConversationRelayServer (CR package) and TACServer (core package) to avoid
  * three copies of the same URL-reconstruction + twilio.validateRequest glue.
  *
  * Two exports:

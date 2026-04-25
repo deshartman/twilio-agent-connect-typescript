@@ -7,7 +7,7 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 ## Features
 
 - ✅ Voice-only (no SMS, no Chat)
-- ✅ Uses standalone `CRelayServer` from conversationrelay package
+- ✅ Uses standalone `ConversationRelayServer` from conversationrelay package
 - ✅ No dependency on TAC framework
 - ✅ OpenAI GPT-4 integration with streaming
 - ✅ Built-in CR protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) auto-registered and LLM-dispatchable
@@ -153,7 +153,7 @@ See `src/index.ts` for the complete pattern.
 | Maestro | ❌ Not used | ✅ Required |
 | Memory | ❌ Not available | ✅ Optional |
 | Session ID | CallSid | ConversationId |
-| Server | `CRelayServer` | `TACServer` |
+| Server | `ConversationRelayServer` | `TACServer` |
 
 ## When to Use This
 

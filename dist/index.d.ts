@@ -3,7 +3,7 @@ export { z } from 'zod';
 import pino from 'pino';
 import { AxiosInstance } from 'axios';
 import { WebSocket } from 'ws';
-import { FastifyInstance, FastifyServerOptions } from 'fastify';
+import { FastifyServerOptions, FastifyInstance } from 'fastify';
 
 /**
  * Channel types supported by the framework
@@ -3343,6 +3343,95 @@ declare class ConversationRelay {
 }
 
 /**
+ * Server configuration for standalone ConversationRelay (without Maestro)
+ */
+interface ConversationRelayServerConfig {
+    /** Fastify server options */
+    fastify?: FastifyServerOptions;
+    /** Server host (default: 0.0.0.0) */
+    host?: string;
+    /** Server port (default: 3000) */
+    port?: number;
+    /** Custom webhook paths */
+    webhookPaths?: {
+        twiml?: string;
+        ws?: string;
+        callback?: string;
+        webhook?: string;
+    };
+    /** ConversationRelay configuration (welcomeGreeting, TTS, etc.) */
+    conversationRelayConfig?: Omit<ConversationRelayConfig, 'url'>;
+    /** Enable development logging (pino-pretty) */
+    development?: boolean;
+    /**
+     * Twilio auth token used to validate every incoming webhook and WebSocket
+     * upgrade. Required — there is no opt-out. Matches the always-on posture
+     * of TACServer (see PR #69).
+     */
+    authToken: string;
+    /**
+     * Called on POST /twiml when an incoming call arrives. Return a record of
+     * custom parameters that ConversationRelayServer will splice into the `<ConversationRelay>`
+     * TwiML element (rendered by `conversationRelay.generateTwiML`).
+     *
+     * Integrated mode (with `@twilio/tac-core`): wire this to
+     * `voiceChannel.createConversationForCall(input)` — the four Maestro IDs
+     * (conversation_id, profile_id, customer_participant_id, ai_agent_participant_id)
+     * flow to CR as customParameters and arrive at the CR WebSocket on the
+     * `setup` message.
+     *
+     * Standalone mode: omit this — CR generates TwiML with `{}` as customParameters
+     * and the caller drives their own LLM via CR event subscriptions.
+     */
+    onIncomingCall?: (input: {
+        toNumber: string;
+        fromNumber: string;
+        callSid?: string;
+    }) => Promise<CustomParameters>;
+    /**
+     * Called on POST /conversation-relay-callback when Twilio fires the CR
+     * action URL (call ended, handoff requested, etc.). Return the HTTP
+     * response the server should echo back to Twilio.
+     *
+     * Integrated mode: wire this to
+     * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
+     * — core closes the Maestro conversation and returns any handoff TwiML.
+     *
+     * Standalone mode: omit this — ConversationRelayServer replies 200 OK no-op and the
+     * caller handles call-end via the CR `onSessionEnded` event subscription.
+     */
+    onCRCallback?: (payload: ConversationRelayCallbackPayload) => Promise<{
+        status: number;
+        content: string;
+        contentType: string;
+    }>;
+}
+/**
+ * ConversationRelayServer — Standalone voice-only server using ConversationRelay
+ *
+ * Lightweight server for voice-only applications. No Maestro, no Memory, no multi-channel.
+ * Provides TwiML endpoint, WebSocket endpoint, and callback handler.
+ */
+declare class ConversationRelayServer {
+    private readonly fastify;
+    private readonly conversationRelay;
+    private readonly config;
+    constructor(conversationRelay: ConversationRelay, config: ConversationRelayServerConfig);
+    /**
+     * Start the server
+     */
+    start(): Promise<void>;
+    /**
+     * Setup routes
+     */
+    private setupRoutes;
+    /**
+     * Stop the server
+     */
+    stop(): Promise<void>;
+}
+
+/**
  * Channel interface definitions
  *
  * Minimal contract that TAC requires from all channel implementations.
@@ -4774,24 +4863,17 @@ interface VoiceChannelConfig {
  *
  * **Active mode** (`conversationRelay` provided): Handles voice via
  * ConversationRelay WebSocket (CR). Creates Maestro conversations in
- * handleIncomingCall(). WebSocket events are the source of user turns;
- * passive Maestro webhook COMMUNICATION_CREATED events are dropped to
- * avoid double-emits.
+ * createConversationForCall(). WebSocket events are the source of user
+ * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
+ * to avoid double-emits. Wire `createConversationForCall` and
+ * `handleConversationRelayCallback` into `ConversationRelayServer`'s callbacks
+ * (onIncomingCall / onCRCallback) — ConversationRelayServer owns the /twiml, /ws,
+ * and /conversation-relay-callback routes.
  *
  * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.
  * Inbound user turns come through Maestro webhooks just like SMS/Chat.
  * sendResponse throws because the Actions API rejects `channel: 'VOICE'`;
  * outbound voice requires a CR WebSocket.
- *
- * TODO(server-split): `handleWebSocketConnection` and `handleIncomingCall`
- * currently live here because TACServer owns the /ws, /twiml, and
- * /conversation-relay-callback routes. The cleaner architecture is for
- * tac-cr to own those routes entirely (so Twilio voice numbers point at a
- * CR server and Conversations webhooks point at TACServer), and for
- * VoiceChannel to be a pure Maestro-bridge consumed by the CR server's
- * route handlers via callbacks/methods. That split is deferred as its own
- * follow-up PR; see the two-server architecture note in the merge-lessons
- * doc for the sketch.
  */
 declare class VoiceChannel implements Channel {
     protected readonly config: TACConfig;
@@ -4824,7 +4906,6 @@ declare class VoiceChannel implements Channel {
      * channel was constructed in passive mode.
      */
     private assertCR;
-    getWebsocket(conversationId: ConversationId): WebSocket | null;
     sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
     /**
      * Process a voice-channel Maestro webhook event.
@@ -4847,7 +4928,6 @@ declare class VoiceChannel implements Channel {
     getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
     isConversationActive(conversationId: ConversationId): boolean;
     shutdown(): void;
-    handleWebSocketConnection(ws: WebSocket): void;
     /**
      * List tools registered on this channel (for LLM discovery).
      *
@@ -4895,13 +4975,22 @@ declare class VoiceChannel implements Channel {
     protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
     protected endConversation(conversationId: ConversationId): Promise<void>;
     protected handleError(error: Error, context?: Record<string, unknown>): void;
-    handleIncomingCall(options: {
+    /**
+     * Create the Maestro conversation for an incoming voice call and return the
+     * four IDs that CR needs to inject as TwiML customParameters. No CR, no
+     * TwiML — pure Maestro work. Wire this to `ConversationRelayServer.onIncomingCall` so
+     * the CR server renders the TwiML with these IDs as customParameters.
+     */
+    createConversationForCall(input: {
         toNumber: string;
         fromNumber: string;
         callSid?: string;
-        actionUrl?: string;
-        conversationRelayConfig: ConversationRelayConfig;
-    }): Promise<string>;
+    }): Promise<{
+        conversation_id: string;
+        profile_id: string;
+        customer_participant_id: string;
+        ai_agent_participant_id: string;
+    }>;
     handleConversationRelayCallback(payload: ConversationRelayCallbackPayload, handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>): Promise<{
         status: number;
         content: string;
@@ -5309,6 +5398,11 @@ declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
 
 /**
  * Server configuration options
+ *
+ * TACServer handles Conversation Orchestrator (Maestro) webhooks only. Voice
+ * routes (/twiml, /ws, /conversation-relay-callback) live on
+ * `ConversationRelayServer` in `@twilio/tac-conversationrelay` — see the two-process
+ * deployment story in the README.
  */
 interface TACServerConfig {
     /** Fastify server options (ignored if `fastifyInstance` is provided) */
@@ -5322,25 +5416,18 @@ interface TACServerConfig {
      * ignored.
      */
     fastifyInstance?: FastifyInstance;
-    /** Voice server configuration */
-    voice?: Partial<VoiceServerConfig>;
+    /** Server host (default: 0.0.0.0) */
+    host?: string;
+    /** Server port (default: 3000) */
+    port?: number;
     /** Custom webhook paths */
     webhookPaths?: {
         messaging?: string;
-        twiml?: string;
-        ws?: string;
-        conversationRelayCallback?: string;
         /** Path for Conversation Intelligence webhook (optional - only registered if provided) */
         cintel?: string;
     };
-    /** ConversationRelay configuration (welcomeGreeting, transcription, TTS, interaction settings, etc.) */
-    conversationRelayConfig?: Partial<Omit<ConversationRelayConfig, 'url'>>;
-    /** Handler for voice handoff requests (returns TwiML string) */
-    handoffHandler?: (payload: ConversationRelayCallbackPayload) => Promise<string>;
     /** Enable development features */
     development?: boolean;
-    /** Voice channel instance (alternative to registering on TAC) */
-    voiceChannel?: VoiceChannel;
     /**
      * Channels consuming Conversation Orchestrator webhooks (SMS, Chat, and
      * passive Voice). Webhooks are fanned out to every channel in this list;
@@ -5380,29 +5467,13 @@ declare class TACServer {
     private readonly config;
     /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
     private readonly conversationChannels;
-    /** Voice channel instance */
-    private readonly voiceChannel;
     constructor(tac: TAC, config?: TACServerConfig);
-    private getForwardedProto;
-    private getForwardedHost;
     /**
-     * Get the full URL for webhook validation
-     * Handles X-Forwarded-* headers for proxy/ngrok scenarios
-     */
-    private getWebhookUrl;
-    /**
-     * Register global Twilio webhook signature validation hook
-     */
-    private registerWebhookValidation;
-    /**
-     * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
-     *
-     * Voice routes (/twiml, /ws, /conversation-relay-callback) are only registered
-     * when a VoiceChannel is available, so SMS/Chat-only deployments don't expose
-     * dead 500-returning endpoints.
+     * Setup routes — Maestro webhook fan-out and optional Conversation
+     * Intelligence webhook. Voice routes are served by ConversationRelayServer in the
+     * tac-conversationrelay package.
      */
     private setupRoutes;
-    private setupVoiceRoutes;
     private setupMessagingRoutes;
     private setupCintelRoute;
     /**
@@ -5410,13 +5481,9 @@ declare class TACServer {
      */
     start(): Promise<void>;
     /**
-     * Wait for all WebSocket connections to close
-     */
-    private waitForWebSocketsToClose;
-    /**
      * Stop the server gracefully
      */
     stop(): Promise<void>;
 }
 
-export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type VoiceServerConfig, VoiceServerConfigSchema, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type VoiceServerConfig, VoiceServerConfigSchema, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };

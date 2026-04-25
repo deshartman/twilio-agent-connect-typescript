@@ -672,5 +672,5 @@ describe('TACServer customization', () => {
 // Voice-route tests — describe('TACServer WebSocket signature validation')
 // and describe('TACServer conditional route registration') have both moved
 // to packages/conversationrelay/tests/crelay-server-routes.test.ts. TACServer
-// itself no longer owns voice routes; CRelayServer serves /twiml, /ws, and
+// itself no longer owns voice routes; ConversationRelayServer serves /twiml, /ws, and
 // /conversation-relay-callback.

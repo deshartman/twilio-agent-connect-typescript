@@ -15,10 +15,10 @@ export * from '@twilio/tac-tools';
 export * from '@twilio/tac-server';
 
 // ConversationRelay — construct and pass to VoiceChannel for active-mode voice.
-// CRelayServer — the voice-routes server (/twiml, /ws, /conversation-relay-callback).
-// Typical deployment runs TACServer for Maestro webhooks and CRelayServer for
+// ConversationRelayServer — the voice-routes server (/twiml, /ws, /conversation-relay-callback).
+// Typical deployment runs TACServer for Maestro webhooks and ConversationRelayServer for
 // voice on separate ports/processes; both are first-class entry points.
 // The rest of the CR surface (SilenceDetector, tools, protocol types) stays
 // behind `@twilio/tac-conversationrelay` for advanced users.
-export { ConversationRelay, CRelayServer } from '@twilio/tac-conversationrelay';
-export type { CRelayServerConfig } from '@twilio/tac-conversationrelay';
+export { ConversationRelay, ConversationRelayServer } from '@twilio/tac-conversationrelay';
+export type { ConversationRelayServerConfig } from '@twilio/tac-conversationrelay';

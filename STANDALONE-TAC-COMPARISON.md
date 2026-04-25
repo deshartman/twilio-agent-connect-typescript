@@ -414,7 +414,7 @@ packages/
 │   │   ├── types.ts             # Schemas: incoming + outgoing unions
 │   │   ├── lib/
 │   │   │   ├── logger.ts        # Vendored pino wrapper
-│   │   │   ├── server.ts        # CRelayServer (optional helper)
+│   │   │   ├── server.ts        # ConversationRelayServer (optional helper)
 │   │   │   └── silence-detector.ts
 │   │   └── tools/
 │   │       ├── define-tool.ts   # CRTool + defineTool (vendored)

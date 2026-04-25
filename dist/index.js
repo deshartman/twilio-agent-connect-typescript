@@ -5,11 +5,11 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
 import { WebSocket } from 'ws';
-import Fastify2 from 'fastify';
-import formbody2 from '@fastify/formbody';
-import websocket2 from '@fastify/websocket';
-import gracefulShutdown2 from 'fastify-graceful-shutdown';
-import twilio2 from 'twilio';
+import Fastify from 'fastify';
+import formbody from '@fastify/formbody';
+import websocket from '@fastify/websocket';
+import gracefulShutdown from 'fastify-graceful-shutdown';
+import twilio from 'twilio';
 
 // packages/core/src/types/config.ts
 var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
@@ -3494,17 +3494,6 @@ var VoiceChannel = class {
     }
     return this.conversationRelay;
   }
-  getWebsocket(conversationId) {
-    if (!this.conversationRelay) {
-      return null;
-    }
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return this.conversationRelay.getWebSocket(callSid);
-      }
-    }
-    return null;
-  }
   // Wrapping sync code in async to honor Channel interface's Promise<void> contract
   // eslint-disable-next-line @typescript-eslint/require-await
   async sendResponse(conversationId, message, metadata) {
@@ -3697,9 +3686,6 @@ var VoiceChannel = class {
     delete this.callbacks.onError;
     delete this.callbacks.onMessage;
   }
-  handleWebSocketConnection(ws) {
-    this.assertCR("handleWebSocketConnection").handleConnection(ws);
-  }
   // ===========================================================================
   // Tool Registry
   // ===========================================================================
@@ -3808,9 +3794,14 @@ var VoiceChannel = class {
   // ===========================================================================
   // Incoming Call Handling — Maestro Only
   // ===========================================================================
-  async handleIncomingCall(options) {
-    const cr = this.assertCR("handleIncomingCall");
-    const { toNumber, fromNumber, callSid, actionUrl, conversationRelayConfig } = options;
+  /**
+   * Create the Maestro conversation for an incoming voice call and return the
+   * four IDs that CR needs to inject as TwiML customParameters. No CR, no
+   * TwiML — pure Maestro work. Wire this to `ConversationRelayServer.onIncomingCall` so
+   * the CR server renders the TwiML with these IDs as customParameters.
+   */
+  async createConversationForCall(input) {
+    const { toNumber, fromNumber, callSid } = input;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
     const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
     const conversation = await this.conversationClient.createConversation(conversationName);
@@ -3829,24 +3820,17 @@ var VoiceChannel = class {
       [{ channel: "VOICE", address: fromNumber, channelId: callSid }],
       "CUSTOMER"
     );
-    const profileId = customerParticipant.profileId || "";
-    const customerParticipantId = customerParticipant.id;
     const aiAgentParticipant = await this.conversationClient.addOrFetchParticipant(
       conversationId,
       [{ channel: "VOICE", address: toNumber, channelId: callSid }],
       "AI_AGENT"
     );
-    const aiAgentParticipantId = aiAgentParticipant.id;
-    return cr.generateTwiML(
-      conversationRelayConfig,
-      {
-        conversation_id: conversationId,
-        profile_id: profileId,
-        customer_participant_id: customerParticipantId,
-        ai_agent_participant_id: aiAgentParticipantId
-      },
-      actionUrl ? { actionUrl } : void 0
-    );
+    return {
+      conversation_id: conversationId,
+      profile_id: customerParticipant.profileId || "",
+      customer_participant_id: customerParticipant.id,
+      ai_agent_participant_id: aiAgentParticipant.id
+    };
   }
   // ===========================================================================
   // ConversationRelay Callback Handling
@@ -4696,6 +4680,236 @@ var ConversationRelay = class _ConversationRelay {
     );
   }
 };
+function registerSignatureValidation(fastify, options) {
+  const { authToken, getWebhookUrl = getDefaultWebhookUrl, skipPaths = [] } = options;
+  fastify.addHook("preHandler", (request, reply, done) => {
+    if (request.method === "GET") {
+      done();
+      return;
+    }
+    if (skipPaths.includes(request.url.split("?")[0] ?? "")) {
+      done();
+      return;
+    }
+    const signature = request.headers["x-twilio-signature"];
+    const url = getWebhookUrl(request);
+    let isValid;
+    if (request.url.includes("bodySHA256=")) {
+      const body = request.rawBody ?? "";
+      isValid = twilio.validateRequestWithBody(authToken, signature ?? "", url, body);
+    } else {
+      const params = request.body || {};
+      isValid = twilio.validateRequest(authToken, signature ?? "", url, params);
+    }
+    if (!isValid) {
+      fastify.log.warn({ url, hasSignature: !!signature }, "Invalid Twilio webhook signature");
+      void reply.code(403).send({ error: "Invalid webhook signature" });
+      done();
+      return;
+    }
+    done();
+  });
+}
+function validateWebSocketSignature(request, authToken) {
+  const signature = request.headers["x-twilio-signature"];
+  const httpUrl = getDefaultWebhookUrl(request);
+  let wsUrl;
+  try {
+    wsUrl = new URL(httpUrl);
+  } catch {
+    return false;
+  }
+  wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+  const params = {};
+  wsUrl.searchParams.forEach((value, key) => {
+    params[key] = value;
+  });
+  const urlForValidation = wsUrl.origin + wsUrl.pathname;
+  return twilio.validateRequest(authToken, signature ?? "", urlForValidation, params);
+}
+function getDefaultWebhookUrl(request) {
+  const proto = getForwardedProto(request);
+  const host = getForwardedHost(request);
+  return `${proto}://${host}${request.url}`;
+}
+function getForwardedProto(request) {
+  const raw = request.headers["x-forwarded-proto"];
+  return raw?.split(",")[0]?.trim() || "https";
+}
+function getForwardedHost(request) {
+  const raw = request.headers["x-forwarded-host"] || request.headers.host;
+  return raw?.split(",")[0]?.trim() || "";
+}
+
+// packages/conversationrelay/src/lib/server.ts
+var ConversationRelayServer = class {
+  fastify;
+  conversationRelay;
+  config;
+  constructor(conversationRelay, config) {
+    this.conversationRelay = conversationRelay;
+    this.config = {
+      host: config.host ?? "0.0.0.0",
+      port: config.port ?? 3e3,
+      webhookPaths: {
+        twiml: config.webhookPaths?.twiml ?? "/twiml",
+        ws: config.webhookPaths?.ws ?? "/ws",
+        callback: config.webhookPaths?.callback ?? "/callback",
+        webhook: config.webhookPaths?.webhook ?? "/webhook"
+      },
+      conversationRelayConfig: config.conversationRelayConfig ?? {
+        welcomeGreeting: "Hello! How can I help you?"
+      },
+      development: config.development ?? false,
+      authToken: config.authToken,
+      ...config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {},
+      ...config.onCRCallback ? { onCRCallback: config.onCRCallback } : {}
+    };
+    this.fastify = Fastify({
+      logger: this.config.development ? {
+        level: process.env.TWILIO_LOG_LEVEL || "info",
+        transport: { target: "pino-pretty", options: { colorize: true } }
+      } : { level: process.env.TWILIO_LOG_LEVEL || "info" },
+      ...config.fastify
+    });
+  }
+  /**
+   * Start the server
+   */
+  async start() {
+    try {
+      await this.fastify.register(formbody);
+      await this.fastify.register(websocket);
+      await this.fastify.register(gracefulShutdown);
+      registerSignatureValidation(this.fastify, {
+        authToken: this.config.authToken
+      });
+      await this.setupRoutes();
+      this.fastify.gracefulShutdown((signal) => {
+        this.fastify.log.info({ signal }, "Received shutdown signal");
+        this.conversationRelay.shutdown();
+      });
+      await this.fastify.listen({
+        host: this.config.host,
+        port: this.config.port
+      });
+      const address = this.fastify.server.address();
+      const boundPort = typeof address === "object" && address ? address.port : this.config.port;
+      this.fastify.log.info(
+        {
+          host: this.config.host,
+          port: boundPort,
+          twiml_webhook: this.config.webhookPaths.twiml,
+          ws_websocket: this.config.webhookPaths.ws,
+          callback_webhook: this.config.webhookPaths.callback,
+          maestro_sink: this.config.webhookPaths.webhook
+        },
+        "ConversationRelayServer started (standalone ConversationRelay)"
+      );
+    } catch (error) {
+      this.fastify.log.error({ err: error }, "Failed to start ConversationRelayServer");
+      throw error;
+    }
+  }
+  /**
+   * Setup routes
+   */
+  async setupRoutes() {
+    this.fastify.post(
+      this.config.webhookPaths.twiml,
+      async (request, reply) => {
+        try {
+          const formData = request.body;
+          const callSid = formData["CallSid"] || "";
+          const toNumber = formData["To"] || "";
+          const fromNumber = formData["From"] || "";
+          const protocol = request.headers["x-forwarded-proto"] || "http";
+          const host = request.headers.host;
+          const websocketUrl = `${protocol === "https" ? "wss" : "ws"}://${host}${this.config.webhookPaths.ws}`;
+          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.callback}`;
+          const customParams = this.config.onIncomingCall ? await this.config.onIncomingCall({ toNumber, fromNumber, callSid }) : { conversation_id: callSid };
+          const twiml = this.conversationRelay.generateTwiML(
+            { url: websocketUrl, ...this.config.conversationRelayConfig },
+            customParams,
+            { actionUrl: callbackUrl }
+          );
+          await reply.type("application/xml").send(twiml);
+        } catch (error) {
+          this.fastify.log.error(
+            "TwiML error: " + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({ error: "Internal server error" });
+        }
+      }
+    );
+    await this.fastify.register((fastify) => {
+      fastify.get(
+        this.config.webhookPaths.ws,
+        { websocket: true },
+        (socket, request) => {
+          const isValid = validateWebSocketSignature(request, this.config.authToken);
+          if (!isValid) {
+            this.fastify.log.warn(
+              {
+                url: request.url,
+                hasSignature: !!request.headers["x-twilio-signature"]
+              },
+              "WebSocket connection rejected: invalid Twilio signature"
+            );
+            socket.close(1008, "Invalid signature");
+            return;
+          }
+          this.conversationRelay.handleConnection(socket);
+        }
+      );
+    });
+    this.fastify.post(
+      this.config.webhookPaths.callback,
+      async (request, reply) => {
+        if (!this.config.onCRCallback) {
+          await reply.code(200).send("OK");
+          return;
+        }
+        const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(request.body);
+        if (!parseResult.success) {
+          this.fastify.log.error(
+            { errors: parseResult.error.errors },
+            "Invalid ConversationRelay callback payload"
+          );
+          await reply.code(400).send({ error: "Invalid payload" });
+          return;
+        }
+        try {
+          const result = await this.config.onCRCallback(parseResult.data);
+          await reply.code(result.status).type(result.contentType).send(result.content);
+        } catch (error) {
+          this.fastify.log.error(
+            "ConversationRelay callback error: " + (error instanceof Error ? error.message : String(error))
+          );
+          await reply.code(500).send({ error: "Internal server error" });
+        }
+      }
+    );
+    this.fastify.post(
+      this.config.webhookPaths.webhook,
+      async (_request, reply) => {
+        await reply.code(200).send("OK");
+      }
+    );
+  }
+  /**
+   * Stop the server
+   */
+  async stop() {
+    try {
+      await this.fastify.close();
+      this.fastify.log.info("ConversationRelayServer stopped");
+    } catch (error) {
+      this.fastify.log.error({ err: error }, "Error stopping ConversationRelayServer");
+      throw error;
+    }
+  }
+};
 
 // packages/core/src/util/flex.ts
 var logger = createLogger({ name: "tac-flex" });
@@ -5070,18 +5284,10 @@ function createKnowledgeTools(knowledgeClient) {
   };
 }
 var DEFAULT_CONFIG = {
-  voice: {
-    host: "0.0.0.0",
-    port: 3e3
-  },
+  host: "0.0.0.0",
+  port: 3e3,
   webhookPaths: {
-    messaging: "/webhook",
-    twiml: "/twiml",
-    ws: "/ws",
-    conversationRelayCallback: "/conversation-relay-callback"
-  },
-  conversationRelayConfig: {
-    welcomeGreeting: "Hello! Set up your welcome greeting in the server config."
+    messaging: "/webhook"
   },
   development: false
 };
@@ -5091,8 +5297,6 @@ var TACServer = class {
   config;
   /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
   conversationChannels;
-  /** Voice channel instance */
-  voiceChannel;
   constructor(tac, config = {}) {
     this.tac = tac;
     this.config = {
@@ -5102,14 +5306,8 @@ var TACServer = class {
       webhookPaths: {
         ...DEFAULT_CONFIG.webhookPaths,
         ...config.webhookPaths
-      },
-      // Deep merge conversationRelayConfig to preserve defaults while allowing overrides
-      conversationRelayConfig: {
-        ...DEFAULT_CONFIG.conversationRelayConfig,
-        ...config.conversationRelayConfig
       }
     };
-    this.voiceChannel = config.voiceChannel ?? tac.getChannel("voice");
     this.conversationChannels = config.conversationChannels ?? [tac.getChannel("sms"), tac.getChannel("chat")].filter((ch) => ch != null);
     if (this.conversationChannels.length === 0) {
       this.tac.logger.warn(
@@ -5119,7 +5317,7 @@ var TACServer = class {
     if (config.fastifyInstance) {
       this.fastify = config.fastifyInstance;
     } else {
-      this.fastify = Fastify2({
+      this.fastify = Fastify({
         logger: this.config.development ? {
           level: process.env.TWILIO_LOG_LEVEL || "info",
           transport: {
@@ -5135,165 +5333,14 @@ var TACServer = class {
       });
     }
   }
-  getForwardedProto(request) {
-    const raw = request.headers["x-forwarded-proto"];
-    return raw?.split(",")[0]?.trim() || "https";
-  }
-  getForwardedHost(request) {
-    const raw = request.headers["x-forwarded-host"] || request.headers.host;
-    return raw?.split(",")[0]?.trim() || "";
-  }
   /**
-   * Get the full URL for webhook validation
-   * Handles X-Forwarded-* headers for proxy/ngrok scenarios
+   * Setup routes — Maestro webhook fan-out and optional Conversation
+   * Intelligence webhook. Voice routes are served by ConversationRelayServer in the
+   * tac-conversationrelay package.
    */
-  getWebhookUrl(request) {
-    const proto = this.getForwardedProto(request);
-    const host = this.getForwardedHost(request);
-    return `${proto}://${host}${request.url}`;
-  }
-  /**
-   * Register global Twilio webhook signature validation hook
-   */
-  registerWebhookValidation() {
-    this.fastify.addHook("preHandler", (request, reply, done) => {
-      if (request.method === "GET") {
-        done();
-        return;
-      }
-      const signature = request.headers["x-twilio-signature"];
-      const url = this.getWebhookUrl(request);
-      const authToken = this.tac.getConfig().authToken;
-      let isValid;
-      if (request.url.includes("bodySHA256=")) {
-        const body = request.rawBody ?? "";
-        isValid = twilio2.validateRequestWithBody(authToken, signature, url, body);
-      } else {
-        const params = request.body || {};
-        isValid = twilio2.validateRequest(authToken, signature, url, params);
-      }
-      if (!isValid) {
-        this.fastify.log.warn(
-          { url, hasSignature: !!signature },
-          "Invalid Twilio webhook signature"
-        );
-        void reply.code(403).send({ error: "Invalid webhook signature" });
-        done();
-        return;
-      }
-      done();
-    });
-  }
-  /**
-   * Setup routes — registers all routes for conversation mode (voice + messaging + optional cintel).
-   *
-   * Voice routes (/twiml, /ws, /conversation-relay-callback) are only registered
-   * when a VoiceChannel is available, so SMS/Chat-only deployments don't expose
-   * dead 500-returning endpoints.
-   */
-  async setupRoutes() {
-    await this.setupVoiceRoutes();
+  setupRoutes() {
     this.setupMessagingRoutes();
     this.setupCintelRoute();
-  }
-  async setupVoiceRoutes() {
-    const voiceChannel = this.voiceChannel;
-    if (!voiceChannel) {
-      this.tac.logger.debug(
-        "TACServer: No VoiceChannel registered. Voice routes (/twiml, /ws, /conversation-relay-callback) will not be registered."
-      );
-      return;
-    }
-    this.fastify.post(
-      this.config.webhookPaths.twiml || "/twiml",
-      async (request, reply) => {
-        try {
-          const formData = request.body;
-          const callSid = formData["CallSid"] || "";
-          const fromNumber = formData["From"] || "";
-          const toNumber = formData["To"] || "";
-          const protocol = request.headers["x-forwarded-proto"] || "http";
-          const host = request.headers.host;
-          const websocketUrl = `${protocol === "https" ? "wss" : "ws"}://${host}${this.config.webhookPaths.ws || "/ws"}`;
-          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.conversationRelayCallback || "/conversation-relay-callback"}`;
-          const twiml = await voiceChannel.handleIncomingCall({
-            toNumber,
-            fromNumber,
-            callSid,
-            actionUrl: callbackUrl,
-            conversationRelayConfig: {
-              url: websocketUrl,
-              ...this.config.conversationRelayConfig
-            }
-          });
-          await reply.type("application/xml").send(twiml);
-        } catch (error) {
-          this.fastify.log.error(
-            "TwiML generation error: " + (error instanceof Error ? error.message : String(error))
-          );
-          await reply.code(500).send({
-            error: "Internal server error",
-            message: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
-    );
-    this.fastify.post(
-      this.config.webhookPaths.conversationRelayCallback || "/conversation-relay-callback",
-      async (request, reply) => {
-        try {
-          const formData = request.body;
-          const parseResult = ConversationRelayCallbackPayloadSchema.safeParse(formData);
-          if (!parseResult.success) {
-            this.fastify.log.error(
-              { errors: parseResult.error.errors },
-              "Invalid ConversationRelay callback payload"
-            );
-            await reply.code(400).send({ error: "Invalid payload" });
-            return;
-          }
-          const result = await voiceChannel.handleConversationRelayCallback(
-            parseResult.data,
-            this.config.handoffHandler
-          );
-          await reply.code(result.status).type(result.contentType).send(result.content);
-        } catch (error) {
-          this.fastify.log.error(
-            "ConversationRelay callback error: " + (error instanceof Error ? error.message : String(error))
-          );
-          await reply.code(500).send({ error: "Internal server error" });
-        }
-      }
-    );
-    await this.fastify.register((fastify) => {
-      fastify.get(
-        this.config.webhookPaths.ws || "/ws",
-        { websocket: true },
-        (socket, request) => {
-          const signature = request.headers["x-twilio-signature"];
-          const authToken = this.tac.getConfig().authToken;
-          const proto = request.headers["x-forwarded-proto"] || "https";
-          const host = request.headers["x-forwarded-host"] || request.headers.host || "";
-          const wsProto = proto === "https" ? "wss" : "ws";
-          const fullUrl = new URL(`${wsProto}://${host}${request.url}`);
-          const params = {};
-          fullUrl.searchParams.forEach((value, key) => {
-            params[key] = value;
-          });
-          const url = fullUrl.origin + fullUrl.pathname;
-          const isValid = twilio2.validateRequest(authToken, signature, url, params);
-          if (!isValid) {
-            this.fastify.log.warn(
-              { url, hasSignature: !!signature },
-              "WebSocket connection rejected: invalid Twilio signature"
-            );
-            socket.close(1008, "Invalid signature");
-            return;
-          }
-          voiceChannel.handleWebSocketConnection(socket);
-        }
-      );
-    });
   }
   setupMessagingRoutes() {
     if (this.conversationChannels.length === 0) {
@@ -5364,13 +5411,10 @@ var TACServer = class {
   async start() {
     try {
       if (!this.fastify.hasContentTypeParser("application/x-www-form-urlencoded")) {
-        await this.fastify.register(formbody2);
-      }
-      if (!this.fastify.hasDecorator("websocketServer")) {
-        await this.fastify.register(websocket2);
+        await this.fastify.register(formbody);
       }
       if (!this.fastify.hasDecorator("gracefulShutdown")) {
-        await this.fastify.register(gracefulShutdown2);
+        await this.fastify.register(gracefulShutdown);
       }
       this.fastify.removeContentTypeParser("application/json");
       this.fastify.addContentTypeParser(
@@ -5385,27 +5429,24 @@ var TACServer = class {
           }
         }
       );
-      this.registerWebhookValidation();
-      await this.setupRoutes();
-      this.fastify.gracefulShutdown(async (signal) => {
+      registerSignatureValidation(this.fastify, {
+        authToken: this.tac.getConfig().authToken
+      });
+      this.setupRoutes();
+      this.fastify.gracefulShutdown((signal) => {
         this.fastify.log.info({ signal }, "Received shutdown signal");
         this.tac.shutdown();
-        await this.waitForWebSocketsToClose();
       });
-      const voiceConfig = VoiceServerConfigSchema.parse(this.config.voice);
       await this.fastify.listen({
-        host: voiceConfig.host,
-        port: voiceConfig.port
+        host: this.config.host,
+        port: this.config.port
       });
       const address = this.fastify.server.address();
-      const boundPort = typeof address === "object" && address ? address.port : voiceConfig.port;
+      const boundPort = typeof address === "object" && address ? address.port : this.config.port;
       this.fastify.log.info(
         {
-          host: voiceConfig.host,
+          host: this.config.host,
           port: boundPort,
-          twiml_webhook: this.config.webhookPaths.twiml,
-          ws_websocket: this.config.webhookPaths.ws,
-          conversation_relay_callback: this.config.webhookPaths.conversationRelayCallback,
           messaging_webhook: this.config.webhookPaths.messaging,
           ...this.config.webhookPaths.cintel && {
             cintel_webhook: this.config.webhookPaths.cintel
@@ -5417,44 +5458,6 @@ var TACServer = class {
       this.fastify.log.error({ err: error }, "Failed to start TAC Server");
       throw error;
     }
-  }
-  /**
-   * Wait for all WebSocket connections to close
-   */
-  async waitForWebSocketsToClose(timeoutMs = 3e4) {
-    const wsServer = this.fastify.websocketServer;
-    if (!wsServer || wsServer.clients.size === 0) {
-      return;
-    }
-    this.fastify.log.info(
-      { websocket_count: wsServer.clients.size },
-      "Waiting for WebSocket connections to close..."
-    );
-    const startTime = Date.now();
-    return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        const clientCount = wsServer.clients.size;
-        if (clientCount === 0) {
-          clearInterval(checkInterval);
-          this.fastify.log.info("All WebSocket connections closed");
-          resolve();
-          return;
-        }
-        if (Date.now() - startTime >= timeoutMs) {
-          clearInterval(checkInterval);
-          this.fastify.log.warn(
-            { remaining_websockets: clientCount },
-            "Timeout waiting for WebSockets to close, proceeding with shutdown"
-          );
-          resolve();
-          return;
-        }
-        this.fastify.log.info(
-          { remaining_websockets: clientCount },
-          "Waiting for WebSockets to close..."
-        );
-      }, 5e3);
-    });
   }
   /**
    * Stop the server gracefully
@@ -5470,6 +5473,6 @@ var TACServer = class {
   }
 };
 
-export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationRelayServer, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

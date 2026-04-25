@@ -9,10 +9,10 @@
  */
 
 export { ConversationRelay } from './crelay';
-export { CRelayServer } from './lib/server';
+export { ConversationRelayServer } from './lib/server';
 
 // Server types
-export type { CRelayServerConfig } from './lib/server';
+export type { ConversationRelayServerConfig } from './lib/server';
 
 // Shared Twilio signature-validation helpers
 export {

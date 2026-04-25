@@ -21,7 +21,7 @@ import { registerSignatureValidation, validateWebSocketSignature } from './signa
 /**
  * Server configuration for standalone ConversationRelay (without Maestro)
  */
-export interface CRelayServerConfig {
+export interface ConversationRelayServerConfig {
   /** Fastify server options */
   fastify?: FastifyServerOptions;
 
@@ -54,7 +54,7 @@ export interface CRelayServerConfig {
 
   /**
    * Called on POST /twiml when an incoming call arrives. Return a record of
-   * custom parameters that CRelayServer will splice into the `<ConversationRelay>`
+   * custom parameters that ConversationRelayServer will splice into the `<ConversationRelay>`
    * TwiML element (rendered by `conversationRelay.generateTwiML`).
    *
    * Integrated mode (with `@twilio/tac-core`): wire this to
@@ -81,7 +81,7 @@ export interface CRelayServerConfig {
    * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
    * — core closes the Maestro conversation and returns any handoff TwiML.
    *
-   * Standalone mode: omit this — CRelayServer replies 200 OK no-op and the
+   * Standalone mode: omit this — ConversationRelayServer replies 200 OK no-op and the
    * caller handles call-end via the CR `onSessionEnded` event subscription.
    */
   onCRCallback?: (
@@ -90,26 +90,26 @@ export interface CRelayServerConfig {
 }
 
 /**
- * CRelayServer — Standalone voice-only server using ConversationRelay
+ * ConversationRelayServer — Standalone voice-only server using ConversationRelay
  *
  * Lightweight server for voice-only applications. No Maestro, no Memory, no multi-channel.
  * Provides TwiML endpoint, WebSocket endpoint, and callback handler.
  */
-export class CRelayServer {
+export class ConversationRelayServer {
   private readonly fastify: FastifyInstance;
   private readonly conversationRelay: ConversationRelay;
   private readonly config: Required<
     Omit<
-      CRelayServerConfig,
+      ConversationRelayServerConfig,
       'fastify' | 'conversationRelayConfig' | 'onIncomingCall' | 'onCRCallback'
     >
   > & {
     conversationRelayConfig: Omit<ConversationRelayConfig, 'url'>;
-    onIncomingCall?: CRelayServerConfig['onIncomingCall'];
-    onCRCallback?: CRelayServerConfig['onCRCallback'];
+    onIncomingCall?: ConversationRelayServerConfig['onIncomingCall'];
+    onCRCallback?: ConversationRelayServerConfig['onCRCallback'];
   };
 
-  constructor(conversationRelay: ConversationRelay, config: CRelayServerConfig) {
+  constructor(conversationRelay: ConversationRelay, config: ConversationRelayServerConfig) {
     this.conversationRelay = conversationRelay;
 
     this.config = {
@@ -186,10 +186,10 @@ export class CRelayServer {
           callback_webhook: this.config.webhookPaths.callback,
           maestro_sink: this.config.webhookPaths.webhook,
         },
-        'CRelayServer started (standalone ConversationRelay)'
+        'ConversationRelayServer started (standalone ConversationRelay)'
       );
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Failed to start CRelayServer');
+      this.fastify.log.error({ err: error }, 'Failed to start ConversationRelayServer');
       throw error;
     }
   }
@@ -315,9 +315,9 @@ export class CRelayServer {
   public async stop(): Promise<void> {
     try {
       await this.fastify.close();
-      this.fastify.log.info('CRelayServer stopped');
+      this.fastify.log.info('ConversationRelayServer stopped');
     } catch (error) {
-      this.fastify.log.error({ err: error }, 'Error stopping CRelayServer');
+      this.fastify.log.error({ err: error }, 'Error stopping ConversationRelayServer');
       throw error;
     }
   }

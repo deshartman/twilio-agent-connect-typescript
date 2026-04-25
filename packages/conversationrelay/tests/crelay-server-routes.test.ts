@@ -1,7 +1,7 @@
 /**
- * CRelayServer route tests.
+ * ConversationRelayServer route tests.
  *
- * Covers the three routes CRelayServer owns:
+ * Covers the three routes ConversationRelayServer owns:
  *   - POST /twiml                         → always generates TwiML; customParameters
  *                                           come from onIncomingCall if supplied.
  *   - GET  /ws (upgrade)                  → validates x-twilio-signature against wss://.
@@ -12,9 +12,9 @@
  * and by voice-channel tests in the root package.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CRelayServer, ConversationRelay } from '../src/index';
+import { ConversationRelayServer, ConversationRelay } from '../src/index';
 import type {
-  CRelayServerConfig,
+  ConversationRelayServerConfig,
   CustomParameters,
   ConversationRelayCallbackPayload,
 } from '../src/index';
@@ -45,11 +45,11 @@ vi.mock('twilio', () => {
 
 const TEST_AUTH_TOKEN = 'test_token_123';
 
-// Helper — constructs a CRelayServer with a fresh CR instance on port 0.
-const makeServer = (overrides: Partial<CRelayServerConfig> = {}): CRelayServer => {
+// Helper — constructs a ConversationRelayServer with a fresh CR instance on port 0.
+const makeServer = (overrides: Partial<ConversationRelayServerConfig> = {}): ConversationRelayServer => {
   const logger = createLogger({ level: 'silent' });
   const cr = new ConversationRelay(logger);
-  return new CRelayServer(cr, {
+  return new ConversationRelayServer(cr, {
     authToken: TEST_AUTH_TOKEN,
     port: 0,
     development: false,
@@ -57,7 +57,7 @@ const makeServer = (overrides: Partial<CRelayServerConfig> = {}): CRelayServer =
   });
 };
 
-const getActualPort = (srv: CRelayServer): number => {
+const getActualPort = (srv: ConversationRelayServer): number => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const address = (srv as any).fastify.server.address();
   return typeof address === 'string' ? 0 : address.port;
@@ -66,8 +66,8 @@ const getActualPort = (srv: CRelayServer): number => {
 // ===========================================================================
 // /twiml + /conversation-relay-callback — signature validation
 // ===========================================================================
-describe('CRelayServer: signature validation on POST routes', () => {
-  let server: CRelayServer;
+describe('ConversationRelayServer: signature validation on POST routes', () => {
+  let server: ConversationRelayServer;
 
   beforeEach(() => {
     mockValidateRequest.mockReset();
@@ -115,8 +115,8 @@ describe('CRelayServer: signature validation on POST routes', () => {
 // ===========================================================================
 // /twiml — standalone (no onIncomingCall) and integrated (callback supplied)
 // ===========================================================================
-describe('CRelayServer: /twiml request handling', () => {
-  let server: CRelayServer;
+describe('ConversationRelayServer: /twiml request handling', () => {
+  let server: ConversationRelayServer;
 
   beforeEach(() => {
     mockValidateRequest.mockReset();
@@ -265,8 +265,8 @@ describe('CRelayServer: /twiml request handling', () => {
 // ===========================================================================
 // /conversation-relay-callback — callback delegation
 // ===========================================================================
-describe('CRelayServer: /conversation-relay-callback handling', () => {
-  let server: CRelayServer;
+describe('ConversationRelayServer: /conversation-relay-callback handling', () => {
+  let server: ConversationRelayServer;
 
   beforeEach(() => {
     mockValidateRequest.mockReset();
@@ -341,8 +341,8 @@ describe('CRelayServer: /conversation-relay-callback handling', () => {
 // ===========================================================================
 // /ws — WebSocket upgrade signature validation
 // ===========================================================================
-describe('CRelayServer: /ws WebSocket signature validation', () => {
-  let server: CRelayServer;
+describe('ConversationRelayServer: /ws WebSocket signature validation', () => {
+  let server: ConversationRelayServer;
 
   beforeEach(() => {
     mockValidateRequest.mockReset();

@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import {
   ConversationRelay,
-  CRelayServer,
+  ConversationRelayServer,
   createLogger,
   type CallSid,
   type CRelaySession,
@@ -193,7 +193,7 @@ if (!process.env.TWILIO_AUTH_TOKEN) {
   throw new Error('TWILIO_AUTH_TOKEN is required for webhook signature validation');
 }
 
-const server = new CRelayServer(conversationRelay, {
+const server = new ConversationRelayServer(conversationRelay, {
   host: '0.0.0.0',
   port: Number.parseInt(process.env.PORT || '8000', 10),
   conversationRelayConfig: {

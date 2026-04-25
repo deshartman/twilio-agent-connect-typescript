@@ -15,7 +15,7 @@ import { registerSignatureValidation } from '@twilio/tac-conversationrelay';
  *
  * TACServer handles Conversation Orchestrator (Maestro) webhooks only. Voice
  * routes (/twiml, /ws, /conversation-relay-callback) live on
- * `CRelayServer` in `@twilio/tac-conversationrelay` — see the two-process
+ * `ConversationRelayServer` in `@twilio/tac-conversationrelay` — see the two-process
  * deployment story in the README.
  */
 export interface TACServerConfig {
@@ -116,7 +116,7 @@ export class TACServer {
     };
 
     // Fan-out channels for /webhook: SMS + Chat (and passive VoiceChannel if
-    // registered on TAC). Active VoiceChannels are driven by CRelayServer on
+    // registered on TAC). Active VoiceChannels are driven by ConversationRelayServer on
     // a separate process/port — they don't participate in TACServer routes.
     this.conversationChannels =
       config.conversationChannels ??
@@ -160,7 +160,7 @@ export class TACServer {
 
   /**
    * Setup routes — Maestro webhook fan-out and optional Conversation
-   * Intelligence webhook. Voice routes are served by CRelayServer in the
+   * Intelligence webhook. Voice routes are served by ConversationRelayServer in the
    * tac-conversationrelay package.
    */
   private setupRoutes(): void {

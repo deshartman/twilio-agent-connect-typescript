@@ -71,8 +71,8 @@ export interface VoiceChannelConfig {
  * createConversationForCall(). WebSocket events are the source of user
  * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
  * to avoid double-emits. Wire `createConversationForCall` and
- * `handleConversationRelayCallback` into `CRelayServer`'s callbacks
- * (onIncomingCall / onCRCallback) — CRelayServer owns the /twiml, /ws,
+ * `handleConversationRelayCallback` into `ConversationRelayServer`'s callbacks
+ * (onIncomingCall / onCRCallback) — ConversationRelayServer owns the /twiml, /ws,
  * and /conversation-relay-callback routes.
  *
  * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.
@@ -758,7 +758,7 @@ export class VoiceChannel implements Channel {
   /**
    * Create the Maestro conversation for an incoming voice call and return the
    * four IDs that CR needs to inject as TwiML customParameters. No CR, no
-   * TwiML — pure Maestro work. Wire this to `CRelayServer.onIncomingCall` so
+   * TwiML — pure Maestro work. Wire this to `ConversationRelayServer.onIncomingCall` so
    * the CR server renders the TwiML with these IDs as customParameters.
    */
   public async createConversationForCall(input: {

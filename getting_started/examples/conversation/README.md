@@ -68,7 +68,7 @@ The example starts **two Fastify servers** in the same process:
 | Server | Port | Endpoints |
 |---|---|---|
 | `TACServer` (Maestro webhooks) | `8000` | `POST /webhook` — Conversation Orchestrator fan-out (SMS) |
-| `CRelayServer` (voice) | `8001` | `POST /twiml`, `WS /ws`, `POST /conversation-relay-callback` |
+| `ConversationRelayServer` (voice) | `8001` | `POST /twiml`, `WS /ws`, `POST /conversation-relay-callback` |
 
 The split exists because `@twilio/tac-conversationrelay` is deliberately a standalone package with no dependency on `@twilio/tac-core` — the two servers are composed via two optional callbacks (`onIncomingCall`, `onCRCallback`) that carry plain data records, not protocol types.
 
@@ -78,7 +78,7 @@ ngrok (or your tunnel of choice) only forwards one port at a time, so you need t
 
 ```bash
 ngrok http 8000   # SMS / Maestro webhooks → TACServer
-ngrok http 8001   # Voice numbers          → CRelayServer
+ngrok http 8001   # Voice numbers          → ConversationRelayServer
 ```
 
 Copy both ngrok URLs — they are different (e.g. `https://abc123.ngrok.io` for Maestro and `https://xyz789.ngrok.io` for voice).
@@ -93,7 +93,7 @@ Copy both ngrok URLs — they are different (e.g. `https://abc123.ngrok.io` for 
 4. Set **Webhook > Callback method** to `https://<maestro-ngrok>/webhook` with HTTP method `POST`.
 5. Click **Save changes**.
 
-**Voice (→ CRelayServer on :8001):**
+**Voice (→ ConversationRelayServer on :8001):**
 
 1. In the [Console](https://1console.twilio.com/), go to **Products & services** > **Numbers & senders**.
 2. Select your Twilio phone number.

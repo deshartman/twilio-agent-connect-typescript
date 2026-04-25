@@ -17,7 +17,7 @@ import {
   TACMemoryResponse,
   TACServer,
   ConversationRelay,
-  CRelayServer,
+  ConversationRelayServer,
 } from 'twilio-agent-connect';
 // Load environment variables from parent directory
 config({ path: '../.env' });
@@ -328,10 +328,10 @@ tac.onMessageReady(async msg => {
 //   - TACServer  (:8000) serves /webhook — Conversation Orchestrator fan-out
 //     for SMS / Chat / passive voice. Point your Conversations Service webhook
 //     URL here.
-//   - CRelayServer (:8001) serves /twiml, /ws, /conversation-relay-callback —
+//   - ConversationRelayServer (:8001) serves /twiml, /ws, /conversation-relay-callback —
 //     the voice stack. Point your Twilio voice number's webhook here.
 //
-// The two callbacks thread VoiceChannel through CRelayServer without CR
+// The two callbacks thread VoiceChannel through ConversationRelayServer without CR
 // importing from tac-core: createConversationForCall returns the four Maestro
 // IDs that get spliced into <ConversationRelay> customParameters, and
 // handleConversationRelayCallback closes the Maestro conversation when the
@@ -342,7 +342,7 @@ const tacServer = new TACServer(tac, {
   development: true,
 });
 
-const crServer = new CRelayServer(conversationRelay, {
+const crServer = new ConversationRelayServer(conversationRelay, {
   authToken: tac.getConfig().authToken,
   host: '0.0.0.0',
   port: 8001,
@@ -358,7 +358,7 @@ const crServer = new CRelayServer(conversationRelay, {
 
 try {
   await Promise.all([tacServer.start(), crServer.start()]);
-  console.log('Both servers started: TACServer :8000, CRelayServer :8001');
+  console.log('Both servers started: TACServer :8000, ConversationRelayServer :8001');
 } catch (error) {
   console.error('Failed to start servers:', error);
   process.exit(1);

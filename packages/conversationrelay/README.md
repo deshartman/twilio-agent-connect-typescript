@@ -50,7 +50,7 @@ npm install @twilio/tac-conversationrelay
 ### Option 1: Standalone Server (Recommended)
 
 ```typescript
-import { ConversationRelay, CRelayServer } from '@twilio/tac-conversationrelay';
+import { ConversationRelay, ConversationRelayServer } from '@twilio/tac-conversationrelay';
 
 const conversationRelay = new ConversationRelay();
 
@@ -77,7 +77,7 @@ conversationRelay.onSessionEnded((callSid) => {
 if (!process.env.TWILIO_AUTH_TOKEN) {
   throw new Error('TWILIO_AUTH_TOKEN is required');
 }
-const server = new CRelayServer(conversationRelay, {
+const server = new ConversationRelayServer(conversationRelay, {
   host: '0.0.0.0',
   port: 3000,
   conversationRelayConfig: {
@@ -159,13 +159,13 @@ Main class for ConversationRelay protocol handling.
 - `handleConnection(ws)` — accept a WebSocket connection
 - `shutdown()` — close all connections
 
-### CRelayServer
+### ConversationRelayServer
 
 Standalone Fastify server for voice-only applications.
 
 **Constructor:**
 ```typescript
-new CRelayServer(conversationRelay: ConversationRelay, config?: CRelayServerConfig)
+new ConversationRelayServer(conversationRelay: ConversationRelay, config?: ConversationRelayServerConfig)
 ```
 
 **Config Options:**
@@ -189,7 +189,7 @@ conversationRelay.onPrompt(async (callSid, prompt) => {
   conversationRelay.sendResponse(callSid, reply);
 });
 
-const server = new CRelayServer(conversationRelay, {
+const server = new ConversationRelayServer(conversationRelay, {
   authToken: process.env.TWILIO_AUTH_TOKEN!,
   port: 8001,
   conversationRelayConfig: { welcomeGreeting: 'Hello!' },
@@ -201,14 +201,14 @@ await server.start();
 
 ```typescript
 import { TAC, VoiceChannel, TACServer } from '@twilio/tac-core';
-import { ConversationRelay, CRelayServer } from '@twilio/tac-conversationrelay';
+import { ConversationRelay, ConversationRelayServer } from '@twilio/tac-conversationrelay';
 
 const tac = await TAC.create({ config: TACConfig.fromEnv() });
 const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
 const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
 tac.registerChannel(voiceChannel);
 
-const crServer = new CRelayServer(conversationRelay, {
+const crServer = new ConversationRelayServer(conversationRelay, {
   authToken: tac.getConfig().authToken,
   port: 8001,
   conversationRelayConfig: { welcomeGreeting: 'Welcome!' },
@@ -218,7 +218,7 @@ const crServer = new CRelayServer(conversationRelay, {
 });
 
 // TACServer on :8000 serves Maestro webhooks (/webhook + optional /cintel).
-// CRelayServer on :8001 serves voice (/twiml + /ws + /conversation-relay-callback).
+// ConversationRelayServer on :8001 serves voice (/twiml + /ws + /conversation-relay-callback).
 await Promise.all([new TACServer(tac, { port: 8000 }).start(), crServer.start()]);
 ```
 
