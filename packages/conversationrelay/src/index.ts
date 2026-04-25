@@ -26,9 +26,9 @@ export type { RegisterSignatureValidationOptions } from './lib/signature';
 export { createLogger } from './lib/logger';
 export type { Logger } from './lib/logger';
 
-// Silence detection helper
-export { SilenceDetector } from './lib/silence-detector';
-export type { SilenceDetectorConfig } from './lib/silence-detector';
+// Silence handling helper
+export { SilenceHandler } from './lib/silence-handler';
+export type { SilenceHandlerConfig } from './lib/silence-handler';
 
 // Built-in tools
 export {

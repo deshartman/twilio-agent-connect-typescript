@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLogger } from '../src/lib/logger';
-import { SilenceDetector } from '../src/lib/silence-detector';
-import type { SilenceDetectorConfig, CallSid } from '../src/types';
+import { SilenceHandler, type SilenceHandlerConfig } from '../src/lib/silence-handler';
+import type { CallSid } from '../src/types';
 
-describe('SilenceDetector', () => {
-  let detector: SilenceDetector;
+describe('SilenceHandler', () => {
+  let handler: SilenceHandler;
   let onSilenceMock: ReturnType<typeof vi.fn>;
   const logger = createLogger({ name: 'test', level: 'silent' });
   const CALL_SID: CallSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
@@ -16,8 +16,8 @@ describe('SilenceDetector', () => {
   });
 
   afterEach(() => {
-    if (detector) {
-      detector.shutdown();
+    if (handler) {
+      handler.shutdown();
     }
     vi.restoreAllMocks();
     vi.useRealTimers();
@@ -29,14 +29,14 @@ describe('SilenceDetector', () => {
 
   describe('basic timer functionality', () => {
     it('should trigger onSilence callback after threshold', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Are you still there?'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // Fast forward just under threshold
       vi.advanceTimersByTime(4999);
@@ -49,28 +49,28 @@ describe('SilenceDetector', () => {
     });
 
     it('should not trigger callback before threshold', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 10,
         reminders: ['Still there?'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(9999);
 
       expect(onSilenceMock).not.toHaveBeenCalled();
     });
 
     it('should convert seconds to milliseconds correctly', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 2,
         reminders: ['Quick reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(2000);
 
       expect(onSilenceMock).toHaveBeenCalledTimes(1);
@@ -83,14 +83,14 @@ describe('SilenceDetector', () => {
 
   describe('progressive reminders', () => {
     it('should send first reminder, then second, then third', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First reminder', 'Second reminder', 'Final warning'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // First reminder
       vi.advanceTimersByTime(5000);
@@ -109,42 +109,42 @@ describe('SilenceDetector', () => {
     });
 
     it('should mark last reminder as terminal', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Only reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       expect(onSilenceMock).toHaveBeenCalledWith(CALL_SID, 'Only reminder', true);
     });
 
     it('should mark non-last reminders as non-terminal', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Second'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       expect(onSilenceMock).toHaveBeenCalledWith(CALL_SID, 'First', false);
     });
 
     it('should stop scheduling after terminal reminder', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Last'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // First reminder
       vi.advanceTimersByTime(5000);
@@ -161,14 +161,14 @@ describe('SilenceDetector', () => {
     });
 
     it('should use last reminder if index exceeds array length', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Last'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // Manually advance past expected reminders
       vi.advanceTimersByTime(5000); // First
@@ -185,18 +185,18 @@ describe('SilenceDetector', () => {
 
   describe('reset behavior', () => {
     it('should cancel existing timer and start new one on reset', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(3000);
 
       // Reset timer
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // Old timer should be cancelled, new one starts from 0
       vi.advanceTimersByTime(4999);
@@ -207,18 +207,18 @@ describe('SilenceDetector', () => {
     });
 
     it('should reset reminder index when reset is called', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Second', 'Third'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000); // First reminder
 
       // Reset - should start from first reminder again
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       expect(onSilenceMock).toHaveBeenCalledTimes(2);
@@ -226,15 +226,15 @@ describe('SilenceDetector', () => {
     });
 
     it('should handle reset on inactive call (no existing timer)', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
       // Reset without previous timer
-      expect(() => detector.reset(CALL_SID)).not.toThrow();
+      expect(() => handler.reset(CALL_SID)).not.toThrow();
 
       vi.advanceTimersByTime(5000);
       expect(onSilenceMock).toHaveBeenCalledTimes(1);
@@ -247,17 +247,17 @@ describe('SilenceDetector', () => {
 
   describe('stop behavior', () => {
     it('should cancel timer and not trigger callback', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(3000);
 
-      detector.stop(CALL_SID);
+      handler.stop(CALL_SID);
 
       // Advance past original threshold
       vi.advanceTimersByTime(5000);
@@ -265,20 +265,20 @@ describe('SilenceDetector', () => {
     });
 
     it('should clear reminder index when stopped', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Second'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000); // First reminder
 
-      detector.stop(CALL_SID);
+      handler.stop(CALL_SID);
 
       // Start fresh - should begin at first reminder
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       expect(onSilenceMock).toHaveBeenCalledTimes(2);
@@ -286,15 +286,15 @@ describe('SilenceDetector', () => {
     });
 
     it('should handle stop on inactive call (no existing timer)', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
       // Stop without previous timer
-      expect(() => detector.stop(CALL_SID)).not.toThrow();
+      expect(() => handler.stop(CALL_SID)).not.toThrow();
     });
   });
 
@@ -304,17 +304,17 @@ describe('SilenceDetector', () => {
 
   describe('multi-call support', () => {
     it('should track timers independently for different calls', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(2000);
 
-      detector.reset(CALL_SID_2);
+      handler.reset(CALL_SID_2);
 
       // First call triggers
       vi.advanceTimersByTime(3000); // Total: 5000ms for CALL_SID
@@ -328,20 +328,20 @@ describe('SilenceDetector', () => {
     });
 
     it('should stop only specified call without affecting others', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
-      detector.reset(CALL_SID_2);
+      handler.reset(CALL_SID);
+      handler.reset(CALL_SID_2);
 
       vi.advanceTimersByTime(3000);
 
       // Stop first call
-      detector.stop(CALL_SID);
+      handler.stop(CALL_SID);
 
       // Second call continues
       vi.advanceTimersByTime(2000);
@@ -350,17 +350,17 @@ describe('SilenceDetector', () => {
     });
 
     it('should track separate reminder indices for each call', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Second', 'Third'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000); // CALL_SID: First reminder
 
-      detector.reset(CALL_SID_2);
+      handler.reset(CALL_SID_2);
       vi.advanceTimersByTime(5000); // CALL_SID: Second, CALL_SID_2: First
 
       expect(onSilenceMock).toHaveBeenCalledTimes(3);
@@ -376,17 +376,17 @@ describe('SilenceDetector', () => {
 
   describe('shutdown', () => {
     it('should clear all timers', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
-      detector.reset(CALL_SID_2);
+      handler.reset(CALL_SID);
+      handler.reset(CALL_SID_2);
 
-      detector.shutdown();
+      handler.shutdown();
 
       // No callbacks should fire after shutdown
       vi.advanceTimersByTime(10000);
@@ -394,20 +394,20 @@ describe('SilenceDetector', () => {
     });
 
     it('should clear all reminder indices', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['First', 'Second'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000); // First reminder
 
-      detector.shutdown();
+      handler.shutdown();
 
       // Can be used again after shutdown (would start fresh)
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       expect(onSilenceMock).toHaveBeenCalledTimes(2);
@@ -415,28 +415,28 @@ describe('SilenceDetector', () => {
     });
 
     it('should be safe to call shutdown multiple times', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
-      detector.shutdown();
+      handler.reset(CALL_SID);
+      handler.shutdown();
 
-      expect(() => detector.shutdown()).not.toThrow();
+      expect(() => handler.shutdown()).not.toThrow();
     });
 
     it('should be safe to call shutdown with no active timers', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      expect(() => detector.shutdown()).not.toThrow();
+      expect(() => handler.shutdown()).not.toThrow();
     });
   });
 
@@ -446,14 +446,14 @@ describe('SilenceDetector', () => {
 
   describe('edge cases', () => {
     it('should handle empty reminders array with fallback', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: [],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(5000);
 
       // Should use fallback reminder
@@ -461,28 +461,28 @@ describe('SilenceDetector', () => {
     });
 
     it('should handle very short threshold', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 0.1,
         reminders: ['Quick'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(100);
 
       expect(onSilenceMock).toHaveBeenCalledTimes(1);
     });
 
     it('should handle very long threshold', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 3600, // 1 hour
         reminders: ['After long silence'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
       vi.advanceTimersByTime(3599999);
       expect(onSilenceMock).not.toHaveBeenCalled();
 
@@ -491,21 +491,94 @@ describe('SilenceDetector', () => {
     });
 
     it('should handle rapid reset calls', () => {
-      const config: SilenceDetectorConfig = {
+      const config: SilenceHandlerConfig = {
         thresholdSeconds: 5,
         reminders: ['Reminder'],
         onSilence: onSilenceMock,
       };
-      detector = new SilenceDetector(config, logger);
+      handler = new SilenceHandler(config, logger);
 
       // Rapid resets
-      detector.reset(CALL_SID);
-      detector.reset(CALL_SID);
-      detector.reset(CALL_SID);
+      handler.reset(CALL_SID);
+      handler.reset(CALL_SID);
+      handler.reset(CALL_SID);
 
       // Only the last reset should count
       vi.advanceTimersByTime(5000);
       expect(onSilenceMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // =========================================================================
+  // 8. setEnabled / isEnabled
+  // =========================================================================
+
+  describe('setEnabled / isEnabled', () => {
+    const makeHandler = (): SilenceHandler => {
+      const config: SilenceHandlerConfig = {
+        thresholdSeconds: 5,
+        reminders: ['Reminder'],
+        onSilence: onSilenceMock,
+      };
+      return new SilenceHandler(config, logger);
+    };
+
+    it('is enabled by default', () => {
+      handler = makeHandler();
+      expect(handler.isEnabled()).toBe(true);
+    });
+
+    it('setEnabled(false) clears active timers and suppresses firing', () => {
+      handler = makeHandler();
+      handler.reset(CALL_SID);
+      handler.reset(CALL_SID_2);
+      expect(handler.getActiveCount()).toBe(2);
+
+      handler.setEnabled(false);
+
+      expect(handler.isEnabled()).toBe(false);
+      expect(handler.getActiveCount()).toBe(0);
+
+      vi.advanceTimersByTime(10000);
+      expect(onSilenceMock).not.toHaveBeenCalled();
+    });
+
+    it('reset() while disabled is a no-op for timer scheduling', () => {
+      handler = makeHandler();
+      handler.setEnabled(false);
+
+      handler.reset(CALL_SID);
+      expect(handler.getActiveCount()).toBe(0);
+
+      vi.advanceTimersByTime(10000);
+      expect(onSilenceMock).not.toHaveBeenCalled();
+    });
+
+    it('setEnabled(true) does NOT auto-restart timers — caller must reset()', () => {
+      handler = makeHandler();
+      handler.reset(CALL_SID);
+      handler.setEnabled(false);
+      expect(handler.getActiveCount()).toBe(0);
+
+      handler.setEnabled(true);
+      expect(handler.getActiveCount()).toBe(0);
+
+      vi.advanceTimersByTime(10000);
+      expect(onSilenceMock).not.toHaveBeenCalled();
+
+      // Caller re-arms explicitly
+      handler.reset(CALL_SID);
+      vi.advanceTimersByTime(5000);
+      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op when the state is already at the requested value', () => {
+      handler = makeHandler();
+      handler.reset(CALL_SID);
+      const before = handler.getActiveCount();
+
+      handler.setEnabled(true); // already true
+      expect(handler.getActiveCount()).toBe(before);
     });
   });
 });

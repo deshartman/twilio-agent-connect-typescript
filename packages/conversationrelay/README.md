@@ -143,14 +143,14 @@ new ConversationRelayServer(conversationRelay: ConversationRelay, config: Conver
 
 Two patterns come up in nearly every production voice agent. Neither is a CR protocol feature — CR emits no "silence" event and has no "listen-only" mode. Both are user-space patterns; this package ships a helper for the first.
 
-### Silence detection — `SilenceDetector`
+### Silence handling — `SilenceHandler`
 
-CR only emits `{type: 'prompt'}` when STT has a transcript. If the caller goes quiet, the WebSocket stays open and you'll never be told. `SilenceDetector` is a per-`CallSid` timer with progressive reminders:
+CR only emits `{type: 'prompt'}` when STT has a transcript. If the caller goes quiet, the WebSocket stays open and you'll never be told. `SilenceHandler` is a per-`CallSid` timer with progressive reminders:
 
 ```typescript
-import { SilenceDetector } from '@twilio/tac-conversationrelay';
+import { SilenceHandler } from '@twilio/tac-conversationrelay';
 
-const detector = new SilenceDetector({
+const handler = new SilenceHandler({
   thresholdSeconds: 15,
   reminders: ['Are you still there?', 'Hello?', 'Ending due to inactivity'],
   onSilence: (callSid, reminder, isTerminal) => {
@@ -159,13 +159,13 @@ const detector = new SilenceDetector({
   },
 }, logger);
 
-cr.onSessionStarted((callSid) => detector.reset(callSid));
-cr.onPrompt((callSid) => detector.reset(callSid));
-cr.onInterrupt((callSid) => detector.reset(callSid));
-cr.onSessionEnded((callSid) => detector.stop(callSid));
+cr.onSessionStarted((callSid) => handler.reset(callSid));
+cr.onPrompt((callSid) => handler.reset(callSid));
+cr.onInterrupt((callSid) => handler.reset(callSid));
+cr.onSessionEnded((callSid) => handler.stop(callSid));
 ```
 
-Reset on every signal of life — including DTMF (common footgun: keypad input doesn't fire `onPrompt`). Call `stop(callSid)` on session end and `shutdown()` on process exit so timers don't leak.
+Reset on every signal of life — including DTMF (common footgun: keypad input doesn't fire `onPrompt`). Call `stop(callSid)` on session end and `shutdown()` on process exit so timers don't leak. Use `setEnabled(false)` to disable globally without losing state (e.g. during listen-mode) and `setEnabled(true)` then `reset(callSid)` to re-arm.
 
 ### Listen mode (response suppression)
 

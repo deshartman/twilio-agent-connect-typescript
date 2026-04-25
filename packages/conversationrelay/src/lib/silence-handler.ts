@@ -1,5 +1,5 @@
 /**
- * SilenceDetector - Progressive reminder system for silent callers
+ * SilenceHandler - Progressive reminder system for silent callers
  *
  * Monitors call silence and triggers progressive reminders after a threshold.
  * Based on the simple-conversation-relay SilenceHandler pattern.
@@ -9,9 +9,9 @@ import type { CallSid } from '../types';
 import type { Logger } from './logger';
 
 /**
- * Configuration for silence detection behavior
+ * Configuration for silence handling behavior
  */
-export interface SilenceDetectorConfig {
+export interface SilenceHandlerConfig {
   /** Threshold in seconds before triggering silence callback */
   thresholdSeconds: number;
   /** Array of reminder messages to send on each silence timeout */
@@ -21,11 +21,11 @@ export interface SilenceDetectorConfig {
 }
 
 /**
- * SilenceDetector monitors call silence and triggers progressive reminders
+ * SilenceHandler monitors call silence and triggers progressive reminders
  *
  * @example
  * ```typescript
- * const detector = new SilenceDetector(
+ * const handler = new SilenceHandler(
  *   {
  *     thresholdSeconds: 20,
  *     reminders: [
@@ -45,21 +45,25 @@ export interface SilenceDetectorConfig {
  * );
  *
  * // Reset timer when user speaks
- * detector.reset(callSid);
+ * handler.reset(callSid);
  *
  * // Stop monitoring when call ends
- * detector.stop(callSid);
+ * handler.stop(callSid);
+ *
+ * // Disable without losing state (resumes on setEnabled(true))
+ * handler.setEnabled(false);
  * ```
  */
-export class SilenceDetector {
+export class SilenceHandler {
   private readonly timers: Map<CallSid, NodeJS.Timeout> = new Map();
   private readonly reminderIndex: Map<CallSid, number> = new Map();
-  private readonly config: SilenceDetectorConfig;
+  private readonly config: SilenceHandlerConfig;
   private readonly logger: Logger;
+  private enabled = true;
 
-  constructor(config: SilenceDetectorConfig, logger: Logger) {
+  constructor(config: SilenceHandlerConfig, logger: Logger) {
     this.config = config;
-    this.logger = logger.child({ component: 'silence-detector' });
+    this.logger = logger.child({ component: 'silence-handler' });
   }
 
   /**
@@ -69,18 +73,46 @@ export class SilenceDetector {
   public reset(callSid: CallSid): void {
     this.clearTimer(callSid);
     this.reminderIndex.set(callSid, 0);
-    this.startTimer(callSid);
-    this.logger.debug({ call_sid: callSid }, 'Silence timer reset');
+    if (this.enabled) {
+      this.startTimer(callSid);
+    }
+    this.logger.debug({ call_sid: callSid, enabled: this.enabled }, 'Silence timer reset');
   }
 
   /**
    * Stop monitoring silence for a call
-   * Call this when the call ends or silence detection should be disabled
+   * Call this when the call ends or silence handling should be disabled
    */
   public stop(callSid: CallSid): void {
     this.clearTimer(callSid);
     this.reminderIndex.delete(callSid);
     this.logger.debug({ call_sid: callSid }, 'Silence monitoring stopped');
+  }
+
+  /**
+   * Enable or disable silence handling globally.
+   *
+   * When disabled: timers are cleared for all active calls, no new timers
+   * fire on `reset()`. When re-enabled: callers must invoke `reset()` to
+   * start timers again (this is deliberate — the re-enabler decides which
+   * calls still deserve silence monitoring).
+   */
+  public setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) {
+      return;
+    }
+    this.enabled = enabled;
+    if (!enabled) {
+      for (const callSid of Array.from(this.timers.keys())) {
+        this.clearTimer(callSid);
+      }
+    }
+    this.logger.info({ enabled }, `Silence handling ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /** Whether silence handling is currently enabled */
+  public isEnabled(): boolean {
+    return this.enabled;
   }
 
   /**
@@ -128,7 +160,7 @@ export class SilenceDetector {
   }
 
   /**
-   * Shutdown the detector and clear all timers
+   * Shutdown the handler and clear all timers
    * Call this when the application is shutting down
    */
   public shutdown(): void {
@@ -137,7 +169,7 @@ export class SilenceDetector {
     }
     this.timers.clear();
     this.reminderIndex.clear();
-    this.logger.info('Silence detector shutdown complete');
+    this.logger.info('Silence handler shutdown complete');
   }
 
   /**
