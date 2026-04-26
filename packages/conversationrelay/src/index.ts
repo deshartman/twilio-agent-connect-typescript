@@ -36,7 +36,9 @@ export {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
+  liveAgentHandoffTool,
   setListenModeTool,
+  setSilenceDetectionTool,
 } from './tools/index';
 
 // Tool definition helpers (for user-authored CR tools)

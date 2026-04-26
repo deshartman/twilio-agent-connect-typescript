@@ -47,7 +47,9 @@ import {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
+  liveAgentHandoffTool,
   setListenModeTool,
+  setSilenceDetectionTool,
 } from './tools/index';
 import { SilenceHandler } from './lib/silence-handler';
 
@@ -129,7 +131,9 @@ export class ConversationRelay {
       sendDigitsTool,
       switchLanguageTool,
       endCallTool,
+      liveAgentHandoffTool,
       setListenModeTool,
+      setSilenceDetectionTool,
     ];
     for (const tool of builtIns) {
       this.tools.set(tool.name, tool as unknown as CRTool);
@@ -199,16 +203,20 @@ export class ConversationRelay {
 
   /**
    * Execute a registered tool by name. The tool result may trigger side
-   * effects on CR via one of two result-convention fields:
+   * effects on CR via one of three result-convention fields:
    *
    *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
    *     `sendResponse` (used by playMediaTool, sendDigitsTool,
-   *     switchLanguageTool, endCallTool).
+   *     switchLanguageTool, endCallTool, liveAgentHandoffTool).
    *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
    *     (used by setListenModeTool).
+   *   - `silenceEnabled: boolean` — applied via
+   *     `session.silenceHandler.setEnabled(...)` (on enable, also resets
+   *     the timer). Used by setSilenceDetectionTool. No-op (with debug
+   *     log) for sessions without a silence handler.
    *
    * The tool result is returned so the caller can feed it back to the LLM
-   * loop. Tools that need neither side effect return their own plain result.
+   * loop. Tools that need no side effect return their own plain result.
    *
    * @throws if the tool is not registered or if an `outgoingMessage` fails
    *   schema validation.
@@ -247,6 +255,27 @@ export class ConversationRelay {
     ) {
       const enabled = (result as { listenMode: boolean }).listenMode;
       this.setListenMode(callSid, enabled);
+    }
+
+    if (
+      result !== null &&
+      typeof result === 'object' &&
+      'silenceEnabled' in result &&
+      typeof (result as { silenceEnabled?: unknown }).silenceEnabled === 'boolean'
+    ) {
+      const enabled = (result as { silenceEnabled: boolean }).silenceEnabled;
+      const session = this.sessions.get(callSid);
+      if (session?.silenceHandler) {
+        session.silenceHandler.setEnabled(enabled);
+        if (enabled) {
+          session.silenceHandler.reset();
+        }
+      } else {
+        this.logger.debug(
+          { call_sid: callSid, silence_enabled: enabled },
+          'silenceEnabled result had no effect — no silence handler on this session'
+        );
+      }
     }
 
     return result;
