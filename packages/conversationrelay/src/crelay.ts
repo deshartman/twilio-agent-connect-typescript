@@ -49,6 +49,35 @@ import {
   endCallTool,
   setListenModeTool,
 } from './tools/index';
+import { SilenceHandler } from './lib/silence-handler';
+
+// =============================================================================
+// Constructor Configuration
+// =============================================================================
+
+/**
+ * Silence-handling config supplied at `ConversationRelay` construction.
+ * Absent = silence handling disabled (no per-session handler constructed).
+ * Present = a `SilenceHandler` is constructed for each session on setup,
+ * using this as a template.
+ *
+ * Reminder sequence is always `['Are you still there?', ...additionalPrompts]`.
+ * The terminal reminder's breach ends the call via `endCall` with
+ * `{ reasonCode: 'unresponsive', reason: 'The caller was not speaking' }`.
+ */
+export interface SilenceConfig {
+  /** Seconds of silence before a reminder fires. Default: 20. */
+  thresholdSeconds?: number;
+  /** Up to 2 custom prompts appended after the default "Are you still there?". */
+  additionalPrompts?: [string] | [string, string];
+}
+
+/**
+ * Optional config for `new ConversationRelay(logger, config)`.
+ */
+export interface ConversationRelayConstructorConfig {
+  silence?: SilenceConfig;
+}
 
 // =============================================================================
 // Callback Types
@@ -73,6 +102,7 @@ export class ConversationRelay {
   private readonly connections: Map<CallSid, WebSocket>;
   private readonly sessions: Map<CallSid, CRelaySession>;
   private readonly tools: Map<string, CRTool>;
+  private readonly silenceTemplate: SilenceConfig | undefined;
   private readonly callbacks: {
     onSessionStarted?: SessionStartedCallback;
     onPrompt?: PromptCallback;
@@ -83,11 +113,12 @@ export class ConversationRelay {
     onError?: ErrorCallback;
   };
 
-  constructor(logger?: Logger) {
+  constructor(logger?: Logger, config?: ConversationRelayConstructorConfig) {
     this.logger = logger ?? createLogger({ name: 'conversation-relay' });
     this.connections = new Map();
     this.sessions = new Map();
     this.callbacks = {};
+    this.silenceTemplate = config?.silence;
 
     // Auto-register built-in tools. Users can remove any via unregisterTool().
     // Protocol tools ship an outgoingMessage; setListenModeTool mutates session
@@ -277,7 +308,8 @@ export class ConversationRelay {
             callSid = message.callSid as CallSid;
             this.connections.set(callSid, ws);
 
-            // Create session
+            // Create session. `silenceHandler` is attached below if the
+            // constructor was given a silence template.
             const session: CRelaySession = {
               callSid,
               from: message.from,
@@ -289,24 +321,32 @@ export class ConversationRelay {
             };
             this.sessions.set(callSid, session);
 
+            if (this.silenceTemplate) {
+              session.silenceHandler = this.createSilenceHandler(callSid);
+              session.silenceHandler.reset();
+            }
+
             this.callbacks.onSessionStarted?.(callSid, session, message);
             break;
           }
 
           case 'prompt':
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onPrompt?.(callSid, message.voicePrompt, message);
             }
             break;
 
           case 'interrupt':
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onInterrupt?.(callSid, message);
             }
             break;
 
           case 'dtmf':
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onDtmf?.(callSid, message);
             }
             break;
@@ -342,6 +382,7 @@ export class ConversationRelay {
 
     ws.on('close', () => {
       if (callSid) {
+        this.sessions.get(callSid)?.silenceHandler?.stop();
         this.connections.delete(callSid);
         this.sessions.delete(callSid);
         this.logger.debug({ call_sid: callSid }, 'ConversationRelay WebSocket closed');
@@ -394,6 +435,19 @@ export class ConversationRelay {
       return;
     }
     session.listenMode = enabled;
+
+    // Silence × listen-mode: listen-mode on → silence handler stops;
+    // listen-mode off → silence handler re-enables and resets from zero.
+    // (Decision A in the plan: fresh reset, not resume-from-paused.)
+    if (session.silenceHandler) {
+      if (enabled) {
+        session.silenceHandler.setEnabled(false);
+      } else {
+        session.silenceHandler.setEnabled(true);
+        session.silenceHandler.reset();
+      }
+    }
+
     this.logger.info(
       { call_sid: callSid, listen_mode: enabled },
       `Listen-mode ${enabled ? 'enabled' : 'disabled'}`
@@ -611,6 +665,44 @@ export class ConversationRelay {
     }
     this.connections.clear();
     this.sessions.clear();
+  }
+
+  // ===========================================================================
+  // Silence Handling — factory
+  // ===========================================================================
+
+  /**
+   * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
+   * on CR `setup`. The handler's `onSilence` callback closes over the
+   * CallSid and routes reminders through `sendText` (gateable by listen-mode
+   * — though listen-mode also disables this handler entirely) and
+   * terminal breach through `endCall`.
+   */
+  private createSilenceHandler(callSid: CallSid): SilenceHandler {
+    const template = this.silenceTemplate;
+    if (!template) {
+      throw new Error('createSilenceHandler called without silence template');
+    }
+
+    const reminders: string[] = ['Are you still there?', ...(template.additionalPrompts ?? [])];
+    const thresholdSeconds = template.thresholdSeconds ?? 20;
+
+    return new SilenceHandler(
+      {
+        thresholdSeconds,
+        reminders,
+        onReminder: (reminder: string): void => {
+          this.sendText(callSid, reminder, true);
+        },
+        onTerminate: (): void => {
+          this.endCall(callSid, {
+            reasonCode: 'unresponsive',
+            reason: 'The caller was not speaking',
+          });
+        },
+      },
+      this.logger
+    );
   }
 
   // ===========================================================================

@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import type VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
+import type { SilenceHandler } from './lib/silence-handler';
 
 // =============================================================================
 // CallSid Branded Type
@@ -457,4 +458,11 @@ export interface CRelaySession {
    * session. Test-observable; not intended for production logic.
    */
   suppressedCount: number;
+
+  /**
+   * Per-session silence handler. Present only if `silence` config was passed
+   * to the `ConversationRelay` constructor. Lifetime = session lifetime; CR
+   * calls `reset()` on signal-of-life events and `stop()` on WS close.
+   */
+  silenceHandler?: SilenceHandler | undefined;
 }

@@ -4,12 +4,14 @@ import { SilenceHandler, type SilenceHandlerConfig } from '../src/lib/silence-ha
 
 describe('SilenceHandler (per-session)', () => {
   let handler: SilenceHandler;
-  let onSilenceMock: ReturnType<typeof vi.fn>;
+  let onReminderMock: ReturnType<typeof vi.fn>;
+  let onTerminateMock: ReturnType<typeof vi.fn>;
   const logger = createLogger({ name: 'test', level: 'silent' });
 
   beforeEach(() => {
     vi.useFakeTimers();
-    onSilenceMock = vi.fn();
+    onReminderMock = vi.fn();
+    onTerminateMock = vi.fn();
   });
 
   afterEach(() => {
@@ -25,47 +27,64 @@ describe('SilenceHandler (per-session)', () => {
       {
         thresholdSeconds: 5,
         reminders: ['Are you still there?'],
-        onSilence: onSilenceMock,
+        onReminder: onReminderMock,
+        onTerminate: onTerminateMock,
         ...overrides,
       },
       logger
     );
 
   // ===========================================================================
-  // 1. Basic timer
+  // 1. Basic progression
   // ===========================================================================
 
-  describe('basic timer', () => {
-    it('fires onSilence after threshold', () => {
+  describe('basic progression', () => {
+    it('fires the first reminder after threshold, terminates on the next breach', () => {
       handler = make();
       handler.reset();
 
       vi.advanceTimersByTime(4999);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(1);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
-      expect(onSilenceMock).toHaveBeenCalledWith('Are you still there?', true);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledWith('Are you still there?');
+      expect(onTerminateMock).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5000);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
+      expect(onTerminateMock).toHaveBeenCalledTimes(1);
     });
 
-    it('does not fire before threshold', () => {
+    it('does not fire anything before threshold', () => {
       handler = make({ thresholdSeconds: 10 });
       handler.reset();
       vi.advanceTimersByTime(9999);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).not.toHaveBeenCalled();
     });
 
     it('converts seconds to milliseconds', () => {
       handler = make({ thresholdSeconds: 2 });
       handler.reset();
       vi.advanceTimersByTime(2000);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
 
     it('does nothing if reset() has not been called', () => {
       handler = make();
       vi.advanceTimersByTime(10000);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).not.toHaveBeenCalled();
+    });
+
+    it('empty reminders list terminates immediately on first breach', () => {
+      handler = make({ reminders: [] });
+      handler.reset();
+      vi.advanceTimersByTime(5000);
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -74,38 +93,36 @@ describe('SilenceHandler (per-session)', () => {
   // ===========================================================================
 
   describe('progressive reminders', () => {
-    it('fires reminders in sequence, marking the last one terminal', () => {
+    it('fires reminders in order, then calls onTerminate on the next breach', () => {
       handler = make({ reminders: ['First', 'Second', 'Final'] });
       handler.reset();
 
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenLastCalledWith('First', false);
+      expect(onReminderMock).toHaveBeenLastCalledWith('First');
 
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenLastCalledWith('Second', false);
+      expect(onReminderMock).toHaveBeenLastCalledWith('Second');
 
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenLastCalledWith('Final', true);
-      expect(onSilenceMock).toHaveBeenCalledTimes(3);
+      expect(onReminderMock).toHaveBeenLastCalledWith('Final');
+      expect(onReminderMock).toHaveBeenCalledTimes(3);
+      expect(onTerminateMock).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5000);
+      expect(onTerminateMock).toHaveBeenCalledTimes(1);
     });
 
-    it('single-reminder config marks the only reminder terminal', () => {
-      handler = make({ reminders: ['Only'] });
-      handler.reset();
-      vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenCalledWith('Only', true);
-    });
-
-    it('stops scheduling after the terminal reminder', () => {
-      handler = make({ reminders: ['First', 'Last'] });
+    it('stops scheduling after onTerminate fires', () => {
+      handler = make({ reminders: ['First'] });
       handler.reset();
 
-      vi.advanceTimersByTime(5000); // First
-      vi.advanceTimersByTime(5000); // Last (terminal)
-      expect(onSilenceMock).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(5000); // First fires
+      vi.advanceTimersByTime(5000); // onTerminate fires
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
+      expect(onTerminateMock).toHaveBeenCalledTimes(1);
 
       vi.advanceTimersByTime(10000);
-      expect(onSilenceMock).toHaveBeenCalledTimes(2);
+      expect(onTerminateMock).toHaveBeenCalledTimes(1);
       expect(handler.isActive()).toBe(false);
     });
   });
@@ -123,22 +140,22 @@ describe('SilenceHandler (per-session)', () => {
       handler.reset();
 
       vi.advanceTimersByTime(4999);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(1);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
 
     it('reset() clears the reminder index', () => {
       handler = make({ reminders: ['First', 'Second', 'Third'] });
       handler.reset();
-      vi.advanceTimersByTime(5000); // First fires
+      vi.advanceTimersByTime(5000); // First
 
       handler.reset();
       vi.advanceTimersByTime(5000);
 
-      expect(onSilenceMock).toHaveBeenCalledTimes(2);
-      expect(onSilenceMock).toHaveBeenLastCalledWith('First', false);
+      expect(onReminderMock).toHaveBeenCalledTimes(2);
+      expect(onReminderMock).toHaveBeenLastCalledWith('First');
     });
 
     it('stop() cancels the timer without firing', () => {
@@ -149,7 +166,8 @@ describe('SilenceHandler (per-session)', () => {
       handler.stop();
 
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).not.toHaveBeenCalled();
       expect(handler.isActive()).toBe(false);
     });
 
@@ -163,8 +181,8 @@ describe('SilenceHandler (per-session)', () => {
       handler.reset();
       vi.advanceTimersByTime(5000);
 
-      expect(onSilenceMock).toHaveBeenCalledTimes(2);
-      expect(onSilenceMock).toHaveBeenLastCalledWith('First', false);
+      expect(onReminderMock).toHaveBeenCalledTimes(2);
+      expect(onReminderMock).toHaveBeenLastCalledWith('First');
     });
 
     it('stop() is safe when no timer is scheduled', () => {
@@ -179,7 +197,7 @@ describe('SilenceHandler (per-session)', () => {
       handler.reset();
 
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -204,7 +222,8 @@ describe('SilenceHandler (per-session)', () => {
       expect(handler.isActive()).toBe(false);
 
       vi.advanceTimersByTime(10000);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
+      expect(onTerminateMock).not.toHaveBeenCalled();
     });
 
     it('reset() while disabled is a no-op for timer scheduling', () => {
@@ -214,7 +233,7 @@ describe('SilenceHandler (per-session)', () => {
       expect(handler.isActive()).toBe(false);
 
       vi.advanceTimersByTime(10000);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
     });
 
     it('setEnabled(true) does NOT auto-restart the timer — caller must reset()', () => {
@@ -226,11 +245,11 @@ describe('SilenceHandler (per-session)', () => {
       expect(handler.isActive()).toBe(false);
 
       vi.advanceTimersByTime(10000);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
 
       handler.reset();
       vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
 
     it('is a no-op when the state is already at the requested value', () => {
@@ -249,15 +268,25 @@ describe('SilenceHandler (per-session)', () => {
 
   describe('multi-session independence', () => {
     it('two handler instances track their own timers independently', () => {
-      const onSilence1 = vi.fn();
-      const onSilence2 = vi.fn();
+      const onReminder1 = vi.fn();
+      const onReminder2 = vi.fn();
 
       const h1 = new SilenceHandler(
-        { thresholdSeconds: 5, reminders: ['Reminder'], onSilence: onSilence1 },
+        {
+          thresholdSeconds: 5,
+          reminders: ['Reminder'],
+          onReminder: onReminder1,
+          onTerminate: vi.fn(),
+        },
         logger
       );
       const h2 = new SilenceHandler(
-        { thresholdSeconds: 5, reminders: ['Reminder'], onSilence: onSilence2 },
+        {
+          thresholdSeconds: 5,
+          reminders: ['Reminder'],
+          onReminder: onReminder2,
+          onTerminate: vi.fn(),
+        },
         logger
       );
 
@@ -266,11 +295,11 @@ describe('SilenceHandler (per-session)', () => {
       h2.reset();
 
       vi.advanceTimersByTime(3000); // 5000 total for h1
-      expect(onSilence1).toHaveBeenCalledTimes(1);
-      expect(onSilence2).not.toHaveBeenCalled();
+      expect(onReminder1).toHaveBeenCalledTimes(1);
+      expect(onReminder2).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(2000); // 5000 total for h2
-      expect(onSilence2).toHaveBeenCalledTimes(1);
+      expect(onReminder2).toHaveBeenCalledTimes(1);
 
       h1.stop();
       h2.stop();
@@ -282,28 +311,21 @@ describe('SilenceHandler (per-session)', () => {
   // ===========================================================================
 
   describe('edge cases', () => {
-    it('empty reminders array falls back to default text', () => {
-      handler = make({ reminders: [] });
-      handler.reset();
-      vi.advanceTimersByTime(5000);
-      expect(onSilenceMock).toHaveBeenCalledWith('Are you still there?', true);
-    });
-
     it('sub-second thresholds fire correctly', () => {
       handler = make({ thresholdSeconds: 0.1 });
       handler.reset();
       vi.advanceTimersByTime(100);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
 
     it('long thresholds fire at the right time', () => {
       handler = make({ thresholdSeconds: 3600 });
       handler.reset();
       vi.advanceTimersByTime(3599999);
-      expect(onSilenceMock).not.toHaveBeenCalled();
+      expect(onReminderMock).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(1);
-      expect(onSilenceMock).toHaveBeenCalledTimes(1);
+      expect(onReminderMock).toHaveBeenCalledTimes(1);
     });
   });
 });

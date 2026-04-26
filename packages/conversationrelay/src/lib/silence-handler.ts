@@ -11,19 +11,28 @@
 import type { Logger } from './logger';
 
 /**
- * Configuration for silence handling behavior
+ * Configuration for silence handling behavior.
+ *
+ * Progression: on each threshold breach, fire `onReminder(reminders[i])`
+ * advancing `i` until all reminders have been spoken. The NEXT breach after
+ * the last reminder fires `onTerminate()` once (typically `endCall`).
+ *
+ * With `reminders: ['Are you still there?']`:
+ *   - 1st breach → onReminder('Are you still there?')
+ *   - 2nd breach → onTerminate()
+ *
+ * With `reminders: []`:
+ *   - 1st breach → onTerminate() (no reminders, terminate immediately)
  */
 export interface SilenceHandlerConfig {
-  /** Threshold in seconds before triggering the onSilence callback */
+  /** Threshold in seconds before advancing the reminder sequence */
   thresholdSeconds: number;
-  /** Array of reminder messages to send on each silence timeout */
+  /** Ordered reminders to speak, one per threshold breach */
   reminders: string[];
-  /**
-   * Callback fired on each silence timeout. `isTerminal` is true on the final
-   * reminder — typical handling is to end the call via `endCall` rather than
-   * send another reminder.
-   */
-  onSilence: (reminder: string, isTerminal: boolean) => void;
+  /** Called when a reminder is due. Typical handling: send text to caller. */
+  onReminder: (reminder: string) => void;
+  /** Called once after the last reminder + one more breach. Typical handling: end the call. */
+  onTerminate: () => void;
 }
 
 /**
@@ -34,15 +43,9 @@ export interface SilenceHandlerConfig {
  * const handler = new SilenceHandler(
  *   {
  *     thresholdSeconds: 20,
- *     reminders: [
- *       'Are you still there?',
- *       'Hello? Can you hear me?',
- *       'Ending call due to inactivity',
- *     ],
- *     onSilence: (reminder, isTerminal) => {
- *       if (isTerminal) cr.endCall(callSid);
- *       else cr.sendText(callSid, reminder);
- *     },
+ *     reminders: ['Are you still there?', 'Hello? Can you hear me?'],
+ *     onReminder: (reminder) => cr.sendText(callSid, reminder),
+ *     onTerminate: () => cr.endCall(callSid),
  *   },
  *   logger
  * );
@@ -124,23 +127,20 @@ export class SilenceHandler {
   private startTimer(): void {
     this.timer = setTimeout(() => {
       const index = this.reminderIndex;
-      const isTerminal = index >= this.config.reminders.length - 1;
-      const reminder =
-        this.config.reminders[index] ||
-        this.config.reminders[this.config.reminders.length - 1] ||
-        'Are you still there?';
+      const reminder = this.config.reminders[index];
 
-      this.logger.info({ reminder_index: index, is_terminal: isTerminal }, 'Silence detected');
-
-      this.config.onSilence(reminder, isTerminal);
-
-      if (!isTerminal) {
-        this.reminderIndex = index + 1;
-        this.startTimer();
-      } else {
-        // Terminal reminder — stop monitoring.
+      if (reminder === undefined) {
+        // Reminders exhausted, one more breach — terminate.
+        this.logger.info('Silence terminal — reminders exhausted');
+        this.config.onTerminate();
         this.stop();
+        return;
       }
+
+      this.logger.info({ reminder_index: index }, 'Silence reminder');
+      this.config.onReminder(reminder);
+      this.reminderIndex = index + 1;
+      this.startTimer();
     }, this.config.thresholdSeconds * 1000);
   }
 
