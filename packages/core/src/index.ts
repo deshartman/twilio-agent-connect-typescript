@@ -39,6 +39,9 @@ export type { ChatChannelConfig } from './channels/chat';
 export { VoiceChannel } from './channels/voice';
 export type { VoiceChannelConfig } from './channels/voice';
 
+export { ConversationRelayChannel } from './channels/crelay';
+export type { ConversationRelayChannelConfig } from './channels/crelay';
+
 // Channel composition helpers (shared by all channels)
 export {
   ConversationSessionStore,

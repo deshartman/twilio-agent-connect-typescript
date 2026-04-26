@@ -1,9 +1,9 @@
 /**
- * Listen-mode state tests (Step 3 of CR-SILENCE-LISTEN-MODE).
+ * Listen-mode state tests.
  *
- * Covers the state/lookup surface only — no send-method gating yet (that
- * arrives in Step 4, where sendResponse/sendPlay/switchLanguage route through
- * sendRawMessage and check session.listenMode).
+ * Listen-mode + suppressed-count live on ConversationRelaySession after the
+ * WS-SESSIONS refactor. Out-of-band callers with only a CallSid still
+ * resolve the session via `cr.getSession(callSid)` first.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -11,7 +11,7 @@ import { createLogger } from '../src/lib/logger';
 import { ConversationRelay } from '../src/crelay';
 import type { CallSid } from '../src/types';
 
-describe('ConversationRelay: listen-mode state', () => {
+describe('ConversationRelaySession: listen-mode state', () => {
   let cr: ConversationRelay;
   const logger = createLogger({ name: 'test', level: 'silent' });
   const CALL_SID: CallSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
@@ -75,12 +75,14 @@ describe('ConversationRelay: listen-mode state', () => {
   describe('default state', () => {
     it('new sessions default to listen-mode off', () => {
       openSession();
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      const session = cr.getSession(CALL_SID)!;
+      expect(session.isListenMode()).toBe(false);
     });
 
     it('new sessions have zero suppressed-message count', () => {
       openSession();
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(0);
+      const session = cr.getSession(CALL_SID)!;
+      expect(session.getSuppressedMessageCount()).toBe(0);
     });
   });
 
@@ -91,45 +93,42 @@ describe('ConversationRelay: listen-mode state', () => {
   describe('setListenMode', () => {
     it('flips the flag from false to true', () => {
       openSession();
-      cr.setListenMode(CALL_SID, true);
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
+      expect(session.isListenMode()).toBe(true);
     });
 
     it('flips the flag from true back to false', () => {
       openSession();
-      cr.setListenMode(CALL_SID, true);
-      cr.setListenMode(CALL_SID, false);
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
+      session.setListenMode(false);
+      expect(session.isListenMode()).toBe(false);
     });
 
-    it('is a no-op for unknown CallSid — does not throw', () => {
+    it('is a no-op for unknown CallSid — getSession returns undefined', () => {
       const unknown = 'CA00000000000000000000000000000000' as CallSid;
-      expect(() => cr.setListenMode(unknown, true)).not.toThrow();
-      expect(cr.isListenMode(unknown)).toBe(false);
+      expect(cr.getSession(unknown)).toBeUndefined();
     });
 
     it('tracks listen-mode independently per session', () => {
       openSession(CALL_SID);
       openSession(CALL_SID_2);
 
-      cr.setListenMode(CALL_SID, true);
+      cr.getSession(CALL_SID)!.setListenMode(true);
 
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
-      expect(cr.isListenMode(CALL_SID_2)).toBe(false);
+      expect(cr.getSession(CALL_SID)!.isListenMode()).toBe(true);
+      expect(cr.getSession(CALL_SID_2)!.isListenMode()).toBe(false);
     });
   });
 
   // ===========================================================================
-  // 3. isListenMode / getSuppressedMessageCount for unknown CallSid
+  // 3. Lookup for unknown CallSid
   // ===========================================================================
 
-  describe('getters on unknown CallSid', () => {
-    it('isListenMode returns false', () => {
-      expect(cr.isListenMode('CAunknown' as CallSid)).toBe(false);
-    });
-
-    it('getSuppressedMessageCount returns 0', () => {
-      expect(cr.getSuppressedMessageCount('CAunknown' as CallSid)).toBe(0);
+  describe('getSession on unknown CallSid', () => {
+    it('returns undefined', () => {
+      expect(cr.getSession('CAunknown' as CallSid)).toBeUndefined();
     });
   });
 
@@ -140,124 +139,135 @@ describe('ConversationRelay: listen-mode state', () => {
   describe('session lifecycle', () => {
     it('state is released when the WS closes', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
+      expect(session.isListenMode()).toBe(true);
 
       ws.simulateClose();
 
-      // Session map entry gone → getter falls back to false.
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      // Session map entry gone.
+      expect(cr.getSession(CALL_SID)).toBeUndefined();
       expect(cr.hasSession(CALL_SID)).toBe(false);
     });
 
     it('a new session for the same CallSid starts fresh', () => {
       const ws1 = openSession();
-      cr.setListenMode(CALL_SID, true);
+      cr.getSession(CALL_SID)!.setListenMode(true);
       ws1.simulateClose();
 
       openSession();
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      expect(cr.getSession(CALL_SID)!.isListenMode()).toBe(false);
     });
   });
 
   // ===========================================================================
-  // 5. Gating (Step 4) — text/play/language suppressed; sendDigits/end pass
+  // 5. Gating — text/play/language suppressed; sendDigits/end pass
   // ===========================================================================
 
   describe('outgoing-message gating', () => {
     it('listen-mode off: all sends go through', () => {
       const ws = openSession();
-      cr.sendText(CALL_SID, 'Hello');
-      cr.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
-      cr.sendDigits(CALL_SID, '1234');
-      cr.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
-      cr.endCall(CALL_SID);
+      const session = cr.getSession(CALL_SID)!;
+      session.sendText('Hello');
+      session.sendPlay('https://example.com/audio.mp3');
+      session.sendDigits('1234');
+      session.switchLanguage({ ttsLanguage: 'es-ES' });
+      session.endCall();
 
       expect(ws.send).toHaveBeenCalledTimes(5);
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(0);
+      expect(session.getSuppressedMessageCount()).toBe(0);
     });
 
     it('listen-mode on: text is suppressed, sendDigits passes through', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
 
-      cr.sendText(CALL_SID, 'Hello');
-      cr.sendDigits(CALL_SID, '1234');
+      session.sendText('Hello');
+      session.sendDigits('1234');
 
       expect(ws.send).toHaveBeenCalledTimes(1);
       const sent = JSON.parse(ws.send.mock.calls[0][0] as string);
       expect(sent.type).toBe('sendDigits');
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(session.getSuppressedMessageCount()).toBe(1);
     });
 
     it('listen-mode on: play is suppressed', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
 
-      cr.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
+      session.sendPlay('https://example.com/audio.mp3');
 
       expect(ws.send).not.toHaveBeenCalled();
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(session.getSuppressedMessageCount()).toBe(1);
     });
 
     it('listen-mode on: switchLanguage is suppressed', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
 
-      cr.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
+      session.switchLanguage({ ttsLanguage: 'es-ES' });
 
       expect(ws.send).not.toHaveBeenCalled();
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(session.getSuppressedMessageCount()).toBe(1);
     });
 
     it('listen-mode on: endCall passes through (must always be able to hang up)', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
 
-      cr.endCall(CALL_SID);
+      session.endCall();
 
       expect(ws.send).toHaveBeenCalledTimes(1);
       const sent = JSON.parse(ws.send.mock.calls[0][0] as string);
       expect(sent.type).toBe('end');
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(0);
+      expect(session.getSuppressedMessageCount()).toBe(0);
     });
 
     it('suppressedCount accumulates across multiple suppressed sends', () => {
       openSession();
-      cr.setListenMode(CALL_SID, true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
 
-      cr.sendText(CALL_SID, 'one');
-      cr.sendText(CALL_SID, 'two');
-      cr.sendPlay(CALL_SID, 'https://example.com/a.mp3');
+      session.sendText('one');
+      session.sendText('two');
+      session.sendPlay('https://example.com/a.mp3');
 
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(3);
+      expect(session.getSuppressedMessageCount()).toBe(3);
     });
 
     it('flipping listen-mode off unblocks sends (counter does NOT reset)', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
-      cr.sendText(CALL_SID, 'suppressed');
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
+      session.sendText('suppressed');
+      expect(session.getSuppressedMessageCount()).toBe(1);
 
-      cr.setListenMode(CALL_SID, false);
-      cr.sendText(CALL_SID, 'now sent');
+      session.setListenMode(false);
+      session.sendText('now sent');
 
       expect(ws.send).toHaveBeenCalledTimes(1);
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(session.getSuppressedMessageCount()).toBe(1);
     });
 
     it('gate applies per-session (siblings unaffected)', () => {
       const ws1 = openSession(CALL_SID);
       const ws2 = openSession(CALL_SID_2);
 
-      cr.setListenMode(CALL_SID, true);
-      cr.sendText(CALL_SID, 'suppressed');
-      cr.sendText(CALL_SID_2, 'goes through');
+      const s1 = cr.getSession(CALL_SID)!;
+      const s2 = cr.getSession(CALL_SID_2)!;
+
+      s1.setListenMode(true);
+      s1.sendText('suppressed');
+      s2.sendText('goes through');
 
       expect(ws1.send).not.toHaveBeenCalled();
       expect(ws2.send).toHaveBeenCalledTimes(1);
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
-      expect(cr.getSuppressedMessageCount(CALL_SID_2)).toBe(0);
+      expect(s1.getSuppressedMessageCount()).toBe(1);
+      expect(s2.getSuppressedMessageCount()).toBe(0);
     });
   });
 });

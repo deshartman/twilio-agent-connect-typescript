@@ -102,28 +102,50 @@ describe('ConversationRelay: live_agent_handoff tool', () => {
   // ===========================================================================
 
   describe('registration', () => {
-    it('appears in listTools()', () => {
-      const names = cr.listTools().map(t => t.name);
+    it('appears in the tool registry', () => {
+      const names = cr.getToolRegistry().list().map(t => t.name);
       expect(names).toContain('live_agent_handoff');
     });
   });
 
   // ===========================================================================
-  // 3. executeTool ships the end frame to Twilio
+  // 3. executeTool defers the end frame until sendText(last=true) flush
   // ===========================================================================
 
-  describe('executeTool', () => {
-    it('ships an end frame with live-agent-handoff reasonCode', async () => {
+  describe('executeTool (terminal deferral)', () => {
+    it('does NOT ship the end frame immediately — stashes it for deferred flush', async () => {
       const ws = openSession();
+      const session = cr.getSession(CALL_SID)!;
 
-      await cr.executeTool(CALL_SID, 'live_agent_handoff', {
+      await session.executeTool('live_agent_handoff', {
         summary: 'Customer needs a human',
       });
 
-      expect(ws.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(ws.send.mock.calls[0][0] as string);
-      expect(sent.type).toBe('end');
-      const handoff = JSON.parse(sent.handoffData) as Record<string, unknown>;
+      // Terminal frame is deferred — the LLM's farewell stream gets to reach
+      // TTS before Twilio hangs up. See WS-SESSIONS plan for the race this fixes.
+      expect(ws.send).not.toHaveBeenCalled();
+    });
+
+    it('flushes the end frame after sendText(last=true)', async () => {
+      const ws = openSession();
+      const session = cr.getSession(CALL_SID)!;
+
+      await session.executeTool('live_agent_handoff', {
+        summary: 'Customer needs a human',
+      });
+
+      // LLM streams its farewell line
+      session.sendText('Transferring you now.', true);
+
+      expect(ws.send).toHaveBeenCalledTimes(2);
+      const text = JSON.parse(ws.send.mock.calls[0][0] as string);
+      expect(text.type).toBe('text');
+      expect(text.token).toBe('Transferring you now.');
+      expect(text.last).toBe(true);
+
+      const end = JSON.parse(ws.send.mock.calls[1][0] as string);
+      expect(end.type).toBe('end');
+      const handoff = JSON.parse(end.handoffData) as Record<string, unknown>;
       expect(handoff.reasonCode).toBe('live-agent-handoff');
       expect(handoff.reason).toBe('Customer needs a human');
     });

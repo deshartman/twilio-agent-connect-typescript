@@ -1,6 +1,6 @@
 # Twilio Agent Connect - TypeScript SDK
 
-A TypeScript framework for building AI-powered conversational agents on Twilio infrastructure. Provides channel abstractions (SMS, Voice), tool integration, memory/knowledge APIs, and a production-ready Fastify server — designed for 1:1 parity with the [Python SDK](https://github.com/twilio-innovation/twilio-agent-connect-python).
+A TypeScript framework for building AI-powered conversational agents on Twilio infrastructure. Provides channel abstractions (SMS, Chat, passive Voice, active CR-backed voice), tool integration, memory/knowledge APIs, and a production-ready Fastify server — designed for 1:1 parity with the [Python SDK](https://github.com/twilio-innovation/twilio-agent-connect-python).
 
 ## Development Commands
 
@@ -21,10 +21,12 @@ npm run typecheck      # tsc --noEmit
 
 ```
 packages/
-  core/        # Central framework: TAC orchestrator, channels (SMS/Voice),
-               #   API clients (Memory, Conversation, Knowledge), config, types
-  conversationrelay/  # Standalone ConversationRelay: WebSocket protocol,
-               #   TwiML generation, can be used independently of TAC
+  core/        # Central framework: TAC orchestrator, channels (SMS/Chat/
+               #   Voice/CRelay), API clients (Memory, Conversation,
+               #   Knowledge), config, types
+  conversationrelay/  # Standalone ConversationRelay: manager + per-WS session,
+               #   ToolRegistry, WebSocket protocol, TwiML generation,
+               #   can be used independently of TAC
   tools/       # Tool system: TACTool class, defineTool(), built-in tools
                #   (memory, messaging, handoff, knowledge)
   server/      # TACServer: Fastify wrapper with webhook + WebSocket handlers
@@ -49,9 +51,9 @@ getting_started/  # Example apps (OpenAI integration)
 - **TAC class** (`packages/core/src/lib/tac.ts`): Central orchestrator managing config, channels, callbacks, and API clients
 - **TAC composition** (`packages/core/src/lib/tac.ts`): Channels are composed into TAC (held by reference), not inherited from TAC. TAC stores channels in `Map<ChannelType, Channel>` and delegates to them
 - **Channel composition** (`packages/core/src/channels/`):
-  - All channels (`SMSChannel`, `ChatChannel`, `VoiceChannel`) `implements Channel` directly — no inheritance. Shared webhook logic lives in `channels/utility.ts` and is composed (not inherited): `ConversationSessionStore` (session Map), `ConversationsWebhookProcessor` (dedup + event routing), and `ensureAgentParticipant` (pure 409-retry helper).
-  - `VoiceChannel` has **two construction modes**: active (pass `{ conversationRelay }`) routes via CR WebSocket; passive (omit it) consumes Maestro webhooks only and throws on `sendResponse` / tool dispatch. Active-mode voice also needs a `ConversationRelayServer` running — VoiceChannel just bridges CR events to Maestro, the routes live in `tac-conversationrelay`.
-- **Channel construction**: All channels take `{ config, logger, conversationClient, memoryRetriever? }` via `tac.getChannelDeps()`, plus an optional channel-specific config object for settings scoped to that channel (e.g. `ChatChannelConfig.conversationsV1ServiceSid`, `VoiceChannelConfig.conversationRelay`).
+  - All channels (`SMSChannel`, `ChatChannel`, `VoiceChannel`, `ConversationRelayChannel`) `implements Channel` directly — no inheritance. Shared webhook logic lives in `channels/utility.ts` and is composed (not inherited): `ConversationSessionStore` (session Map), `ConversationsWebhookProcessor` (dedup + event routing), and `ensureAgentParticipant` (pure 409-retry helper).
+  - Active voice (CR↔Maestro bridge) is its own channel — `ConversationRelayChannel`, `channelType === 'crelay'`. It is the only core file that imports from `@twilio/tac-conversationrelay`. `VoiceChannel` is passive-only (webhook-in, no outbound) with `channelType === 'voice'` and zero CR dependency.
+- **Channel construction**: All channels take `{ config, logger, conversationClient, memoryRetriever? }` via `tac.getChannelDeps()`, plus an optional channel-specific config object for settings scoped to that channel (e.g. `ChatChannelConfig.conversationsV1ServiceSid`, `ConversationRelayChannelConfig.conversationRelay`).
 - **Callback pattern**: `onMessageReady(msg: ChannelMessage)` — unified callback for all message types with `messageType: 'user'|'system'` discriminator. Also `onHandoff`, `onConversationEnded`, `onError`
 - **Callback responses**: `onMessageReady` callbacks may return `string` (auto-sent via the originating channel's `sendResponse`) or `void`/`null` (manual handling). Empty string is logged and skipped.
 - **Tool system** (`packages/tools/src/lib/builder.ts`): `defineTool()` with JSON schema; supports conversion to OpenAI and Anthropic formats
@@ -78,10 +80,12 @@ getting_started/  # Example apps (OpenAI integration)
 TAC provides multi-channel conversation orchestration using Maestro Conversations Service.
 
 ### Channels
-- **VoiceChannel (active mode)**: Voice calls via ConversationRelay WebSocket + Maestro. Construct with `new VoiceChannel(tac.getChannelDeps(), { conversationRelay: new ConversationRelay(logger) })`.
-- **VoiceChannel (passive mode)**: Voice via Maestro webhooks only (BYO-CR or inbound-analysis flows). Construct with `new VoiceChannel(tac.getChannelDeps())` — no `conversationRelay`. `sendResponse` and tool dispatch throw because outbound voice requires a CR WS.
+- **ConversationRelayChannel** (`channelType: 'crelay'`): Active voice. Bridges CR WebSocket events (setup/prompt/interrupt/dtmf/info/close) to Maestro and emits unified `ChannelMessage`s. Outbound text/dtmf/play/endCall via the per-call `ConversationRelaySession` handle. Requires a `ConversationRelay` instance and a `ConversationRelayServer` running alongside. Only file in core that imports `@twilio/tac-conversationrelay`.
+- **VoiceChannel** (`channelType: 'voice'`): Passive. Maestro voice webhooks in; no outbound (Actions API rejects `channel: 'VOICE'`). For BYO-CR flows or inbound-analysis pipelines. `sendResponse` and tool dispatch throw.
 - **SMSChannel**: SMS via Maestro webhooks in, Actions API `SEND_MESSAGE` out.
 - **ChatChannel**: Web chat via Maestro webhooks in, Actions API `SEND_MESSAGE` out. Takes optional `conversationsV1ServiceSid` via its own config for V1 Chat backend routing.
+
+`ChannelMessage.channel === 'crelay'` for active voice (not `'voice'`) — discriminating consumers must match on both.
 
 ### Session Identity
 - Session ID is always `ConversationId` (Maestro conversation identifier)
@@ -90,46 +94,18 @@ TAC provides multi-channel conversation orchestration using Maestro Conversation
 
 ### Unified ChannelMessage
 
-All channels emit a unified `ChannelMessage` via `onMessageReady`:
-```typescript
-{
-  conversationId: ConversationId;  // Maestro conversation identifier
-  messageType: 'user' | 'system';  // 'user' = generate response, 'system' = context only
-  message: string;                 // Human-readable text for LLM
-  channel: ChannelType;            // 'voice' | 'sms' | 'chat'
-  metadata?: Record<string, unknown>;  // Source type in metadata.type
-  conversation?: { ... };          // Maestro conversation context (memory, profile, etc.)
-}
-```
+All channels emit a unified `ChannelMessage` via `onMessageReady`. Fields: `conversationId: ConversationId`, `messageType: 'user' | 'system'` (discriminator — `'user'` triggers LLM turn, `'system'` is context-only), `message: string` (text for LLM), `channel: ChannelType` (one of `'sms' | 'voice' | 'chat' | 'crelay'`), optional `metadata: Record<string, unknown>` (source type in `metadata.type`), optional `conversation` (Maestro context: memory, profile, etc.).
 
 ### Channel Construction
 
-All channels take explicit dependencies via `tac.getChannelDeps()`, plus an optional channel-specific config:
+All channels take explicit dependencies via `tac.getChannelDeps()` plus an optional channel-specific config. Construction shapes:
 
-```typescript
-import { ConversationRelay } from 'twilio-agent-connect';
+- `new SMSChannel(tac.getChannelDeps())`
+- `new VoiceChannel(tac.getChannelDeps())` — passive only
+- `new ChatChannel(tac.getChannelDeps(), { conversationsV1ServiceSid: tac.conversationsV1ServiceSid })`
+- `new ConversationRelayChannel(tac.getChannelDeps(), { conversationRelay })` — `conversationRelay` is a `new ConversationRelay(logger)` instance that a `ConversationRelayServer` is also bound to
 
-// VoiceChannel, active mode (CR strapped in)
-const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
-const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
-
-// VoiceChannel, passive mode (webhook-only; no outbound)
-const passiveVoice = new VoiceChannel(tac.getChannelDeps());
-
-// SMSChannel
-const smsChannel = new SMSChannel(tac.getChannelDeps());
-
-// ChatChannel — pass conversationsV1ServiceSid explicitly (scoped to chat, not shared)
-const chatChannel = new ChatChannel(tac.getChannelDeps(), {
-  conversationsV1ServiceSid: tac.conversationsV1ServiceSid,
-});
-```
-
-The `getChannelDeps()` method returns:
-- `config`: TACConfig instance
-- `logger`: Pino logger
-- `conversationClient`: ConversationClient (always available - TWILIO_CONVERSATION_CONFIGURATION_ID is required)
-- `memoryRetriever`: MemoryRetriever function (if Memory is configured)
+`getChannelDeps()` returns `config`, `logger`, `conversationClient` (always — `TWILIO_CONVERSATION_CONFIGURATION_ID` is required), and `memoryRetriever` (if Memory is configured).
 
 `tac.conversationsV1ServiceSid` is cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init. It's forwarded by `ChatChannel.sendResponse` as `channelSettings.chatService` so the V1 Chat backend picks the right thread. Temporary — tagged `TODO(conv-orch)` throughout; drop when the Actions API resolves this server-side.
 
@@ -145,11 +121,11 @@ Anyone building a custom channel should `implements Channel` directly and compos
 
 ## Send API — Actions, not Communications
 
-SMS and Chat outbound uses the Conversation Orchestrator Actions API: `POST /v2/Conversations/{id}/Actions` with `{ type: 'SEND_MESSAGE', payload: { from, to, content, channelSettings? } }`. Call `conversationClient.createAction(...)`, not `sendCommunication` (deleted — `/v2/Communications` is retired and returns 404). Voice outbound goes via ConversationRelay's WebSocket (`voiceChannel.sendResponse` in active mode) because the Actions API rejects `channel: 'VOICE'`.
+SMS and Chat outbound uses the Conversation Orchestrator Actions API: `POST /v2/Conversations/{id}/Actions` with `{ type: 'SEND_MESSAGE', payload: { from, to, content, channelSettings? } }`. Call `conversationClient.createAction(...)`, not `sendCommunication` (deleted — `/v2/Communications` is retired and returns 404). Active voice outbound goes via ConversationRelay's WebSocket through `ConversationRelayChannel.sendResponse` (which delegates to the per-call `ConversationRelaySession`) because the Actions API rejects `channel: 'VOICE'`. Passive `VoiceChannel` has no outbound path — `sendResponse` throws.
 
 ## Participant Management: Race Condition Handling
 
-Maestro capture rules and TAC's explicit `addParticipant()` calls can race when both try to add participants simultaneously. VoiceChannel uses `addOrFetchParticipant()` which checks first, then adds if missing, and catches 409 Conflict to re-fetch what Maestro added. SMSChannel and ChatChannel use the shared `ensureAgentParticipant` helper from `channels/utility.ts` which handles the same pattern. Do not call `addParticipant()` directly if there's any chance of concurrent adds.
+Maestro capture rules and TAC's explicit `addParticipant()` calls can race when both try to add participants simultaneously. `ConversationRelayChannel` uses `addOrFetchParticipant()` which checks first, then adds if missing, and catches 409 Conflict to re-fetch what Maestro added. SMSChannel, ChatChannel, and passive VoiceChannel use the shared `ensureAgentParticipant` helper from `channels/utility.ts` which handles the same pattern. Do not call `addParticipant()` directly if there's any chance of concurrent adds.
 
 ## Dependencies
 
@@ -169,42 +145,23 @@ Twilio voice numbers point at `https://<host>:8001/twiml`. Conversations Service
 
 ### ConversationRelayServer (`packages/conversationrelay/src/lib/server.ts`)
 
-Standalone voice server. Two optional callbacks let users bridge into `tac-core`'s `VoiceChannel` without CR importing core:
+Standalone voice server. Two optional callbacks let users bridge into `tac-core`'s `ConversationRelayChannel` without CR importing core:
 
-```typescript
-const conversationRelay = new ConversationRelay(logger);
-const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
+- `onIncomingCall` returns `Record<string, string>` — customParameters spliced into the `<ConversationRelay>` TwiML element. In integrated mode, `ConversationRelayChannel.createConversationForCall` supplies this. CR always calls `conversationRelay.generateTwiML()` itself. Omit for standalone (caller drives their own LLM via CR events); CR falls back to `{ conversation_id: CallSid }`.
+- `onConversationRelayCallback` returns `{ status, content, contentType }` — the HTTP response for the URL declared as `<ConversationRelay action="…">`. Twilio fires this at call-end and on handoff requests. `ConversationRelayChannel.handleConversationRelayCallback` supplies this in integrated mode. Omit for standalone (200 OK no-op; caller handles call-end via `cr.onSessionEnded`).
 
-const crServer = new ConversationRelayServer(conversationRelay, {
-  authToken: tac.getConfig().authToken,
-  port: 8001,
-  conversationRelayConfig: {
-    welcomeGreeting: 'Welcome to our support line!',
-    transcriptionProvider: 'Deepgram',
-    ttsProvider: 'Google',
-  },
-  // Integrated mode — return plain data records; CR stays ignorant of Maestro.
-  onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
-  onConversationRelayCallback: (payload) => voiceChannel.handleConversationRelayCallback(payload),
-});
-```
+Turn-by-turn traffic (`onPrompt` / `onInterrupt` / `onDtmf` / `onInfo`) does **not** go through callbacks. `ConversationRelayChannel` subscribes to these on the shared `ConversationRelay` manager in its constructor and emits `ChannelMessage`s via `onMessageReady`. Callback signatures hand back a `ConversationRelaySession` (not a CallSid); `session.callSid` exposes the underlying identifier.
 
-- `onIncomingCall` returns `Record<string, string>` — the customParameters that get spliced into the `<ConversationRelay>` TwiML element. CR always calls `conversationRelay.generateTwiML()` itself. Omit the callback for standalone mode (caller drives their own LLM via CR events); CR will use `{ conversation_id: CallSid }`.
-- `onConversationRelayCallback` returns `{ status, content, contentType }` — the HTTP response for the URL declared as `<ConversationRelay action="…">`. Twilio fires this at call-end and on handoff requests. Omit for standalone (200 OK no-op; caller handles call-end via `cr.onSessionEnded`).
-- Turn-by-turn traffic (`onPrompt` / `onInterrupt` / `onDtmf` / `onInfo`) does **not** go through callbacks. VoiceChannel subscribes to these on the shared `ConversationRelay` instance in its constructor and emits `ChannelMessage`s via `onMessageReady` — the regular data path, unchanged.
+### ConversationRelay internals (manager + session)
+
+- `ConversationRelay` (manager, CR package) owns: `sessions: Map<CallSid, ConversationRelaySession>`, a shared `ToolRegistry`, an optional `silenceTemplate: SilenceConfig` (blueprint copied into each session's `SilenceHandler`), subscriber callbacks, and TwiML generation. No tool-dispatch methods live here.
+- `ConversationRelaySession` (one per WebSocket upgrade, CR package) owns: the `ws` handle, session identity (`callSid`, `from`, `to`, `startedAt`, `customParameters`), listen-mode state, the per-session `SilenceHandler`, the terminal-message deferral slot, and the registry reference. Outbound methods (`sendText`, `sendPlay`, `sendDigits`, `switchLanguage`, `endCall`, `executeTool`, `setListenMode`) act on `this` — no CallSid threading through the API.
+- Terminal deferral: tools returning `{ outgoingMessage: { type: 'end', ... } }` stash the message instead of shipping immediately; it is flushed on the next `sendText(token, true)` so the farewell reaches TTS before hangup.
+- `ToolRegistry` is a standalone class with `register/unregister/get/has/list`; `CONVERSATION_RELAY_TOOLS` is the default array of seven built-in tools (play_media, send_digits, switch_language, end_call, live_agent_handoff, set_listen_mode, set_silence_detection). `ConversationRelayTool` is the tool base (previously `CRTool`).
 
 ### TACServer (`packages/server/src/lib/server.ts`)
 
-Maestro-only webhook server. Default configuration:
-
-```typescript
-{
-  host: '0.0.0.0',
-  port: 3000,
-  webhookPaths: { messaging: '/webhook' },
-  development: false,
-}
-```
+Maestro-only webhook server. Defaults: `host: '0.0.0.0'`, `port: 3000`, `webhookPaths: { messaging: '/webhook' }`, `development: false`.
 
 Route registration:
 

@@ -8,7 +8,7 @@
 import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
 import type { TACMemoryResponse } from '../lib/tac-memory-response';
-import type { CRTool } from '@twilio/tac-conversationrelay';
+import type { ConversationRelayTool } from '@twilio/tac-conversationrelay';
 
 /**
  * Unified message shape emitted by all channels via the 'message' event.
@@ -116,19 +116,21 @@ export interface Channel {
 
   /**
    * List all tools registered on this channel (for LLM discovery).
-   * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+   * Optional — only channels with outbound capability (SMS, Chat,
+   * ConversationRelayChannel) implement tool dispatch. Passive VoiceChannel
+   * has no outbound path and omits this.
    */
-  listTools(): CRTool[];
+  listTools?(): ConversationRelayTool[];
 
   /**
    * Register an additional tool on this channel. Overwrites any tool with the same name.
    */
-  registerTool(tool: CRTool): void;
+  registerTool?(tool: ConversationRelayTool): void;
 
   /**
    * Execute a registered tool by name.
    *
-   * VoiceChannel (active mode) auto-ships any `outgoingMessage` the tool produces
+   * ConversationRelayChannel auto-ships any `outgoingMessage` the tool produces
    * via the CR WebSocket. Other channels simply invoke the tool's implementation.
    *
    * @param conversationId - Conversation identifier to scope the execution
@@ -136,14 +138,14 @@ export interface Channel {
    * @param args - Arguments forwarded to the tool's implementation
    * @returns The tool's result (to feed back to the LLM loop)
    */
-  executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+  executeTool?(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
 
   /**
    * Process a Maestro Conversations Service webhook payload.
    *
-   * Optional because some channels (e.g. an active-only VoiceChannel with CR
-   * strapped in) don't consume webhooks directly. The server fans out every
-   * incoming webhook to all registered channels via
+   * Optional because some channels (e.g. `ConversationRelayChannel`) don't
+   * consume Maestro webhooks directly. The server fans out every incoming
+   * webhook to all registered channels via
    * `channel.processWebhook?.(body, idempotencyToken)`; channels that don't
    * implement it simply ignore the event.
    *

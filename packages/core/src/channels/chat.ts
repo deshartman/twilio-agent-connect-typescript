@@ -1,4 +1,4 @@
-import type { CRTool } from '@twilio/tac-conversationrelay';
+import type { ConversationRelayTool } from '@twilio/tac-conversationrelay';
 
 import {
   Channel,
@@ -59,7 +59,7 @@ export class ChatChannel implements Channel {
    */
   private readonly conversationsV1ServiceSid: string | undefined;
   private readonly callbacks: ChannelEvents = {};
-  private readonly tools: Map<string, CRTool> = new Map();
+  private readonly tools: Map<string, ConversationRelayTool> = new Map();
   private readonly webhookProcessor: ConversationsWebhookProcessor;
   private readonly sessionStore: ConversationSessionStore;
 
@@ -139,11 +139,11 @@ export class ChatChannel implements Channel {
     delete this.callbacks.onMessage;
   }
 
-  public listTools(): CRTool[] {
+  public listTools(): ConversationRelayTool[] {
     return Array.from(this.tools.values());
   }
 
-  public registerTool(tool: CRTool): void {
+  public registerTool(tool: ConversationRelayTool): void {
     this.tools.set(tool.name, tool);
   }
 

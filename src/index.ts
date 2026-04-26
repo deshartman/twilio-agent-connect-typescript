@@ -14,7 +14,7 @@ export * from '@twilio/tac-tools';
 // Server — TACServer and its config
 export * from '@twilio/tac-server';
 
-// ConversationRelay — construct and pass to VoiceChannel for active-mode voice.
+// ConversationRelay — construct and pass to ConversationRelayChannel for active voice.
 // ConversationRelayServer — the voice-routes server (/twiml, /ws, /conversation-relay-callback).
 // Typical deployment runs TACServer for Maestro webhooks and ConversationRelayServer for
 // voice on separate ports/processes; both are first-class entry points.

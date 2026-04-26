@@ -3,6 +3,12 @@ import { createLogger } from '../src/lib/logger';
 import { ConversationRelay } from '../src/crelay';
 import type { CallSid } from '../src/types';
 
+/**
+ * Session-level protocol senders: sendPlay / sendDigits / switchLanguage / endCall.
+ * Invoked on the `ConversationRelaySession` handle — callers never thread a
+ * CallSid through. Out-of-band lookups (tests, status-callback webhooks) resolve
+ * the session via `cr.getSession(callSid)` first.
+ */
 describe('ConversationRelay Protocol Methods', () => {
   let conversationRelay: ConversationRelay;
   const logger = createLogger({ name: 'test', level: 'silent' });
@@ -28,6 +34,26 @@ describe('ConversationRelay Protocol Methods', () => {
     };
   }
 
+  const setupPayload = {
+    type: 'setup',
+    sessionId: 'sess_test',
+    callSid: CALL_SID,
+    from: '+15551234567',
+    to: '+15559876543',
+    direction: 'inbound',
+    callType: 'PSTN',
+    callStatus: 'ringing',
+    accountSid: 'ACtest123',
+  };
+
+  function startSession() {
+    const mockWs = createMockWebSocket();
+    conversationRelay.handleConnection(mockWs);
+    mockWs.simulateMessage(setupPayload);
+    const session = conversationRelay.getSession(CALL_SID)!;
+    return { mockWs, session };
+  }
+
   beforeEach(() => {
     conversationRelay = new ConversationRelay(logger);
   });
@@ -43,22 +69,9 @@ describe('ConversationRelay Protocol Methods', () => {
 
   describe('sendPlay', () => {
     it('should send play message with source only', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
+      const { mockWs, session } = startSession();
 
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
+      session.sendPlay('https://example.com/audio.mp3');
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({
@@ -69,21 +82,8 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send play message with loop option', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3', { loop: 3 });
+      const { mockWs, session } = startSession();
+      session.sendPlay('https://example.com/audio.mp3', { loop: 3 });
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData).toEqual({
@@ -94,21 +94,8 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send play message with interruptible option', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3', { interruptible: true });
+      const { mockWs, session } = startSession();
+      session.sendPlay('https://example.com/audio.mp3', { interruptible: true });
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData).toEqual({
@@ -119,21 +106,8 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send play message with all options', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3', {
+      const { mockWs, session } = startSession();
+      session.sendPlay('https://example.com/audio.mp3', {
         loop: 5,
         interruptible: true,
         preemptible: false,
@@ -149,29 +123,22 @@ describe('ConversationRelay Protocol Methods', () => {
       });
     });
 
-    it('should throw when no WebSocket connection exists', () => {
-      expect(() => conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3')).toThrow(
-        /No WebSocket connection found/
-      );
+    it('getSession returns undefined when no session exists for a CallSid', () => {
+      // The old "No WebSocket connection found" error came from the
+      // manager-level sendPlay(callSid,...) path, which is gone. Callers
+      // that hold only a CallSid now resolve via getSession first and see
+      // `undefined` instead of a throw — a cleaner contract.
+      expect(conversationRelay.getSession(CALL_SID)).toBeUndefined();
     });
 
     it('should throw when WebSocket is not open', () => {
       const mockWs = createMockWebSocket();
       mockWs.readyState = 0; // WebSocket.CONNECTING
       conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
+      mockWs.simulateMessage(setupPayload);
+      const session = conversationRelay.getSession(CALL_SID)!;
 
-      expect(() => conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3')).toThrow(
+      expect(() => session.sendPlay('https://example.com/audio.mp3')).toThrow(
         /WebSocket not open/
       );
     });
@@ -183,21 +150,8 @@ describe('ConversationRelay Protocol Methods', () => {
 
   describe('sendDigits', () => {
     it('should send DTMF digits message', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendDigits(CALL_SID, '1234');
+      const { mockWs, session } = startSession();
+      session.sendDigits('1234');
 
       expect(mockWs.send).toHaveBeenCalledWith(
         JSON.stringify({
@@ -208,28 +162,11 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send digits with pauses', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.sendDigits(CALL_SID, '123w456w789');
+      const { mockWs, session } = startSession();
+      session.sendDigits('123w456w789');
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData.digits).toBe('123w456w789');
-    });
-
-    it('should throw when no WebSocket connection exists', () => {
-      expect(() => conversationRelay.sendDigits(CALL_SID, '123')).toThrow(/No WebSocket connection found/);
     });
   });
 
@@ -239,21 +176,8 @@ describe('ConversationRelay Protocol Methods', () => {
 
   describe('switchLanguage', () => {
     it('should send language message with TTS only', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
+      const { mockWs, session } = startSession();
+      session.switchLanguage({ ttsLanguage: 'es-ES' });
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData).toEqual({
@@ -263,21 +187,8 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send language message with transcription only', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.switchLanguage(CALL_SID, { transcriptionLanguage: 'fr-FR' });
+      const { mockWs, session } = startSession();
+      session.switchLanguage({ transcriptionLanguage: 'fr-FR' });
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData).toEqual({
@@ -287,21 +198,8 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send language message with both TTS and transcription', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.switchLanguage(CALL_SID, {
+      const { mockWs, session } = startSession();
+      session.switchLanguage({
         ttsLanguage: 'de-DE',
         transcriptionLanguage: 'de-DE',
       });
@@ -313,12 +211,6 @@ describe('ConversationRelay Protocol Methods', () => {
         transcriptionLanguage: 'de-DE',
       });
     });
-
-    it('should throw when no WebSocket connection exists', () => {
-      expect(() => conversationRelay.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' })).toThrow(
-        /No WebSocket connection found/
-      );
-    });
   });
 
   // =========================================================================
@@ -327,50 +219,22 @@ describe('ConversationRelay Protocol Methods', () => {
 
   describe('endCall', () => {
     it('should send end message without handoff data', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.endCall(CALL_SID);
+      const { mockWs, session } = startSession();
+      session.endCall();
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
-      expect(sentData).toEqual({
-        type: 'end',
-      });
+      expect(sentData).toEqual({ type: 'end' });
     });
 
     it('should send end message with handoff data', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
+      const { mockWs, session } = startSession();
       const handoffData = {
         reasonCode: 'live-agent-handoff',
         issueType: 'billing',
         priority: 'high',
       };
 
-      conversationRelay.endCall(CALL_SID, handoffData);
+      session.endCall(handoffData);
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData.type).toBe('end');
@@ -381,29 +245,12 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should send end message with empty handoff data object', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
-
-      conversationRelay.endCall(CALL_SID, {});
+      const { mockWs, session } = startSession();
+      session.endCall({});
 
       const sentData = JSON.parse(mockWs.send.mock.calls[0][0] as string);
       expect(sentData.type).toBe('end');
       expect(sentData.handoffData).toBe('{}');
-    });
-
-    it('should throw when no WebSocket connection exists', () => {
-      expect(() => conversationRelay.endCall(CALL_SID)).toThrow(/No WebSocket connection found/);
     });
   });
 
@@ -413,23 +260,11 @@ describe('ConversationRelay Protocol Methods', () => {
 
   describe('protocol method integration', () => {
     it('should allow sending multiple protocol messages in sequence', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
+      const { mockWs, session } = startSession();
 
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
-      conversationRelay.sendDigits(CALL_SID, '123');
-      conversationRelay.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
+      session.sendPlay('https://example.com/audio.mp3');
+      session.sendDigits('123');
+      session.switchLanguage({ ttsLanguage: 'es-ES' });
 
       expect(mockWs.send).toHaveBeenCalledTimes(3);
 
@@ -440,22 +275,10 @@ describe('ConversationRelay Protocol Methods', () => {
     });
 
     it('should work alongside sendText method', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-      mockWs.simulateMessage({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: CALL_SID,
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest123',
-      });
+      const { mockWs, session } = startSession();
 
-      conversationRelay.sendText(CALL_SID, 'Hello');
-      conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
+      session.sendText('Hello');
+      session.sendPlay('https://example.com/audio.mp3');
 
       expect(mockWs.send).toHaveBeenCalledTimes(2);
 

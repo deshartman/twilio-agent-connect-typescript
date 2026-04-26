@@ -7,18 +7,14 @@ import {
   TACMemoryResponse,
   type ChannelMessage,
 } from '@twilio/tac-core';
-import { ConversationRelay } from '@twilio/tac-conversationrelay';
 
 /**
- * Passive-mode VoiceChannel coverage.
+ * VoiceChannel — passive Maestro voice channel.
  *
- * Passive mode = no ConversationRelay injected. Webhook events emit
- * ChannelMessages exactly like SMS/Chat. CR-exclusive methods throw with
- * a clear message.
- *
- * Active-mode-specific coverage (CR bridge, createConversationForCall,
- * interrupt handling, etc.) lives in voice-channel.test.ts and
- * voice-channel-active-memory.test.ts.
+ * After the WS-SESSIONS split, VoiceChannel is passive-only: it consumes
+ * Maestro voice webhooks and emits ChannelMessages like SMS/Chat. Active
+ * voice (CR WebSocket egress) lives in ConversationRelayChannel and is
+ * tested separately in conversation-relay-channel.test.ts.
  */
 
 const getTestConfig = () => ({
@@ -52,48 +48,41 @@ const makeDeps = () => {
   return { config, logger, conversationClient, memoryRetriever };
 };
 
-describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
+describe('VoiceChannel (passive Maestro)', () => {
   describe('construction', () => {
-    it('constructs without throwing when conversationRelay is omitted', () => {
+    it('constructs without extra config', () => {
       const deps = makeDeps();
       expect(() => new VoiceChannel(deps)).not.toThrow();
     });
 
-    it('still reports channelType as voice', () => {
+    it('reports channelType as voice', () => {
       const deps = makeDeps();
       const channel = new VoiceChannel(deps);
       expect(channel.channelType).toBe('voice');
     });
   });
 
-  describe('CR-exclusive methods throw with a clear message', () => {
-    const makeChannel = () => new VoiceChannel(makeDeps());
-
-    it('sendResponse throws', async () => {
-      const channel = makeChannel();
+  describe('sendResponse throws — passive voice has no outbound path', () => {
+    it('rejects sendResponse with a clear message pointing at ConversationRelayChannel', async () => {
+      const channel = new VoiceChannel(makeDeps());
       await expect(channel.sendResponse(TEST_CONVERSATION_ID, 'hi')).rejects.toThrow(
-        /VoiceChannel\.sendResponse requires an active ConversationRelay/
+        /VoiceChannel\.sendResponse is not supported.*ConversationRelayChannel/s
       );
     });
 
-    it('sendDigits / sendPlay / endCall throw', () => {
-      const channel = makeChannel();
-      expect(() => channel.sendDigits(TEST_CONVERSATION_ID, '1234')).toThrow(
-        /sendDigits requires an active ConversationRelay/
-      );
-      expect(() => channel.sendPlay(TEST_CONVERSATION_ID, 'https://example/audio.mp3')).toThrow(
-        /sendPlay requires an active ConversationRelay/
-      );
-      expect(() => channel.endCall(TEST_CONVERSATION_ID)).toThrow(
-        /endCall requires an active ConversationRelay/
-      );
-    });
-
-    it('executeTool throws', async () => {
-      const channel = makeChannel();
-      await expect(channel.executeTool(TEST_CONVERSATION_ID, 'tool_name', {})).rejects.toThrow(
-        /executeTool requires an active ConversationRelay/
-      );
+    it('does not expose sendDigits / sendPlay / endCall / executeTool methods', () => {
+      const channel = new VoiceChannel(makeDeps());
+      // Active-voice protocol methods live on ConversationRelayChannel only.
+      // Passive VoiceChannel intentionally lacks them — contrast with ChannelMessage
+      // pattern which is the shared emit path.
+      expect(
+        (channel as unknown as { sendDigits?: unknown }).sendDigits
+      ).toBeUndefined();
+      expect((channel as unknown as { sendPlay?: unknown }).sendPlay).toBeUndefined();
+      expect((channel as unknown as { endCall?: unknown }).endCall).toBeUndefined();
+      expect(
+        (channel as unknown as { executeTool?: unknown }).executeTool
+      ).toBeUndefined();
     });
   });
 
@@ -162,7 +151,6 @@ describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
     it('handles CONVERSATION_UPDATED with status=CLOSED by ending the session', async () => {
       const channel = new VoiceChannel(makeDeps());
 
-      // First start the conversation so the CONVERSATION_UPDATED filter passes
       await channel.processWebhook({
         eventType: 'CONVERSATION_CREATED',
         data: { conversationId: TEST_CONVERSATION_ID },
@@ -194,48 +182,5 @@ describe('VoiceChannel (passive mode — no ConversationRelay)', () => {
 
       expect(emitted).not.toHaveBeenCalled();
     });
-  });
-});
-
-describe('VoiceChannel (active mode) — passive-path drop behaviour', () => {
-  it('drops passive COMMUNICATION_CREATED events when CR is connected (prevents double-emit)', async () => {
-    const deps = makeDeps();
-    const conversationRelay = new ConversationRelay(deps.logger.child({ component: 'crelay' }));
-    const channel = new VoiceChannel(deps, { conversationRelay });
-
-    const emitted = vi.fn();
-    channel.on('message', emitted);
-
-    await channel.processWebhook({
-      eventType: 'COMMUNICATION_CREATED',
-      data: {
-        conversationId: TEST_CONVERSATION_ID,
-        author: { address: '+15559876543', channel: 'VOICE', participantId: 'PA_customer' },
-        content: { type: 'TEXT', text: 'transcript from Maestro' },
-      },
-    });
-
-    expect(emitted).not.toHaveBeenCalled();
-    channel.shutdown();
-  });
-
-  it('still handles CONVERSATION_CREATED / CONVERSATION_UPDATED in active mode for lifecycle bookkeeping', async () => {
-    const deps = makeDeps();
-    const conversationRelay = new ConversationRelay(deps.logger.child({ component: 'crelay' }));
-    const channel = new VoiceChannel(deps, { conversationRelay });
-
-    await channel.processWebhook({
-      eventType: 'CONVERSATION_CREATED',
-      data: { conversationId: TEST_CONVERSATION_ID },
-    });
-    expect(channel.isConversationActive(TEST_CONVERSATION_ID)).toBe(true);
-
-    await channel.processWebhook({
-      eventType: 'CONVERSATION_UPDATED',
-      data: { conversationId: TEST_CONVERSATION_ID, status: 'CLOSED' },
-    });
-    expect(channel.isConversationActive(TEST_CONVERSATION_ID)).toBe(false);
-
-    channel.shutdown();
   });
 });

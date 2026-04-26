@@ -72,11 +72,12 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 
 1. Twilio calls `POST /twiml` when a call arrives
 2. Server responds with TwiML connecting to WebSocket at `/ws`
-3. Voice audio transcribed and delivered to `conversationRelay.onPrompt(...)`
+3. Voice audio transcribed and delivered to `conversationRelay.onPrompt((session, message) => ...)`
 4. OpenAI GPT-4 generates a streamed response, optionally emitting `tool_calls`
-5. For each tool call, `conversationRelay.executeTool(callSid, name, args)` runs the tool and applies the appropriate side-effect — ships an `outgoingMessage` over the WebSocket for protocol tools, mutates session state for `set_listen_mode` / `set_silence_detection`
-6. Text tokens are streamed back via `sendText(...)` and spoken to the caller
-7. If the caller goes quiet for 30s, CR auto-sends "Are you still there?"; another 30s of silence and the call is terminated with `reasonCode: 'unresponsive'`
+5. For each tool call, `session.executeTool(name, args)` runs the tool and applies the appropriate side-effect — ships an `outgoingMessage` over the WebSocket for protocol tools, mutates session state for `set_listen_mode` / `set_silence_detection`
+6. Text tokens are streamed back via `session.sendText(...)` and spoken to the caller
+7. Terminal tools (`end_call`, `live_agent_handoff`) are **deferred** — the `end` frame waits for the next `session.sendText(token, true)` so the LLM's farewell reaches TTS before Twilio hangs up
+8. If the caller goes quiet for 30s, CR auto-sends "Are you still there?"; another 30s of silence and the call is terminated with `reasonCode: 'unresponsive'`
 
 ## Architecture
 
@@ -84,31 +85,34 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 Phone Call → Twilio → POST /twiml → TwiML (connect to WS)
                    → WS /ws → ConversationRelay ↔ OpenAI GPT-4
                                   │
-                                  ├─ listTools()        → pass CR built-ins to OpenAI
-                                  └─ executeTool(...)   → run tool + auto-ship protocol message
+                                  ├─ cr.getToolRegistry().list()  → pass CR built-ins to OpenAI
+                                  └─ session.executeTool(...)     → run tool + auto-ship protocol message
 ```
 
 ## Tool Flow
 
-The example uses CR's uniform tool surface:
+The example uses the shared `ToolRegistry` on `ConversationRelay` to discover tools, and the per-session handle to dispatch them:
 
 ```typescript
 // 1. Discover available tools (built-ins + anything you register)
 const tools = conversationRelay
-  .listTools()
+  .getToolRegistry()
+  .list()
   .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
 
 // 2. Hand them to OpenAI
 const stream = await openai.chat.completions.create({ model, messages, tools, stream: true });
 
-// 3. Dispatch tool calls — protocol tools auto-ship their outgoingMessage
+// 3. Dispatch tool calls on the active session — protocol tools auto-ship
+//    their outgoingMessage; terminal 'end' frames are deferred until the
+//    next sendText(..., last: true).
 for (const call of toolCalls.values()) {
   const args: unknown = JSON.parse(call.argumentsJson);
-  await conversationRelay.executeTool(callSid, call.name, args);
+  await session.executeTool(call.name, args);
 }
 ```
 
-No manual `Map<string, CRTool>` dispatcher, no hand-rolled `ws.send({ type: 'sendDigits', ... })`. Ask the agent "send digits 1234" or "say goodbye and hang up" and the corresponding protocol frame is shipped automatically.
+No manual `Map<string, ConversationRelayTool>` dispatcher, no hand-rolled `ws.send({ type: 'sendDigits', ... })`. Ask the agent "send digits 1234" or "say goodbye and hang up" and the corresponding protocol frame is shipped automatically.
 
 ### Registering your own tools
 
@@ -121,10 +125,10 @@ const lookupOrder = defineTool(
   { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   async ({ id }) => ({ id, status: 'shipped' })
 );
-conversationRelay.registerTool(lookupOrder);
+conversationRelay.getToolRegistry().register(lookupOrder);
 ```
 
-User tools participate in the same `listTools()` / `executeTool()` flow. Non-protocol tools (no `outgoingMessage` in the result) return their payload unchanged for the LLM loop to consume on the next turn.
+User tools participate in the same `getToolRegistry().list()` / `session.executeTool()` flow. Non-protocol tools (no `outgoingMessage` in the result) return their payload unchanged for the LLM loop to consume on the next turn.
 
 ## Handling interruptions
 
@@ -163,8 +167,8 @@ CR auto-constructs a per-session `SilenceHandler` on each new call, resets it on
 
 Behaviour with defaults:
 - **t=0**: caller connects, timer starts.
-- **t=30s silent**: CR fires `sendText(callSid, 'Are you still there?')`.
-- **t=60s silent**: CR fires `endCall(callSid, { reasonCode: 'unresponsive', reason: 'The caller was not speaking' })`.
+- **t=30s silent**: CR fires `session.sendText('Are you still there?', true)`.
+- **t=60s silent**: CR fires `session.endCall({ reasonCode: 'unresponsive', reason: 'The caller was not speaking' })`.
 
 Any caller activity (speech, interrupt, DTMF) resets the timer to zero. If the LLM wants to pause silence handling for a known-quiet stretch of call, it can call the `set_silence_detection` tool with `enabled: false` and re-enable it later.
 

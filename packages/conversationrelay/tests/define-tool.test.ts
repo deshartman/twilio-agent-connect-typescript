@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defineTool, CRTool } from '../src/lib/define-tool';
+import { defineTool, ConversationRelayTool } from '../src/lib/define-tool';
 
 describe('CR defineTool', () => {
   describe('defineTool factory', () => {
@@ -18,7 +18,7 @@ describe('CR defineTool', () => {
         async (params: { message: string }) => `Processed: ${params.message}`
       );
 
-      expect(tool).toBeInstanceOf(CRTool);
+      expect(tool).toBeInstanceOf(ConversationRelayTool);
       expect(tool.name).toBe('test_tool');
       expect(tool.description).toBe('A test tool');
       expect(tool.parameters.type).toBe('object');
@@ -96,7 +96,7 @@ describe('CR defineTool', () => {
     });
   });
 
-  describe('CRTool format conversions', () => {
+  describe('ConversationRelayTool format conversions', () => {
     const buildTool = () =>
       defineTool(
         'test_tool',

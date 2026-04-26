@@ -95,7 +95,7 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
   describe('registration', () => {
     it('appears in listTools() for a silence-configured CR', () => {
       cr = new ConversationRelay(logger, { silence: {} });
-      const names = cr.listTools().map(t => t.name);
+      const names = cr.getToolRegistry().list().map(t => t.name);
       expect(names).toContain('set_silence_detection');
     });
 
@@ -103,7 +103,7 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
       // Tool is registered regardless; it's just a no-op when invoked on a
       // session that has no silence handler.
       cr = new ConversationRelay(logger);
-      const names = cr.listTools().map(t => t.name);
+      const names = cr.getToolRegistry().list().map(t => t.name);
       expect(names).toContain('set_silence_detection');
     });
   });
@@ -120,7 +120,7 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
     it('enabled=false stops the silence timer', async () => {
       const ws = openSession();
 
-      await cr.executeTool(CALL_SID, 'set_silence_detection', { enabled: false });
+      await cr.getSession(CALL_SID)!.executeTool('set_silence_detection', { enabled: false });
 
       vi.advanceTimersByTime(10000); // past threshold
       expect(ws.send).not.toHaveBeenCalled();
@@ -128,13 +128,13 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
 
     it('enabled=true re-arms the silence timer from zero', async () => {
       const ws = openSession();
-      await cr.executeTool(CALL_SID, 'set_silence_detection', { enabled: false });
+      await cr.getSession(CALL_SID)!.executeTool('set_silence_detection', { enabled: false });
 
       // Disabled — 4s pass, no fire
       vi.advanceTimersByTime(4000);
       expect(ws.send).not.toHaveBeenCalled();
 
-      await cr.executeTool(CALL_SID, 'set_silence_detection', { enabled: true });
+      await cr.getSession(CALL_SID)!.executeTool('set_silence_detection', { enabled: true });
 
       // Re-armed from zero — 4s from now is still not enough
       vi.advanceTimersByTime(4000);
@@ -150,7 +150,7 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
 
     it('returns the tool result to the caller', async () => {
       openSession();
-      const result = (await cr.executeTool(CALL_SID, 'set_silence_detection', {
+      const result = (await cr.getSession(CALL_SID)!.executeTool('set_silence_detection', {
         enabled: false,
       })) as { success: boolean; silenceEnabled: boolean };
       expect(result.success).toBe(true);
@@ -170,7 +170,7 @@ describe('ConversationRelay: set_silence_detection tool + silenceEnabled convent
     it('is a no-op — tool result still returns, but no session side-effect', async () => {
       openSession();
 
-      const result = (await cr.executeTool(CALL_SID, 'set_silence_detection', {
+      const result = (await cr.getSession(CALL_SID)!.executeTool('set_silence_detection', {
         enabled: true,
       })) as { success: boolean };
       expect(result.success).toBe(true);

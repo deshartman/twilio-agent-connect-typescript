@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConversationRelay } from '../src/crelay';
+import { ConversationRelaySession } from '../src/lib/conversation-relay-session';
 import pino from 'pino';
 import { WebSocket } from 'ws';
 import type { CallSid } from '../src/types';
@@ -24,6 +25,20 @@ describe('ConversationRelay', () => {
       },
     };
   };
+
+  const setupPayload = (callSid: string, overrides: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      type: 'setup',
+      sessionId: 'sess_test',
+      callSid,
+      from: '+15551234567',
+      to: '+15559876543',
+      direction: 'inbound',
+      callType: 'PSTN',
+      callStatus: 'ringing',
+      accountSid: 'ACtest',
+      ...overrides,
+    });
 
   describe('TwiML Generation', () => {
     let conversationRelay: ConversationRelay;
@@ -168,31 +183,15 @@ describe('ConversationRelay', () => {
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       expect(setupCallback).toHaveBeenCalledTimes(1);
-      expect(setupCallback).toHaveBeenCalledWith(
-        'CA_test123',
-        expect.objectContaining({
-          callSid: 'CA_test123',
-          from: '+15551234567',
-          to: '+15559876543',
-        }),
-        expect.objectContaining({ type: 'setup' })
-      );
+      const [session, data] = setupCallback.mock.calls[0];
+      expect(session).toBeInstanceOf(ConversationRelaySession);
+      expect(session.callSid).toBe('CA_test123');
+      expect(session.from).toBe('+15551234567');
+      expect(session.to).toBe('+15559876543');
+      expect(data).toEqual(expect.objectContaining({ type: 'setup' }));
     });
 
     it('should route prompt message to callback', () => {
@@ -201,22 +200,8 @@ describe('ConversationRelay', () => {
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
-      // First send setup
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
-
-      // Then send prompt
       const promptMessage = JSON.stringify({
         type: 'prompt',
         voicePrompt: 'Hello, I need help',
@@ -226,11 +211,11 @@ describe('ConversationRelay', () => {
       mockWs._emit('message', Buffer.from(promptMessage));
 
       expect(messageCallback).toHaveBeenCalledTimes(1);
-      expect(messageCallback).toHaveBeenCalledWith(
-        'CA_test123',
-        'Hello, I need help',
-        expect.objectContaining({ type: 'prompt', lang: 'en-US' })
-      );
+      const [session, message, data] = messageCallback.mock.calls[0];
+      expect(session).toBeInstanceOf(ConversationRelaySession);
+      expect(session.callSid).toBe('CA_test123');
+      expect(message).toBe('Hello, I need help');
+      expect(data).toEqual(expect.objectContaining({ type: 'prompt', lang: 'en-US' }));
     });
 
     it('should route interrupt message to callback', () => {
@@ -239,19 +224,7 @@ describe('ConversationRelay', () => {
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       const interruptMessage = JSON.stringify({
         type: 'interrupt',
@@ -261,10 +234,9 @@ describe('ConversationRelay', () => {
       mockWs._emit('message', Buffer.from(interruptMessage));
 
       expect(interruptCallback).toHaveBeenCalledTimes(1);
-      expect(interruptCallback).toHaveBeenCalledWith(
-        'CA_test123',
-        expect.objectContaining({ type: 'interrupt' })
-      );
+      const [session, data] = interruptCallback.mock.calls[0];
+      expect(session.callSid).toBe('CA_test123');
+      expect(data).toEqual(expect.objectContaining({ type: 'interrupt' }));
     });
 
     it('should route DTMF message to callback', () => {
@@ -273,19 +245,7 @@ describe('ConversationRelay', () => {
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       const dtmfMessage = JSON.stringify({
         type: 'dtmf',
@@ -294,10 +254,9 @@ describe('ConversationRelay', () => {
       mockWs._emit('message', Buffer.from(dtmfMessage));
 
       expect(dtmfCallback).toHaveBeenCalledTimes(1);
-      expect(dtmfCallback).toHaveBeenCalledWith(
-        'CA_test123',
-        expect.objectContaining({ type: 'dtmf', digit: '5' })
-      );
+      const [session, data] = dtmfCallback.mock.calls[0];
+      expect(session.callSid).toBe('CA_test123');
+      expect(data).toEqual(expect.objectContaining({ type: 'dtmf', digit: '5' }));
     });
 
     it('should handle invalid message gracefully', () => {
@@ -325,32 +284,16 @@ describe('ConversationRelay', () => {
       conversationRelay.handleConnection(mockWs1);
       conversationRelay.handleConnection(mockWs2);
 
-      const setupMessage1 = JSON.stringify({
-        type: 'setup',
+      mockWs1._emit('message', Buffer.from(setupPayload('CA_test1', {
         sessionId: 'sess_test1',
-        callSid: 'CA_test1',
         from: '+15551111111',
         to: '+15559999999',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-
-      const setupMessage2 = JSON.stringify({
-        type: 'setup',
+      })));
+      mockWs2._emit('message', Buffer.from(setupPayload('CA_test2', {
         sessionId: 'sess_test2',
-        callSid: 'CA_test2',
         from: '+15552222222',
         to: '+15558888888',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-
-      mockWs1._emit('message', Buffer.from(setupMessage1));
-      mockWs2._emit('message', Buffer.from(setupMessage2));
+      })));
 
       expect(setupCallback).toHaveBeenCalledTimes(2);
       expect(conversationRelay.hasSession('CA_test1' as CallSid)).toBe(true);
@@ -363,26 +306,16 @@ describe('ConversationRelay', () => {
 
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       expect(conversationRelay.hasSession('CA_test123' as CallSid)).toBe(true);
 
       mockWs._emit('close');
 
       expect(endedCallback).toHaveBeenCalledTimes(1);
-      expect(endedCallback).toHaveBeenCalledWith('CA_test123');
+      const [session] = endedCallback.mock.calls[0];
+      expect(session).toBeInstanceOf(ConversationRelaySession);
+      expect(session.callSid).toBe('CA_test123');
       expect(conversationRelay.hasSession('CA_test123' as CallSid)).toBe(false);
     });
   });
@@ -394,22 +327,10 @@ describe('ConversationRelay', () => {
       conversationRelay = new ConversationRelay(createTestLogger());
     });
 
-    it('should retrieve session data', () => {
+    it('should retrieve session by CallSid', () => {
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       const session = conversationRelay.getSession('CA_test123' as CallSid);
 
@@ -426,50 +347,27 @@ describe('ConversationRelay', () => {
     it('should check session existence', () => {
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
       expect(conversationRelay.hasSession('CA_test123' as CallSid)).toBe(true);
       expect(conversationRelay.hasSession('CA_unknown' as CallSid)).toBe(false);
     });
   });
 
-  describe('Response Sending', () => {
+  describe('Response Sending (via session)', () => {
     let conversationRelay: ConversationRelay;
 
     beforeEach(() => {
       conversationRelay = new ConversationRelay(createTestLogger());
     });
 
-    it('should send response message', () => {
+    it('should send text via session with last=true default', () => {
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
-
-      conversationRelay.sendText('CA_test123' as CallSid, 'Hello there!');
+      const session = conversationRelay.getSession('CA_test123' as CallSid);
+      session?.sendText('Hello there!');
 
       expect(mockWs.send).toHaveBeenCalledTimes(1);
       const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
@@ -478,33 +376,22 @@ describe('ConversationRelay', () => {
       expect(sentMessage.last).toBe(true);
     });
 
-    it('should send response with last flag false', () => {
+    it('should send text with last=false when streaming', () => {
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
+      mockWs._emit('message', Buffer.from(setupPayload('CA_test123')));
 
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
-
-      conversationRelay.sendText('CA_test123' as CallSid, 'Streaming...', false);
+      const session = conversationRelay.getSession('CA_test123' as CallSid);
+      session?.sendText('Streaming...', false);
 
       const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
       expect(sentMessage.last).toBe(false);
     });
 
-    it('should throw error when connection not found', () => {
-      expect(() => {
-        conversationRelay.sendText('CA_unknown' as CallSid, 'Hello');
-      }).toThrow('No WebSocket connection found');
+    it('getSession returns undefined for unknown CallSid', () => {
+      // The CallSid-threading sendText is gone; out-of-band callers that only
+      // have a CallSid must first resolve the session.
+      expect(conversationRelay.getSession('CA_unknown' as CallSid)).toBeUndefined();
     });
   });
 
@@ -515,55 +402,6 @@ describe('ConversationRelay', () => {
       conversationRelay = new ConversationRelay(createTestLogger());
     });
 
-    it('should get WebSocket for CallSid', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
-
-      const ws = conversationRelay.getWebSocket('CA_test123' as CallSid);
-      expect(ws).toBe(mockWs);
-    });
-
-    it('should return null for unknown CallSid', () => {
-      const ws = conversationRelay.getWebSocket('CA_unknown' as CallSid);
-      expect(ws).toBeNull();
-    });
-
-    it('should close specific connection', () => {
-      const mockWs = createMockWebSocket();
-      conversationRelay.handleConnection(mockWs);
-
-      const setupMessage = JSON.stringify({
-        type: 'setup',
-        sessionId: 'sess_test',
-        callSid: 'CA_test123',
-        from: '+15551234567',
-        to: '+15559876543',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-      mockWs._emit('message', Buffer.from(setupMessage));
-
-      conversationRelay.closeConnection('CA_test123' as CallSid);
-
-      expect(mockWs.close).toHaveBeenCalled();
-      expect(conversationRelay.hasSession('CA_test123' as CallSid)).toBe(false);
-    });
-
     it('should shutdown all connections', () => {
       const mockWs1 = createMockWebSocket();
       const mockWs2 = createMockWebSocket();
@@ -571,32 +409,16 @@ describe('ConversationRelay', () => {
       conversationRelay.handleConnection(mockWs1);
       conversationRelay.handleConnection(mockWs2);
 
-      const setupMessage1 = JSON.stringify({
-        type: 'setup',
+      mockWs1._emit('message', Buffer.from(setupPayload('CA_test1', {
         sessionId: 'sess_test1',
-        callSid: 'CA_test1',
         from: '+15551111111',
         to: '+15559999999',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-
-      const setupMessage2 = JSON.stringify({
-        type: 'setup',
+      })));
+      mockWs2._emit('message', Buffer.from(setupPayload('CA_test2', {
         sessionId: 'sess_test2',
-        callSid: 'CA_test2',
         from: '+15552222222',
         to: '+15558888888',
-        direction: 'inbound',
-        callType: 'PSTN',
-        callStatus: 'ringing',
-        accountSid: 'ACtest',
-      });
-
-      mockWs1._emit('message', Buffer.from(setupMessage1));
-      mockWs2._emit('message', Buffer.from(setupMessage2));
+      })));
 
       conversationRelay.shutdown();
 

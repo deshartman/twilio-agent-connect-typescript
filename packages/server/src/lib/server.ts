@@ -115,9 +115,11 @@ export class TACServer {
       },
     };
 
-    // Fan-out channels for /webhook: SMS + Chat (and passive VoiceChannel if
-    // registered on TAC). Active VoiceChannels are driven by ConversationRelayServer on
-    // a separate process/port — they don't participate in TACServer routes.
+    // Fan-out channels for /webhook: SMS + Chat. Passive `VoiceChannel` also
+    // consumes Maestro webhooks but must be supplied explicitly via
+    // `config.conversationChannels`. `ConversationRelayChannel` is driven by
+    // `ConversationRelayServer` on a separate process/port — it doesn't
+    // participate in TACServer routes.
     this.conversationChannels =
       config.conversationChannels ??
       (

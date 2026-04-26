@@ -20,7 +20,7 @@ export * from './conversation';
 // Channel interface
 export * from './channels';
 
-// Re-export CallSid from CR package (used internally by VoiceChannel for WebSocket communication)
+// Re-export CallSid from CR package (used internally by ConversationRelayChannel for WebSocket communication)
 export type { CallSid } from '@twilio/tac-conversationrelay';
 
 // TAC Custom Parameters (Maestro-specific, for bridging CR calls to Conversations)

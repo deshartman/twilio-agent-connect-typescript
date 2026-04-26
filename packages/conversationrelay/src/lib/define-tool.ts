@@ -25,7 +25,7 @@ export type ToolFunction<TParams = unknown, TResult = unknown> = (
 /**
  * ConversationRelay tool with LLM-format conversion helpers.
  */
-export class CRTool<TParams = unknown, TResult = unknown> {
+export class ConversationRelayTool<TParams = unknown, TResult = unknown> {
   constructor(
     public readonly name: string,
     public readonly description: string,
@@ -62,7 +62,7 @@ export function defineTool<TParams = unknown, TResult = unknown>(
   description: string,
   parameters: JSONSchema,
   implementation: ToolFunction<TParams, TResult>
-): CRTool<TParams, TResult> {
+): ConversationRelayTool<TParams, TResult> {
   if (!name) {
     throw new Error('Tool name is required');
   }
@@ -76,5 +76,5 @@ export function defineTool<TParams = unknown, TResult = unknown>(
     throw new Error('Tool implementation is required');
   }
 
-  return new CRTool(name, description, parameters, implementation);
+  return new ConversationRelayTool(name, description, parameters, implementation);
 }

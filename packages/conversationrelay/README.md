@@ -5,13 +5,24 @@ Pure ConversationRelay protocol utility for voice-only Twilio applications. Can 
 ## Features
 
 - WebSocket protocol handling for Twilio ConversationRelay
-- Session lifecycle management (per CallSid)
-- Event routing via callbacks
+- One `ConversationRelaySession` per WebSocket — session-scoped public API (no CallSid threading)
+- Event routing via callbacks; every callback receives the `ConversationRelaySession`
 - TwiML generation for `<ConversationRelay>` noun
-- Built-in tool registry — protocol tools (text / DTMF / media / language / end) plus state tools (listen-mode toggle, silence-detection toggle, live-agent handoff), all LLM-discoverable
+- `ToolRegistry` — protocol tools (text / DTMF / media / language / end) plus state tools (listen-mode toggle, silence-detection toggle, live-agent handoff), all LLM-discoverable
 - Built-in per-session silence handling — opt-in via constructor config
 - Built-in per-session listen-mode — toggleable via method or LLM tool, gates outgoing speech
+- Terminal-message deferral — `end` frames from tools wait for the next `sendText(..., last: true)` so farewell tokens reach TTS before hangup
 - Standalone server option (no Conversation Orchestrator required)
+
+## Package shape
+
+Three classes cover everything:
+
+- **`ConversationRelay`** — the manager. Owns the per-CallSid session directory, the shared `ToolRegistry`, the silence template, the WebSocket `on('message' | 'close' | 'error')` handlers, callback fan-out, and TwiML generation. One per process (usually).
+- **`ConversationRelaySession`** — one per WebSocket. Owns the `ws`, session identity (`callSid`, `from`, `to`, `startedAt`, `customParameters`), listen-mode + suppressed-count, the per-session `SilenceHandler`, and the deferred-terminal slot. All outbound methods (`sendText`, `sendPlay`, `sendDigits`, `switchLanguage`, `endCall`, `setListenMode`, `executeTool`, …) are on the session — they act on `this`, not a CallSid argument.
+- **`ToolRegistry`** — named lookup for `ConversationRelayTool` instances. Passed to `ConversationRelay` at construction (or auto-built from `CONVERSATION_RELAY_TOOLS`). `register` / `unregister` / `list` / `get` / `has`. Shared across every in-flight session — register once, available everywhere.
+
+> `CRTool` was renamed to `ConversationRelayTool`. No alias — update imports.
 
 ## Architecture
 
@@ -21,9 +32,9 @@ graph LR
 
     subgraph CR["ConversationRelay package"]
         direction TB
-        Registry["tool registry<br/>─────<br/>play_media<br/>send_digits<br/>switch_language<br/>end_call<br/>live_agent_handoff<br/>set_listen_mode<br/>set_silence_detection<br/>+ user tools"]:::cr
-        Callbacks["callbacks<br/>─────<br/>onPrompt<br/>onDtmf<br/>onInterrupt<br/>onSession* (Started / Ended)<br/>onError / onInfo"]:::cr
-        API["public API<br/>─────<br/>sendResponse(callSid, OutgoingMessage)<br/>sendText / sendDigits / sendPlay /<br/>switchLanguage / endCall<br/>setListenMode / isListenMode<br/>listTools / executeTool<br/>↳ outgoingMessage / listenMode /<br/>&nbsp;&nbsp;silenceEnabled conventions"]:::cr
+        Registry["ToolRegistry (shared)<br/>─────<br/>play_media<br/>send_digits<br/>switch_language<br/>end_call<br/>live_agent_handoff<br/>set_listen_mode<br/>set_silence_detection<br/>+ user tools"]:::cr
+        Callbacks["ConversationRelay callbacks<br/>─────<br/>onSessionStarted(session, data)<br/>onPrompt(session, message, data)<br/>onInterrupt(session, data)<br/>onDtmf / onInfo(session, data)<br/>onSessionEnded(session)<br/>onError(session, error)"]:::cr
+        API["ConversationRelaySession API<br/>─────<br/>sendResponse(OutgoingMessage)<br/>sendText / sendDigits / sendPlay /<br/>switchLanguage / endCall<br/>setListenMode / isListenMode<br/>executeTool(name, args)<br/>↳ outgoingMessage (deferred on 'end') /<br/>&nbsp;&nbsp;listenMode / silenceEnabled conventions"]:::cr
     end
 
     User["User<br/>LLM<br/>loop"]:::you
@@ -38,12 +49,12 @@ graph LR
 ```
 
 > **LLM SDK (OpenAI, Anthropic, Google, …) lives in USER code, never in CR.**
-> Tool format conversion via `CRTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
+> Tool format conversion via `ConversationRelayTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
 
 ## When to use this package
 
 - **Voice-only app, no Conversation Orchestrator / no multi-channel** → use this package standalone. Session identity is the `CallSid`; you own LLM, history, and memory.
-- **Voice + SMS / Chat, cross-channel identity, Twilio Memory** → use [`twilio-agent-connect`](../../README.md) (tac-core). This package is still used under the hood — tac-core's `VoiceChannel` embeds a `ConversationRelay` instance and integrates it with Conversation Orchestrator Conversations.
+- **Voice + SMS / Chat, cross-channel identity, Twilio Memory** → use [`twilio-agent-connect`](../../README.md) (tac-core). This package is still used under the hood — tac-core's `ConversationRelayChannel` holds a `ConversationRelay` instance and integrates it with Conversation Orchestrator Conversations.
 
 ## Installation
 
@@ -57,7 +68,7 @@ Both modes start the same way: construct `ConversationRelay`, register callbacks
 
 ### Standalone mode (no Conversation Orchestrator)
 
-Point your Twilio voice number at `/twiml` and drive your own LLM via `cr.onPrompt` / `cr.sendText`. No Conversation Orchestrator conversation is created; session identity is the `CallSid`.
+Point your Twilio voice number at `/twiml` and drive your own LLM via `cr.onPrompt` / `session.sendText`. No Conversation Orchestrator conversation is created; session identity is the `CallSid`.
 
 Working example: **[`getting_started/examples/crelay/`](../../getting_started/examples/crelay/)** — OpenAI-backed voice agent, with interruption handling, tool dispatch, silence handling, and env setup. Read its README to go end-to-end.
 
@@ -78,9 +89,9 @@ const cr = new ConversationRelay(logger, {
   silence: { thresholdSeconds: 30 },
 });
 
-cr.onPrompt(async (callSid, message) => {
+cr.onPrompt(async (session, message) => {
   const reply = await yourLLM.chat(message);
-  cr.sendText(callSid, reply);
+  session.sendText(reply);
 });
 
 await new ConversationRelayServer(cr, {
@@ -91,10 +102,10 @@ await new ConversationRelayServer(cr, {
 
 ### Integrated mode (with tac-core / Conversation Orchestrator)
 
-`ConversationRelayServer` exposes two optional callbacks — `onIncomingCall` and `onConversationRelayCallback` — that let you splice Conversation Orchestrator into the TwiML / callback paths without this package importing from tac-core. Wire them to `VoiceChannel` methods that return plain data records:
+`ConversationRelayServer` exposes two optional callbacks — `onIncomingCall` and `onConversationRelayCallback` — that let you splice Conversation Orchestrator into the TwiML / callback paths without this package importing from tac-core. Wire them to `ConversationRelayChannel` methods that return plain data records:
 
-- `onIncomingCall` is called on `POST /twiml`. Return a `Record<string, string>` of customParameters; CR splices them into the `<ConversationRelay>` TwiML element. `VoiceChannel.createConversationForCall` returns the four Conversation Orchestrator IDs (`conversation_id`, `profile_id`, `customer_participant_id`, `ai_agent_participant_id`), which arrive on the CR `setup` frame at WebSocket connect.
-- `onConversationRelayCallback` is called when Twilio POSTs the URL declared as `<ConversationRelay action="…">` — at call-end (`CallStatus: 'completed'`) and on handoff requests. Return `{ status, content, contentType }`; `VoiceChannel.handleConversationRelayCallback` closes the Conversation Orchestrator conversation and returns handoff TwiML when applicable.
+- `onIncomingCall` is called on `POST /twiml`. Return a `Record<string, string>` of customParameters; CR splices them into the `<ConversationRelay>` TwiML element. `ConversationRelayChannel.createConversationForCall` returns the four Conversation Orchestrator IDs (`conversation_id`, `profile_id`, `customer_participant_id`, `ai_agent_participant_id`), which arrive on the CR `setup` frame at WebSocket connect.
+- `onConversationRelayCallback` is called when Twilio POSTs the URL declared as `<ConversationRelay action="…">` — at call-end (`CallStatus: 'completed'`) and on handoff requests. Return `{ status, content, contentType }`; `ConversationRelayChannel.handleConversationRelayCallback` closes the Conversation Orchestrator conversation and returns handoff TwiML when applicable.
 
 Omit both callbacks → standalone behaviour. Pass both → integrated. The package itself has **zero** dependency on `@twilio/tac-core`.
 
@@ -107,64 +118,102 @@ Working example: **[`getting_started/examples/conversation/`](../../getting_star
 ```typescript
 new ConversationRelay(
   logger?: Logger,
-  config?: { silence?: { thresholdSeconds?: number; additionalPrompts?: [string] | [string, string] } }
+  config?: {
+    silence?: { thresholdSeconds?: number; additionalPrompts?: [string] | [string, string] };
+    tools?: ToolRegistry;
+  }
 );
 ```
 
 - `logger` — Pino-style logger. Defaults to an internal logger if omitted.
-- `config.silence` — opt-in per-session silence handling. Omit entirely → no silence monitoring. Pass `{}` → defaults (`thresholdSeconds: 20`, one reminder "Are you still there?" then terminate). `additionalPrompts` prepends extra reminders before termination.
+- `config.silence` — opt-in per-session silence handling. Omit entirely → no silence monitoring. Pass `{}` → defaults (`thresholdSeconds: 20`, one reminder "Are you still there?" then terminate). `additionalPrompts` appends extra reminders before termination.
+- `config.tools` — custom `ToolRegistry`. Omit for a default registry pre-populated with the seven `CONVERSATION_RELAY_TOOLS` built-ins.
 
-### Callbacks
+### Callbacks (on `ConversationRelay`)
 
-- `onSessionStarted(callback)` — call connects (setup message received)
-- `onPrompt(callback)` — user transcript arrived (CR `prompt` message)
-- `onInterrupt(callback)` — user interrupted agent speech
-- `onDtmf(callback)` — DTMF input
-- `onInfo(callback)` — INFO / diagnostic messages
-- `onSessionEnded(callback)` — call ended (WebSocket closed)
-- `onError(callback)` — error reported
+Every callback receives the active `ConversationRelaySession` as the first argument. The CallSid is reachable as `session.callSid`.
 
-### Outgoing messages
+- `onSessionStarted((session, data) => …)` — call connects (setup message received). `data: SetupMessage`.
+- `onPrompt((session, message, data) => …)` — user transcript arrived. `data: PromptMessage`.
+- `onInterrupt((session, data) => …)` — user interrupted agent speech.
+- `onDtmf((session, data) => …)` — DTMF input.
+- `onInfo((session, data) => …)` — INFO / diagnostic messages.
+- `onSessionEnded((session) => …)` — call ended (WebSocket closed).
+- `onError((session, error) => …)` — error reported.
 
-All outgoing frames converge on one public chokepoint, `sendResponse(callSid, OutgoingMessage)`. The typed wrappers build the `OutgoingMessage` for you so callers don't touch protocol shape:
+### Directory access (on `ConversationRelay`)
 
-- `sendText(callSid, token, last?)` — send a text token for TTS. `last` defaults to `true`.
-- `sendPlay(callSid, source, options?)` — play media from URL. `options = { loop?, interruptible?, preemptible? }`.
-- `sendDigits(callSid, digits)` — send DTMF digits (0-9, `w` = 500ms pause, `*`, `#`).
-- `switchLanguage(callSid, { ttsLanguage?, transcriptionLanguage? })` — change TTS or transcription language mid-call.
-- `endCall(callSid, handoffData?)` — end the call. `handoffData` is an object; CR `JSON.stringify`s it for you.
-- `sendResponse(callSid, message: OutgoingMessage)` — escape hatch for advanced users / future protocol frames.
+- `getSession(callSid)` — fetch the active `ConversationRelaySession` for a CallSid, or `undefined`.
+- `hasSession(callSid)` — whether an active session exists for that CallSid.
+- `getToolRegistry()` — the shared `ToolRegistry`.
+- `shutdown()` — close every session's ws and clear the registry.
+
+### Outgoing messages (on `ConversationRelaySession`)
+
+All outgoing methods live on the session and act on `this` — no CallSid threading. All frames converge on one public chokepoint, `session.sendResponse(OutgoingMessage)`. The typed wrappers build the `OutgoingMessage` for you so callers don't touch protocol shape:
+
+- `session.sendText(token, last?)` — send a text token for TTS. `last` defaults to `true`. When `last: true` also flushes any deferred terminal frame stashed by a prior `executeTool` (see below).
+- `session.sendPlay(source, options?)` — play media from URL. `options = { loop?, interruptible?, preemptible? }`.
+- `session.sendDigits(digits)` — send DTMF digits (0-9, `w` = 500ms pause, `*`, `#`).
+- `session.switchLanguage({ ttsLanguage?, transcriptionLanguage? })` — change TTS or transcription language mid-call.
+- `session.endCall(handoffData?)` — end the call immediately. `handoffData` is an object; CR `JSON.stringify`s it for you. Bypasses terminal deferral — direct callers are asking for immediate hangup.
+- `session.sendResponse(message: OutgoingMessage)` — escape hatch for advanced users / future protocol frames.
 
 **Listen-mode gating happens inside `sendResponse`.** When a session has listen-mode on, outgoing `text` / `play` / `language` frames are suppressed (session counter increments, no wire write). `sendDigits` and `end` are never gated — DTMF navigation and termination must always work.
 
-### Listen mode
+### Terminal-message deferral
 
-- `setListenMode(callSid, enabled)` — toggle listen-mode for a session. On enable, any active `SilenceHandler` stops. On disable, it re-arms from zero.
-- `isListenMode(callSid)` — read the current flag. Returns `false` if no session exists.
-- `getSuppressedMessageCount(callSid)` — diagnostic counter of messages suppressed by listen-mode on this session.
+When a tool returns `{ outgoingMessage: { type: 'end', ... } }` (e.g. `end_call`, `live_agent_handoff`), the session **stashes** the terminal frame instead of shipping it. The next `sendText(..., last: true)` flushes it *after* the last text token. This gives the LLM's streaming farewell ("Okay, transferring you now — one moment!") a chance to reach TTS before Twilio hangs up; without deferral, the `end` frame races the final text tokens and you get mid-sentence cutoffs.
 
-### Tool registry
+If you invoke `session.endCall(...)` directly (not via a tool), deferral is bypassed and the call hangs up immediately.
 
-- `listTools()` — all registered tools (built-ins + user-registered)
-- `registerTool(tool)` — register an additional `CRTool`
-- `unregisterTool(name)` — remove a tool
-- `executeTool(callSid, name, args)` — run a tool's implementation and apply any side-effects encoded in its result
+### Listen mode (on `ConversationRelaySession`)
+
+- `session.setListenMode(enabled)` — toggle listen-mode for this session. On enable, any active `SilenceHandler` stops. On disable, it re-arms from zero.
+- `session.isListenMode()` — read the current flag.
+- `session.getSuppressedMessageCount()` — diagnostic counter of messages suppressed by listen-mode on this session.
+
+### Tool dispatch
+
+- `session.executeTool(name, args)` — run a tool's implementation and apply any side-effects encoded in its result. Returns the raw result for the caller to feed back into the LLM loop.
+
+### `ToolRegistry`
+
+Named-lookup container for `ConversationRelayTool` instances. Shared by every in-flight session — registering a tool makes it available to every active call immediately.
+
+- `registry.register(tool)` — register a tool (last-write-wins on name collisions).
+- `registry.unregister(name)` — remove by name.
+- `registry.get(name)` / `registry.has(name)`.
+- `registry.list()` — all registered tools in registration order. Feed into the LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+
+The default registry (when `config.tools` is omitted) is `new ToolRegistry(CONVERSATION_RELAY_TOOLS)`. To customise — e.g. drop a built-in:
+
+```typescript
+import { ConversationRelay, ToolRegistry, CONVERSATION_RELAY_TOOLS } from '@twilio/tac-conversationrelay';
+
+const registry = new ToolRegistry(
+  CONVERSATION_RELAY_TOOLS.filter(t => t.name !== 'end_call'),
+);
+registry.register(myCustomTool);
+
+const cr = new ConversationRelay(logger, { tools: registry });
+```
 
 ### `executeTool` — result conventions
 
-The tool body returns a plain object. CR inspects the result and applies up to three side-effects:
+The tool body returns a plain object. The session inspects the result and applies up to three side-effects:
 
 | Result field | Side-effect | Example tool |
 |---|---|---|
-| `outgoingMessage: OutgoingMessage` | Validated and shipped via `sendResponse` | `play_media`, `send_digits`, `switch_language`, `end_call`, `live_agent_handoff` |
-| `listenMode: boolean` | `setListenMode(callSid, value)` | `set_listen_mode` |
+| `outgoingMessage: OutgoingMessage` | Validated and shipped via `sendResponse` — except `type: 'end'`, which is **deferred** until the next `sendText(..., last: true)` | `play_media`, `send_digits`, `switch_language`, `end_call`, `live_agent_handoff` |
+| `listenMode: boolean` | `session.setListenMode(value)` | `set_listen_mode` |
 | `silenceEnabled: boolean` | `session.silenceHandler.setEnabled(value)` (+ `reset()` on enable); no-op if no handler | `set_silence_detection` |
 
-Tool bodies stay pure — they never touch CR state or CallSid directly. The result is also returned to the caller so it can be fed back into the LLM loop.
+Tool bodies stay pure — they never touch the session or CallSid directly. The result is also returned to the caller so it can be fed back into the LLM loop.
 
 ### Built-in tools
 
-Seven are auto-registered on every `ConversationRelay` instance; remove any via `unregisterTool(name)`.
+The seven tools in `CONVERSATION_RELAY_TOOLS` are auto-registered on every default `ConversationRelay`; remove any via `cr.getToolRegistry().unregister(name)`.
 
 **Protocol tools** (emit an `outgoingMessage`):
 - `play_media` — play audio URL
@@ -228,12 +277,12 @@ CR auto-constructs a `SilenceHandler` per session, resets it on prompt/interrupt
 Sometimes the agent should listen but not speak — typical use is outbound IVR navigation, where the LLM sends DTMF to traverse menus and listens for a human, then starts speaking once it detects one.
 
 ```typescript
-cr.setListenMode(callSid, true);  // text/play/language suppressed; sendDigits still works
+session.setListenMode(true);  // text/play/language suppressed; sendDigits still works
 // ... LLM sends DTMF, waits ...
-cr.setListenMode(callSid, false); // re-enabled; agent can speak
+session.setListenMode(false); // re-enabled; agent can speak
 ```
 
-Or let the LLM control it directly — the `set_listen_mode` built-in tool is in `listTools()` by default. Pass `listTools()` into your LLM as its toolset and it can toggle listen-mode the same way it calls `send_digits`:
+Or let the LLM control it directly — the `set_listen_mode` built-in tool is in `cr.getToolRegistry().list()` by default. Pass it into your LLM as its toolset and it can toggle listen-mode the same way it calls `send_digits`:
 
 ```typescript
 // LLM calls: set_listen_mode({ enabled: true })
@@ -261,7 +310,7 @@ const lookupOrder = defineTool(
   }
 );
 
-cr.registerTool(lookupOrder);
+cr.getToolRegistry().register(lookupOrder);
 ```
 
 User tools without a convention field (`outgoingMessage`, `listenMode`, `silenceEnabled`) return their result for the LLM loop to consume. Built-in tools use the same conventions — your call site looks the same for all of them.

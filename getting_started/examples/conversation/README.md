@@ -4,12 +4,12 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 
 ## What This Example Does
 
-- **Multi-Channel Support**: Handles both SMS and Voice conversations in a single application
+- **Multi-Channel Support**: Handles both SMS and active voice (via `ConversationRelayChannel`) in a single application
 - **OpenAI Integration**: Uses gpt-5.4-mini for intelligent, context-aware responses
 - **Memory Integration**: Automatically retrieves user profiles and conversation history from Twilio Memory
 - **Profile Personalization**: Incorporates user profile traits into responses for personalized interactions
 - **Conversation History**: Maintains context across multiple message exchanges
-- **Uniform Tool Flow**: Voice channel exposes CR's seven built-in tools — protocol (`play_media`, `send_digits`, `switch_language`, `end_call`, `live_agent_handoff`) plus state (`set_listen_mode`, `set_silence_detection`) — through the same `listTools()` / `executeTool()` surface used by every channel
+- **Uniform Tool Flow**: `ConversationRelayChannel` exposes CR's seven built-in tools — protocol (`play_media`, `send_digits`, `switch_language`, `end_call`, `live_agent_handoff`) plus state (`set_listen_mode`, `set_silence_detection`) — through the same `listTools()` / `executeTool()` surface used by every channel
 
 ## Prerequisites
 
@@ -165,10 +165,10 @@ The application maintains conversation history per conversation ID, allowing the
 
 ### Uniform Tool Dispatch
 
-Every channel implements the same tool surface — `listTools()`, `registerTool(tool)`, `executeTool(conversationId, name, args)` — so the LLM glue is the same shape regardless of channel. On voice, the built-in CR protocol tools are auto-registered, and `executeTool` auto-ships their `outgoingMessage` (play/sendDigits/language/end) over the CR WebSocket:
+Every channel implements the same tool surface — `listTools()`, `registerTool(tool)`, `executeTool(conversationId, name, args)` — so the LLM glue is the same shape regardless of channel. On `ConversationRelayChannel`, the built-in CR protocol tools are auto-registered, and `executeTool` auto-ships their `outgoingMessage` (play/sendDigits/language/end) over the CR WebSocket. Terminal `end` frames are deferred until the next `sendResponse(convId, token, { last: true })`, so the LLM's farewell reaches TTS before Twilio hangs up.
 
 ```typescript
-const tools = voiceChannel
+const tools = crChannel
   .listTools()
   .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
 
@@ -178,7 +178,7 @@ for (const call of toolCalls.values()) {
   // Protocol tools ship their outgoing frame automatically; non-protocol tools
   // return their result for the next LLM turn to consume.
   const args: unknown = JSON.parse(call.argumentsJson);
-  await voiceChannel.executeTool(convId, call.name, args);
+  await crChannel.executeTool(convId, call.name, args);
 }
 ```
 

@@ -10,6 +10,7 @@ describe('package exports', () => {
 
   it('exports channel classes', () => {
     expect(tac.VoiceChannel).toBeDefined();
+    expect(tac.ConversationRelayChannel).toBeDefined();
     expect(tac.SMSChannel).toBeDefined();
     expect(tac.ChatChannel).toBeDefined();
   });

@@ -11,7 +11,7 @@ Explore the [getting_started](getting_started) directory to see the SDK in actio
 
 ## Key Features
 
-- **Multi-Channel Support**: SMS, Voice (ConversationRelay), and Chat channels
+- **Multi-Channel Support**: SMS, Voice (passive Maestro), ConversationRelay (active voice), and Chat channels
 - **Unified Architecture**: Uses Conversation Orchestrator Conversations Service for all channels with ConversationRelay for voice
 - **Memory Management**: Automatic integration with Twilio Memory for persistent user context
 - **Conversation Lifecycle**: Automatic tracking of conversation sessions and state
@@ -56,7 +56,10 @@ TAC uses **Conversation Orchestrator Conversations Service** for unified convers
 
 All channels require `TWILIO_CONVERSATION_CONFIGURATION_ID` to be configured in your environment.
 
-For advanced use cases, `VoiceChannel` also supports **passive mode** — construct it without a `conversationRelay` option and it consumes Conversation Orchestrator webhooks only (no WebSocket, no outbound). Useful for BYO-CR setups, inbound-only transcript analysis, or anywhere you don't want `ConversationRelayServer` to manage the CR WebSocket.
+Voice comes in two flavours as two distinct channel classes:
+
+- **`ConversationRelayChannel`** — active voice. Holds a `ConversationRelay` instance and bridges the CR WebSocket (setup / prompt / interrupt / dtmf) to Conversation Orchestrator. Outbound text / DTMF / play / end go over the CR WebSocket. `ChannelMessage.channel === 'crelay'`.
+- **`VoiceChannel`** — passive voice. Consumes Conversation Orchestrator webhooks only — no WebSocket, no outbound. Useful for BYO-CR setups, inbound-only transcript analysis, or anywhere this service doesn't own the CR WebSocket. `ChannelMessage.channel === 'voice'`. Calling `sendResponse` throws.
 
 ### Two servers, two ports
 
@@ -101,7 +104,8 @@ graph LR
 
     subgraph TAC["TAC (tac-core)"]
         direction TB
-        VC["VoiceChannel<br/>─────<br/>embeds CR<br/>listTools / executeTool<br/>sendResponse"]:::ch
+        CRC["ConversationRelayChannel<br/>─────<br/>holds ConversationRelay<br/>bridges CR WS ↔ Maestro<br/>listTools / executeTool<br/>sendResponse"]:::ch
+        VC["VoiceChannel (passive)<br/>─────<br/>Maestro webhooks only<br/>no outbound"]:::ch
         SC["SMSChannel<br/>─────<br/>listTools / executeTool<br/>sendResponse"]:::ch
         CC["ChatChannel<br/>─────<br/>listTools / executeTool<br/>sendResponse"]:::ch
         Core["TAC<br/>─────<br/>composes channels<br/>getChannel()<br/>onMessageReady<br/>onHandoff /<br/>onConversationEnded"]:::tac
@@ -110,11 +114,12 @@ graph LR
     User["User<br/>LLM<br/>loop"]:::you
 
     TW <-->|WS frames| CR
-    CR -->|prompt / dtmf / interrupt| VC
+    CR -->|prompt / dtmf / interrupt| CRC
     CR -->|prompt / dtmf / interrupt| User
     TV <-->|webhook| VC
     TS <-->|webhook| SC
     TC <-->|webhook| CC
+    CRC --> Core
     VC --> Core
     SC --> Core
     CC --> Core
@@ -129,9 +134,9 @@ graph LR
     style Twilio fill:#f3f3f3,stroke:#888,stroke-width:2px,color:#000
 ```
 
-> **LLM SDK (OpenAI, Anthropic, Google, …) lives in USER code, never in TAC.** Neither `@twilio/tac-core` nor `@twilio/tac-conversationrelay` imports any LLM SDK — vendor format is opt-in via `CRTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
+> **LLM SDK (OpenAI, Anthropic, Google, …) lives in USER code, never in TAC.** Neither `@twilio/tac-core` nor `@twilio/tac-conversationrelay` imports any LLM SDK — vendor format is opt-in via `ConversationRelayTool.toOpenAIFormat()` / `toAnthropicFormat()` at the call site.
 >
-> **Uniform tool flow.** `channel.listTools()` + `channel.executeTool(conversationId, name, args)` — same surface on voice, SMS, and chat. `msg.channel` discriminator routes to the right channel; one LLM loop serves all three. Voice `outgoingMessage` auto-shipping happens inside `executeTool`, invisible at the call site.
+> **Uniform tool flow.** `channel.listTools()` + `channel.executeTool(conversationId, name, args)` — same surface on `ConversationRelayChannel`, SMS, and chat. `msg.channel` discriminator (`'crelay' | 'sms' | 'chat' | 'voice'`) routes to the right channel; one LLM loop serves all of them. On `ConversationRelayChannel`, `outgoingMessage` auto-shipping happens inside `executeTool`, invisible at the call site.
 
 ## Setup shapes
 
@@ -163,35 +168,35 @@ Point Conversations Service webhooks at `https://<host>:8000/webhook`. See [gett
 
 ### TAC with CR (voice + multi-channel)
 
-`ConversationRelay` is constructed once and shared between `VoiceChannel` (as a subscriber of WS events) and `ConversationRelayServer` (as the WS frame feeder). Two Fastify servers start in one process.
+`ConversationRelay` is constructed once and handed to `ConversationRelayChannel` (the CR ↔ Maestro bridge) and `ConversationRelayServer` (the WS frame feeder). Two Fastify servers start in one process.
 
 ```typescript
 import {
-  TAC, TACConfig, VoiceChannel, SMSChannel,
+  TAC, TACConfig, ConversationRelayChannel, SMSChannel,
   TACServer, ConversationRelay, ConversationRelayServer,
 } from 'twilio-agent-connect';
 
 const tac = await TAC.create({ config: TACConfig.fromEnv() });
 const cr = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
-const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay: cr });
-tac.registerChannel(voiceChannel);
+const crChannel = new ConversationRelayChannel(tac.getChannelDeps(), { conversationRelay: cr });
+tac.registerChannel(crChannel);
 tac.registerChannel(new SMSChannel(tac.getChannelDeps()));
 
-tac.onMessageReady(async msg => { /* your LLM loop */ });
+tac.onMessageReady(async msg => { /* your LLM loop — msg.channel === 'crelay' for active voice */ });
 
 const tacServer = new TACServer(tac, { port: 8000 });
 const crServer = new ConversationRelayServer(cr, {
   authToken: tac.getConfig().authToken,
   port: 8001,
-  onIncomingCall: (input) => voiceChannel.createConversationForCall(input),
+  onIncomingCall: (input) => crChannel.createConversationForCall(input),
   onConversationRelayCallback: (payload) =>
-    voiceChannel.handleConversationRelayCallback(payload),
+    crChannel.handleConversationRelayCallback(payload),
 });
 
 await Promise.all([tacServer.start(), crServer.start()]);
 ```
 
-The two callbacks thread `VoiceChannel` through `ConversationRelayServer` without CR importing from tac-core — `createConversationForCall` returns four Conversation Orchestrator IDs as a plain record, which CR splices into `<ConversationRelay>` customParameters. See [getting_started/examples/conversation/](getting_started/examples/conversation/) for the complete multi-channel version with OpenAI, memory context, and voice interruption handling.
+The two callbacks thread `ConversationRelayChannel` through `ConversationRelayServer` without CR importing from tac-core — `createConversationForCall` returns four Conversation Orchestrator IDs as a plain record, which CR splices into `<ConversationRelay>` customParameters. See [getting_started/examples/conversation/](getting_started/examples/conversation/) for the complete multi-channel version with OpenAI, memory context, and voice interruption handling.
 
 ### Customizing the TACServer Fastify instance
 

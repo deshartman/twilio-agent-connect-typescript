@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  VoiceChannel,
+  ConversationRelayChannel,
   TACConfig,
   ConversationSession,
   createLogger,
@@ -11,7 +11,7 @@ import {
 import { ConversationRelay } from '@twilio/tac-conversationrelay';
 import { createTestTAC } from './helpers/tac';
 
-describe('VoiceChannel', () => {
+describe('ConversationRelayChannel', () => {
   const getTestConfig = () => ({
     accountSid: 'ACtest123',
     authToken: 'test_token_123',
@@ -21,7 +21,7 @@ describe('VoiceChannel', () => {
     conversationConfigurationId: 'conv_configuration_01testconfigabc123xyzabcde',
   });
 
-  const createVoiceChannel = (overrides?: { conversationClient?: Partial<ConversationClient> }) => {
+  const createCRChannel = (overrides?: { conversationClient?: Partial<ConversationClient> }) => {
     const config = new TACConfig(getTestConfig());
     const logger = createLogger({ name: 'test', level: 'silent' });
     const conversationClient = {
@@ -39,7 +39,7 @@ describe('VoiceChannel', () => {
     );
 
     const conversationRelay = new ConversationRelay(logger.child({ component: 'crelay' }));
-    const channel = new VoiceChannel(
+    const channel = new ConversationRelayChannel(
       { config, logger, conversationClient, memoryRetriever },
       { conversationRelay }
     );
@@ -48,7 +48,7 @@ describe('VoiceChannel', () => {
 
   describe('isConversationActive()', () => {
     it('should return false for unknown conversation', () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const isActive = channel.isConversationActive('CA_unknown' as ConversationId);
       expect(isActive).toBe(false);
     });
@@ -56,7 +56,7 @@ describe('VoiceChannel', () => {
 
   describe('shutdown()', () => {
     it('clears session state on shutdown', () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       expect(channel.isConversationActive('CH_test' as ConversationId)).toBe(false);
       channel.shutdown();
       expect(channel.isConversationActive('CH_test' as ConversationId)).toBe(false);
@@ -65,7 +65,7 @@ describe('VoiceChannel', () => {
 
   describe('createConversationForCall', () => {
     it('creates a Maestro conversation and returns the four CR customParameter IDs', async () => {
-      const { channel, conversationClient } = createVoiceChannel();
+      const { channel, conversationClient } = createCRChannel();
 
       const createConvSpy = vi
         .spyOn(conversationClient, 'createConversation')
@@ -97,7 +97,7 @@ describe('VoiceChannel', () => {
       });
 
       expect(createConvSpy).toHaveBeenCalledTimes(1);
-      expect(createConvSpy.mock.calls[0][0]).toMatch(/^tac-voice-\+15551234567-\d{8}T\d{6}Z$/);
+      expect(createConvSpy.mock.calls[0][0]).toMatch(/^tac-crelay-\+15551234567-\d{8}T\d{6}Z$/);
 
       expect(addParticipantSpy).toHaveBeenCalledTimes(2);
       expect(addParticipantSpy).toHaveBeenNthCalledWith(
@@ -115,7 +115,7 @@ describe('VoiceChannel', () => {
     });
 
     it('returns an empty string for profile_id when the customer participant has none', async () => {
-      const { channel, conversationClient } = createVoiceChannel();
+      const { channel, conversationClient } = createCRChannel();
 
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'conv_conversation_01testconversation00000003',
@@ -134,7 +134,7 @@ describe('VoiceChannel', () => {
     });
 
     it('throws when Conversation Service returns an invalid conversation id', async () => {
-      const { channel, conversationClient } = createVoiceChannel();
+      const { channel, conversationClient } = createCRChannel();
 
       vi.spyOn(conversationClient, 'createConversation').mockResolvedValue({
         id: 'not-a-valid-conversation-id',
@@ -197,7 +197,7 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps(), {
+      const channel = new ConversationRelayChannel(tac.getChannelDeps(), {
         conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
       });
       tac.registerChannel(channel);
@@ -214,7 +214,7 @@ describe('VoiceChannel', () => {
 
       expect(captured).toHaveLength(1);
       expect(captured[0].conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
-      expect(captured[0].channel).toBe('voice');
+      expect(captured[0].channel).toBe('crelay');
     });
 
     it('should still clean up session if callback throws', async () => {
@@ -227,7 +227,7 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps(), {
+      const channel = new ConversationRelayChannel(tac.getChannelDeps(), {
         conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
       });
       tac.registerChannel(channel);
@@ -256,7 +256,7 @@ describe('VoiceChannel', () => {
         });
       });
 
-      const channel = new VoiceChannel(tac.getChannelDeps(), {
+      const channel = new ConversationRelayChannel(tac.getChannelDeps(), {
         conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
       });
       tac.registerChannel(channel);
@@ -275,7 +275,7 @@ describe('VoiceChannel', () => {
 
     it('should clean up silently when no callback is registered', async () => {
       const tac = await createTestTAC(getTestConfig());
-      const channel = new VoiceChannel(tac.getChannelDeps(), {
+      const channel = new ConversationRelayChannel(tac.getChannelDeps(), {
         conversationRelay: new ConversationRelay(tac.logger.child({ component: 'crelay' })),
       });
       tac.registerChannel(channel);
@@ -295,7 +295,7 @@ describe('VoiceChannel', () => {
 
   describe('handleConversationRelayCallback()', () => {
     it('should return 200 OK for completed call without conversations', async () => {
-      const { channel, conversationClient } = createVoiceChannel();
+      const { channel, conversationClient } = createCRChannel();
       vi.spyOn(conversationClient, 'listConversations').mockResolvedValue([]);
 
       const result = await channel.handleConversationRelayCallback({
@@ -312,7 +312,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should return 501 when handoff requested but no handler registered', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
 
       const result = await channel.handleConversationRelayCallback({
         AccountSid: 'ACtest123',
@@ -328,7 +328,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should call handoff handler when provided', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const handoffHandler = vi
         .fn()
         .mockResolvedValue('<Response><Say>Transferring...</Say></Response>');
@@ -351,7 +351,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should return 500 when handoff handler throws', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const handoffHandler = vi.fn().mockRejectedValue(new Error('Handler failed'));
 
       const result = await channel.handleConversationRelayCallback(
@@ -371,7 +371,7 @@ describe('VoiceChannel', () => {
     });
 
     it('should close conversations on call completion', async () => {
-      const { channel, conversationClient } = createVoiceChannel();
+      const { channel, conversationClient } = createCRChannel();
 
       const mockConversation = { id: 'conv_conversation_01ktestabcdefghijklmnopqrs' };
       const listSpy = vi
@@ -396,7 +396,7 @@ describe('VoiceChannel', () => {
 
   describe('sendResponse', () => {
     it('should throw error when ConversationId not found', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
 
       // Channel interface: accepts ConversationId
       await expect(
@@ -404,13 +404,13 @@ describe('VoiceChannel', () => {
           'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId,
           'Test message'
         )
-      ).rejects.toThrow('No CallSid found for conversation');
+      ).rejects.toThrow('No active session for conversation');
     });
   });
 
   describe('tool registry passthrough', () => {
     it('listTools exposes CR built-in protocol tools', () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const names = channel.listTools().map(t => t.name);
       expect(names).toEqual(
         expect.arrayContaining(['play_media', 'send_digits', 'switch_language', 'end_call'])
@@ -418,7 +418,7 @@ describe('VoiceChannel', () => {
     });
 
     it('registerTool adds a user tool to the underlying CR instance', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const { defineTool } = await import('@twilio/tac-conversationrelay');
       const userTool = defineTool(
         'lookup_order',
@@ -431,24 +431,24 @@ describe('VoiceChannel', () => {
     });
 
     it('executeTool throws when conversation has no associated CallSid', async () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       await expect(
         channel.executeTool(
           'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId,
           'send_digits',
           { digits: '1' }
         )
-      ).rejects.toThrow('No CallSid found for conversation');
+      ).rejects.toThrow('No active session for conversation');
     });
 
     it('sendDigits/sendPlay/endCall throw when conversation has no CallSid', () => {
-      const { channel } = createVoiceChannel();
+      const { channel } = createCRChannel();
       const missing = 'conv_conversation_01ktestabcdefghijklmnopqrs' as ConversationId;
-      expect(() => channel.sendDigits(missing, '1')).toThrow('No CallSid found for conversation');
+      expect(() => channel.sendDigits(missing, '1')).toThrow('No active session for conversation');
       expect(() => channel.sendPlay(missing, 'https://example.com/a.mp3')).toThrow(
-        'No CallSid found for conversation'
+        'No active session for conversation'
       );
-      expect(() => channel.endCall(missing)).toThrow('No CallSid found for conversation');
+      expect(() => channel.endCall(missing)).toThrow('No active session for conversation');
     });
 
     describe('happy-path frame shipping', () => {
@@ -484,7 +484,7 @@ describe('VoiceChannel', () => {
       });
 
       const primeChannel = () => {
-        const { channel } = createVoiceChannel();
+        const { channel } = createCRChannel();
         const ws = createMockWebSocket();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (channel as any).conversationRelay.handleConnection(ws);

@@ -10,7 +10,6 @@
 
 import { z } from 'zod';
 import type VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
-import type { SilenceHandler } from './lib/silence-handler';
 
 // =============================================================================
 // CallSid Branded Type
@@ -428,41 +427,3 @@ export const HandoffDataSchema = z.object({
 });
 
 export type HandoffData = z.infer<typeof HandoffDataSchema>;
-
-// =============================================================================
-// CRelay Session
-// =============================================================================
-
-/**
- * CR-only session data — no Maestro concepts (no profileId, no conversationId).
- * Tracks the state of a single ConversationRelay WebSocket connection.
- */
-export interface CRelaySession {
-  callSid: CallSid;
-  from: string;
-  to: string;
-  startedAt: Date;
-  customParameters?: Record<string, string> | undefined;
-
-  /**
-   * When true, `sendResponse` / `sendPlay` / `switchLanguage` are suppressed
-   * for this session — the agent listens but does not speak. `sendDigits`
-   * and `endCall` are never suppressed (DTMF navigation and termination
-   * must always work). Toggle via `ConversationRelay.setListenMode` or the
-   * `set_listen_mode` built-in tool.
-   */
-  listenMode: boolean;
-
-  /**
-   * Count of outgoing protocol messages suppressed by listen-mode on this
-   * session. Test-observable; not intended for production logic.
-   */
-  suppressedCount: number;
-
-  /**
-   * Per-session silence handler. Present only if `silence` config was passed
-   * to the `ConversationRelay` constructor. Lifetime = session lifetime; CR
-   * calls `reset()` on signal-of-life events and `stop()` on WS close.
-   */
-  silenceHandler?: SilenceHandler | undefined;
-}

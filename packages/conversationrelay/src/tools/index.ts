@@ -6,7 +6,7 @@
  * return a convention field (`listenMode`, `silenceEnabled`) that CR
  * applies as a per-session side effect.
  *
- * Tool-authoring infrastructure (`defineTool`, `CRTool`, `JSONSchema`)
+ * Tool-authoring infrastructure (`defineTool`, `ConversationRelayTool`, `JSONSchema`)
  * lives in `../lib/define-tool` — it's framework, not a tool.
  */
 

@@ -9,6 +9,13 @@
  */
 
 export { ConversationRelay } from './crelay';
+export type { ConversationRelayConstructorConfig, SilenceConfig } from './crelay';
+export { ConversationRelaySession } from './lib/conversation-relay-session';
+export type {
+  SessionCallbacks,
+  ConversationRelaySessionOptions,
+} from './lib/conversation-relay-session';
+export { ToolRegistry, CONVERSATION_RELAY_TOOLS } from './lib/tool-registry';
 export { ConversationRelayServer } from './lib/server';
 
 // Server types
@@ -42,7 +49,7 @@ export {
 } from './tools/index';
 
 // Tool definition helpers (for user-authored CR tools)
-export { CRTool, defineTool, JSONSchemaSchema } from './lib/define-tool';
+export { ConversationRelayTool, defineTool, JSONSchemaSchema } from './lib/define-tool';
 export type { JSONSchema, ToolFunction } from './lib/define-tool';
 
 // Message types (incoming WebSocket)
@@ -67,7 +74,6 @@ export type {
   LanguageAttributes,
   ConversationRelayCallbackPayload,
   HandoffData,
-  CRelaySession,
 } from './types';
 
 // Zod schemas (for runtime validation)

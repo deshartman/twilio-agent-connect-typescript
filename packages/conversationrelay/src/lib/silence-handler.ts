@@ -44,8 +44,8 @@ export interface SilenceHandlerConfig {
  *   {
  *     thresholdSeconds: 20,
  *     reminders: ['Are you still there?', 'Hello? Can you hear me?'],
- *     onReminder: (reminder) => cr.sendText(callSid, reminder),
- *     onTerminate: () => cr.endCall(callSid),
+ *     onReminder: (reminder) => session.sendText(reminder),
+ *     onTerminate: () => session.endCall(),
  *   },
  *   logger
  * );

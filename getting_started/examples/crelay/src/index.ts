@@ -2,11 +2,9 @@ import { config } from 'dotenv';
 import {
   ConversationRelay,
   ConversationRelayServer,
+  ConversationRelaySession,
   createLogger,
   type CallSid,
-  type CRelaySession,
-  type SetupMessage,
-  type PromptMessage,
 } from '@twilio/tac-conversationrelay';
 import OpenAI from 'openai';
 
@@ -55,12 +53,10 @@ type CallState = {
 const calls = new Map<CallSid, CallState>();
 
 // Handle incoming voice messages
-conversationRelay.onSessionStarted(
-  (callSid: CallSid, _session: CRelaySession, data: SetupMessage) => {
-    logger.info({ callSid, from: data.from, to: data.to }, 'Call started');
-    calls.set(callSid, { history: [] });
-  }
-);
+conversationRelay.onSessionStarted((session, data) => {
+  logger.info({ callSid: session.callSid, from: data.from, to: data.to }, 'Call started');
+  calls.set(session.callSid, { history: [] });
+});
 
 type ToolCallAccumulator = { id: string; name: string; argumentsJson: string };
 
@@ -78,30 +74,36 @@ function accumulateToolCallFragments(
 }
 
 async function dispatchToolCalls(
-  callSid: CallSid,
+  session: ConversationRelaySession,
   toolCalls: Map<number, ToolCallAccumulator>
 ): Promise<void> {
   for (const call of toolCalls.values()) {
     if (!call.name) continue;
     try {
       const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
-      await conversationRelay.executeTool(callSid, call.name, args);
+      await session.executeTool(call.name, args);
     } catch (error) {
-      logger.error({ err: error, callSid, tool: call.name }, 'Tool execution failed');
+      logger.error(
+        { err: error, callSid: session.callSid, tool: call.name },
+        'Tool execution failed'
+      );
     }
   }
 }
 
-async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<void> {
+async function streamAssistantTurn(
+  session: ConversationRelaySession,
+  state: CallState
+): Promise<void> {
   // Cancel any previous in-flight stream for this call before starting a new one.
   state.activeStream?.abort();
   const controller = new AbortController();
   state.activeStream = controller;
 
-  // Discover tools via the CR registry (built-in protocol tools + any user-registered tools).
-  // toOpenAIFormat() returns Record<string, unknown>; cast for OpenAI's typed slot.
+  // Discover tools via the shared registry (built-ins + any user-registered).
   const tools = conversationRelay
-    .listTools()
+    .getToolRegistry()
+    .list()
     .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
 
   const stream = await openai.chat.completions.create(
@@ -125,12 +127,15 @@ async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<
       const token = delta?.content || '';
       if (token) {
         fullResponse += token;
-        conversationRelay.sendText(callSid, token, false);
+        session.sendText(token, false);
       }
       accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
     }
-    // Signal completion so TTS can synthesize the final utterance
-    conversationRelay.sendText(callSid, '', true);
+    // Signal completion so TTS can synthesize the final utterance.
+    // `last: true` also flushes any deferred terminal frame stashed by a
+    // preceding tool call (e.g. live_agent_handoff), so the LLM's farewell
+    // stream reaches the caller before Twilio hangs up.
+    session.sendText('', true);
   } catch (err) {
     // OpenAI SDK throws AbortError when controller.abort() fires — that's the
     // interruption path and is a clean exit, not a failure.
@@ -144,23 +149,24 @@ async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<
     state.history.push({ role: 'assistant', content: fullResponse });
   }
 
-  // Protocol tools (playMedia/sendDigits/switchLanguage/endCall) are auto-shipped
-  // via the WebSocket by executeTool.
-  await dispatchToolCalls(callSid, toolCalls);
+  // Non-terminal protocol tools (playMedia / sendDigits / switchLanguage) ship
+  // immediately; terminal `end` frames (endCall / live_agent_handoff) were
+  // deferred and have already been flushed by the `last: true` above.
+  await dispatchToolCalls(session, toolCalls);
 
-  logger.info({ callSid, response: fullResponse }, 'Assistant responded');
+  logger.info({ callSid: session.callSid, response: fullResponse }, 'Assistant responded');
 }
 
-conversationRelay.onPrompt((callSid: CallSid, message: string, _data: PromptMessage) => {
-  logger.info({ callSid, message }, 'User spoke');
+conversationRelay.onPrompt((session, message, _data) => {
+  logger.info({ callSid: session.callSid, message }, 'User spoke');
 
-  const state = calls.get(callSid);
+  const state = calls.get(session.callSid);
   if (!state) return;
   state.history.push({ role: 'user', content: message });
 
-  void streamAssistantTurn(callSid, state).catch((error: unknown) => {
-    logger.error({ err: error, callSid }, 'OpenAI error');
-    conversationRelay.sendText(callSid, 'Sorry, I encountered an error. Please try again.', true);
+  void streamAssistantTurn(session, state).catch((error: unknown) => {
+    logger.error({ err: error, callSid: session.callSid }, 'OpenAI error');
+    session.sendText('Sorry, I encountered an error. Please try again.', true);
   });
 });
 
@@ -168,8 +174,8 @@ conversationRelay.onPrompt((callSid: CallSid, message: string, _data: PromptMess
 // (1) cancel the in-flight LLM stream, and (2) rewrite the last assistant
 // turn to what was actually heard — otherwise the next prompt will carry
 // text the caller never received, and multi-turn accuracy degrades fast.
-conversationRelay.onInterrupt((callSid, data) => {
-  const state = calls.get(callSid);
+conversationRelay.onInterrupt((session, data) => {
+  const state = calls.get(session.callSid);
   if (!state) return;
   state.activeStream?.abort();
 
@@ -180,16 +186,19 @@ conversationRelay.onInterrupt((callSid, data) => {
   } else if (!heard && last?.role === 'assistant') {
     state.history.pop();
   }
-  logger.info({ callSid, heard, durationMs: data.durationUntilInterruptMs }, 'User interrupted');
+  logger.info(
+    { callSid: session.callSid, heard, durationMs: data.durationUntilInterruptMs },
+    'User interrupted'
+  );
 });
 
-conversationRelay.onSessionEnded((callSid: CallSid) => {
-  logger.info({ callSid }, 'Call ended');
-  calls.delete(callSid);
+conversationRelay.onSessionEnded(session => {
+  logger.info({ callSid: session.callSid }, 'Call ended');
+  calls.delete(session.callSid);
 });
 
-conversationRelay.onError((callSid: CallSid, error: Error) => {
-  logger.error({ err: error, callSid }, 'ConversationRelay error');
+conversationRelay.onError((session, error) => {
+  logger.error({ err: error, callSid: session.callSid }, 'ConversationRelay error');
 });
 
 // Create and start standalone server

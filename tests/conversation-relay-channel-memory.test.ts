@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
-  VoiceChannel,
+  ConversationRelayChannel,
   TAC,
   TACConfig,
   createLogger,
@@ -14,8 +14,8 @@ import { createTestTAC } from './helpers/tac';
 const makeCR = (logger: ReturnType<typeof createLogger>): ConversationRelay =>
   new ConversationRelay(logger.child({ component: 'crelay' }));
 
-describe('VoiceChannel - Active Voice Memory Enrichment', () => {
-  let voiceChannel: VoiceChannel;
+describe('ConversationRelayChannel - Active Voice Memory Enrichment', () => {
+  let crChannel: ConversationRelayChannel;
   let tac: TAC;
 
   const getTestConfig = () => ({
@@ -98,7 +98,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
   });
 
   afterEach(() => {
-    voiceChannel?.shutdown();
+    crChannel?.shutdown();
   });
 
   describe('Memory Retrieval via Injected memoryRetriever', () => {
@@ -110,14 +110,14 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient, memoryRetriever },
         { conversationRelay: makeCR(logger) }
       );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
-        voiceChannel.on('message', (msg: ChannelMessage) => {
+        crChannel.on('message', (msg: ChannelMessage) => {
           if (msg.messageType === 'user') {
             captured.push(msg);
             resolve();
@@ -127,7 +127,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -149,7 +149,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       expect(msg.conversationId).toBe('conv_conversation_01ktestabcdefghijklmnopqrs');
       expect(msg.messageType).toBe('user');
       expect(msg.message).toBe('Hello, I need help with my order');
-      expect(msg.channel).toBe('voice');
+      expect(msg.channel).toBe('crelay');
       expect(msg.metadata).toEqual({ type: 'prompt', lang: 'en-US', last: false });
       expect(msg.conversation).toBeDefined();
       expect(msg.conversation?.profileId).toBe('mem_profile_01ktestghijklmnopqrstuvwxy');
@@ -164,14 +164,14 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const conversationClient = createMockConversationClient();
 
       // No memoryRetriever passed
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient },
         { conversationRelay: makeCR(logger) }
       );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
-        voiceChannel.on('message', (msg: ChannelMessage) => {
+        crChannel.on('message', (msg: ChannelMessage) => {
           if (msg.messageType === 'user') {
             captured.push(msg);
             resolve();
@@ -181,7 +181,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -205,14 +205,14 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient, memoryRetriever },
         { conversationRelay: makeCR(logger) }
       );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
-        voiceChannel.on('message', (msg: ChannelMessage) => {
+        crChannel.on('message', (msg: ChannelMessage) => {
           if (msg.messageType === 'user') {
             captured.push(msg);
             resolve();
@@ -222,7 +222,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -248,14 +248,14 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient, memoryRetriever },
         { conversationRelay: makeCR(logger) }
       );
 
       const captured: ChannelMessage[] = [];
       const messageReceived = new Promise<void>(resolve => {
-        voiceChannel.on('message', (msg: ChannelMessage) => {
+        crChannel.on('message', (msg: ChannelMessage) => {
           if (msg.messageType === 'user') {
             captured.push(msg);
             resolve();
@@ -265,7 +265,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -277,7 +277,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
           conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
-          channel: 'voice',
+          channel: 'crelay',
           metadata: { type: 'prompt', lang: 'en-US', last: false },
           conversation: expect.objectContaining({
             profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
@@ -294,14 +294,14 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient },
         { conversationRelay: makeCR(logger) }
       );
 
       const systemMessages: ChannelMessage[] = [];
       const interruptReceived = new Promise<void>(resolve => {
-        voiceChannel.on('message', (msg: ChannelMessage) => {
+        crChannel.on('message', (msg: ChannelMessage) => {
           if (msg.messageType === 'system' && msg.metadata?.type === 'interrupt') {
             systemMessages.push(msg);
             resolve();
@@ -311,7 +311,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
 
@@ -341,7 +341,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test-tac', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         {
           config: tac.getConfig(),
           logger,
@@ -360,11 +360,11 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
           }
         });
       });
-      tac.registerChannel(voiceChannel);
+      tac.registerChannel(crChannel);
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
       mockWs._emit('message', Buffer.from(promptMessage));
@@ -378,7 +378,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
           conversationId: 'conv_conversation_01ktestabcdefghijklmnopqrs',
           messageType: 'user',
           message: 'Hello, I need help with my order',
-          channel: 'voice',
+          channel: 'crelay',
           conversation: expect.objectContaining({
             profileId: 'mem_profile_01ktestghijklmnopqrstuvwxy',
             memory: mockMemory,
@@ -416,7 +416,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
       const logger = createLogger({ name: 'test', level: 'silent' });
       const conversationClient = createMockConversationClient();
 
-      voiceChannel = new VoiceChannel(
+      crChannel = new ConversationRelayChannel(
         { config, logger, conversationClient, memoryRetriever },
         { conversationRelay: makeCR(logger) }
       );
@@ -427,7 +427,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
         resolveSecond = resolve;
       });
 
-      voiceChannel.on('message', (msg: ChannelMessage) => {
+      crChannel.on('message', (msg: ChannelMessage) => {
         if (msg.messageType === 'user') {
           captured.push(msg);
           if (captured.length === 2) resolveSecond();
@@ -436,7 +436,7 @@ describe('VoiceChannel - Active Voice Memory Enrichment', () => {
 
       const mockWs = createMockWebSocket();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (voiceChannel as any).conversationRelay.handleConnection(mockWs);
+      (crChannel as any).conversationRelay.handleConnection(mockWs);
 
       mockWs._emit('message', Buffer.from(setupMessage));
 

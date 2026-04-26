@@ -88,9 +88,9 @@ export interface ConversationRelayServerConfig {
    *     normal call-completed path).
    *
    * Integrated mode: wire to
-   * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
-   * — VoiceChannel closes the Maestro conversation on `completed` and
-   * delegates handoffs to your handler.
+   * `conversationRelayChannel.handleConversationRelayCallback(payload, handoffHandler)`
+   * — `ConversationRelayChannel` closes the Maestro conversation on `completed`
+   * and delegates handoffs to your handler.
    *
    * Standalone mode: omit — the route replies 200 OK no-op and call-end is
    * observable via the CR `onSessionEnded` event subscription.

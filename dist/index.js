@@ -12,7 +12,7 @@ import gracefulShutdown from 'fastify-graceful-shutdown';
 import twilio from 'twilio';
 
 // packages/core/src/types/config.ts
-var ChannelTypeSchema = z.enum(["sms", "voice", "chat"]);
+var ChannelTypeSchema = z.enum(["sms", "voice", "chat", "crelay"]);
 var TACConfigSchema = z.object({
   accountSid: z.string().min(1, "Twilio Account SID is required"),
   authToken: z.string().min(1, "Twilio Auth Token is required"),
@@ -357,76 +357,6 @@ var TACCustomParametersSchema = z.object({
   customer_participant_id: z.string().optional(),
   ai_agent_participant_id: z.string().optional()
 });
-z.object({
-  /** Language code (e.g., 'en-US', 'es-ES', 'en-AU') */
-  code: z.string(),
-  /** TTS provider for this language */
-  ttsProvider: z.string().optional(),
-  /** TTS voice for this language */
-  voice: z.string().optional(),
-  /** TTS language (may differ from code) */
-  ttsLanguage: z.string().optional(),
-  /** Transcription provider for this language */
-  transcriptionProvider: z.string().optional(),
-  /** Speech model for transcription */
-  speechModel: z.string().optional(),
-  /** Transcription language (may differ from code) */
-  transcriptionLanguage: z.string().optional()
-});
-z.object({
-  /** WebSocket URL for ConversationRelay (required) */
-  url: z.string().url(),
-  // Welcome greeting settings
-  /** Initial greeting to play when call connects */
-  welcomeGreeting: z.string().optional(),
-  /** Whether welcome greeting can be interrupted */
-  welcomeGreetingInterruptible: z.enum(["any", "speech", "none"]).optional(),
-  // Transcription settings
-  /** Transcription provider (e.g., 'Deepgram', 'Google') */
-  transcriptionProvider: z.string().optional(),
-  /** Language for transcription (e.g., 'en-US') */
-  transcriptionLanguage: z.string().optional(),
-  /** Speech model for transcription (e.g., 'nova-3-general') */
-  speechModel: z.string().optional(),
-  // TTS settings
-  /** Text-to-speech provider (e.g., 'Google', 'ElevenLabs') */
-  ttsProvider: z.string().optional(),
-  /** Language for TTS (e.g., 'en-US') */
-  ttsLanguage: z.string().optional(),
-  /** Voice identifier for TTS (e.g., 'en-US-Journey-O') */
-  voice: z.string().optional(),
-  /** ElevenLabs text normalization setting */
-  elevenlabsTextNormalization: z.string().optional(),
-  // Interaction settings
-  /** When agent speech can be interrupted */
-  interruptible: z.enum(["any", "speech", "none"]).optional(),
-  /** Interrupt detection sensitivity */
-  interruptSensitivity: z.enum(["low", "medium", "high"]).optional(),
-  /** Enable DTMF tone detection */
-  dtmfDetection: z.boolean().optional(),
-  /** Recognition hints for domain-specific vocabulary */
-  hints: z.string().optional(),
-  /** Whether prompts should be reported when TTS is playing and interrupt is disabled */
-  reportInputDuringAgentSpeech: z.boolean().optional(),
-  // Advanced settings
-  /** Enable partial prompts (streaming) */
-  partialPrompts: z.boolean().optional(),
-  /** Enable profanity filtering */
-  profanityFilter: z.boolean().optional(),
-  /** Allow preemption of agent speech */
-  preemptible: z.boolean().optional(),
-  /** Default language code */
-  language: z.string().optional(),
-  /** Debug options for troubleshooting (string per SDK, not boolean) */
-  debug: z.string().optional(),
-  // Intelligence service
-  /** Conversational Intelligence Service ID or unique name */
-  intelligenceService: z.string().optional(),
-  // Conversation orchestrator
-  /** Twilio Conversation Orchestrator configuration ID */
-  conversationConfiguration: z.string().optional()
-});
-z.record(z.unknown());
 var JSONSchemaSchema = z.object({
   type: z.enum(["object", "string", "number", "boolean", "array"]),
   properties: z.record(z.any()).optional(),
@@ -2101,8 +2031,8 @@ var TAC = class _TAC {
     return (session, query) => this.retrieveMemory(session, query);
   }
   /**
-   * Get channel dependencies for creating channels (VoiceChannel, SMSChannel, ChatChannel).
-   * Returns all dependencies needed to construct a channel.
+   * Get channel dependencies for creating channels (VoiceChannel, ConversationRelayChannel,
+   * SMSChannel, ChatChannel). Returns all dependencies needed to construct a channel.
    */
   getChannelDeps() {
     return {
@@ -3263,20 +3193,15 @@ var VoiceChannel = class {
   logger;
   conversationClient;
   callbacks;
-  conversationRelay;
-  callSidToConversationId;
   memoryRetriever;
   sessionStore;
   webhookProcessor;
-  tools = /* @__PURE__ */ new Map();
   constructor(deps, channelConfig) {
     this.config = deps.config;
     this.logger = deps.logger.child({ component: "channel" });
     this.conversationClient = deps.conversationClient;
     this.memoryRetriever = deps.memoryRetriever;
     this.callbacks = {};
-    this.callSidToConversationId = /* @__PURE__ */ new Map();
-    this.conversationRelay = channelConfig?.conversationRelay;
     this.sessionStore = new ConversationSessionStore({
       logger: this.logger,
       channelType: "voice",
@@ -3292,46 +3217,7 @@ var VoiceChannel = class {
       { logger: this.logger },
       processorConfig
     );
-    if (this.conversationRelay) {
-      this.conversationRelay.onSessionStarted((callSid, _session, data) => {
-        this.handleSetupFromRelay(callSid, data);
-      });
-      this.conversationRelay.onPrompt((callSid, _message, data) => {
-        this.handlePromptFromRelay(callSid, data);
-      });
-      this.conversationRelay.onInterrupt((callSid, data) => {
-        this.handleInterruptFromRelay(callSid, data);
-      });
-      this.conversationRelay.onDtmf((callSid, data) => {
-        const conversationId = this.callSidToConversationId.get(callSid);
-        if (conversationId) {
-          this.emitMessage(conversationId, {
-            messageType: "system",
-            message: `User pressed ${data.digit}`,
-            metadata: { type: "dtmf", digit: data.digit }
-          });
-        }
-      });
-      this.conversationRelay.onInfo((callSid, data) => {
-        const conversationId = this.callSidToConversationId.get(callSid);
-        if (conversationId) {
-          this.emitMessage(conversationId, {
-            messageType: "system",
-            message: JSON.stringify(data.info ?? {}),
-            metadata: { type: "info", info: data.info }
-          });
-        }
-      });
-      this.conversationRelay.onSessionEnded((callSid) => {
-        this.handleCloseFromRelay(callSid);
-      });
-      this.conversationRelay.onError((callSid, error) => {
-        this.handleError(error, { callSid });
-      });
-      this.logger.info("VoiceChannel initialized in active mode (CR + Maestro)");
-    } else {
-      this.logger.info("VoiceChannel initialized in passive mode (Maestro webhooks only)");
-    }
+    this.logger.info("VoiceChannel initialized (passive Maestro webhooks)");
   }
   get channelType() {
     return "voice";
@@ -3363,175 +3249,14 @@ var VoiceChannel = class {
     }
   }
   // ===========================================================================
-  // ConversationRelay → VoiceChannel Bridge
-  // ===========================================================================
-  handleSetupFromRelay(_callSid, data) {
-    const conversationId = this.handleSetupMessage(data);
-    this.emitMessage(conversationId, {
-      messageType: "system",
-      message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
-      metadata: {
-        type: "setup",
-        callSid: data.callSid,
-        from: data.from,
-        to: data.to,
-        direction: data.direction
-      }
-    });
-  }
-  handlePromptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in prompt");
-      return;
-    }
-    void this.handlePromptMessage(conversationId, data).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "Failed to handle prompt message"
-      );
-    });
-  }
-  handleInterruptFromRelay(callSid, data) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in interrupt");
-      return;
-    }
-    const parts = ["User interrupted"];
-    if (data.durationUntilInterruptMs !== void 0) {
-      parts.push(`after ${data.durationUntilInterruptMs}ms`);
-    }
-    if (data.utteranceUntilInterrupt) {
-      parts.push(`Last heard: '${data.utteranceUntilInterrupt}'`);
-    }
-    this.emitMessage(conversationId, {
-      messageType: "system",
-      message: parts.join(". "),
-      metadata: {
-        type: "interrupt",
-        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
-        durationUntilInterruptMs: data.durationUntilInterruptMs
-      }
-    });
-  }
-  handleCloseFromRelay(callSid) {
-    const conversationId = this.callSidToConversationId.get(callSid);
-    if (!conversationId) {
-      this.logger.warn({ call_sid: callSid }, "No conversation found for CallSid in close");
-      return;
-    }
-    void this.handleWebSocketDisconnect(conversationId).catch((err) => {
-      this.logger.error(
-        { err, conversation_id: conversationId },
-        "WebSocket disconnect handler error"
-      );
-    });
-  }
-  // ===========================================================================
-  // Message Handlers
-  // ===========================================================================
-  handleSetupMessage(message) {
-    const { callSid, from, customParameters } = message;
-    let conversationId;
-    let profileId;
-    if (customParameters?.conversation_id && typeof customParameters.conversation_id === "string" && isConversationId(customParameters.conversation_id)) {
-      conversationId = customParameters.conversation_id;
-    } else {
-      conversationId = callSid;
-    }
-    if (customParameters?.profile_id && typeof customParameters.profile_id === "string" && isProfileId(customParameters.profile_id)) {
-      profileId = customParameters.profile_id;
-    }
-    this.callSidToConversationId.set(callSid, conversationId);
-    const session = this.startConversation(conversationId, profileId);
-    session.authorInfo = { address: from };
-    return conversationId;
-  }
-  async handlePromptMessage(conversationId, message) {
-    const transcript = message.voicePrompt;
-    const session = this.getConversationSession(conversationId);
-    let userMemory;
-    if (session) {
-      try {
-        userMemory = await this.memoryRetriever(session, transcript);
-        this.logger.debug({ conversation_id: conversationId }, "Retrieved memory for voice prompt");
-      } catch (error) {
-        this.logger.warn(
-          { err: error, conversation_id: conversationId },
-          "Failed to retrieve memory for voice prompt"
-        );
-      }
-    }
-    this.emitMessage(conversationId, {
-      messageType: "user",
-      message: transcript,
-      metadata: { type: "prompt", lang: message.lang, last: message.last },
-      memory: userMemory
-    });
-  }
-  async handleWebSocketDisconnect(conversationId) {
-    for (const [callSid, cId] of this.callSidToConversationId.entries()) {
-      if (cId === conversationId) {
-        this.callSidToConversationId.delete(callSid);
-        break;
-      }
-    }
-    await this.endConversation(conversationId);
-  }
-  // ===========================================================================
   // Channel Interface
   // ===========================================================================
-  /**
-   * Returns the active ConversationRelay, or throws a clear error if the
-   * channel was constructed in passive mode.
-   */
-  assertCR(op) {
-    if (!this.conversationRelay) {
-      throw new Error(
-        `VoiceChannel.${op} requires an active ConversationRelay. Pass { conversationRelay } to the VoiceChannel constructor to enable CR features.`
-      );
-    }
-    return this.conversationRelay;
-  }
-  // Wrapping sync code in async to honor Channel interface's Promise<void> contract
   // eslint-disable-next-line @typescript-eslint/require-await
-  async sendResponse(conversationId, message, metadata) {
-    try {
-      const cr = this.assertCR("sendResponse");
-      let callSid;
-      for (const [cSid, cId] of this.callSidToConversationId.entries()) {
-        if (cId === conversationId) {
-          callSid = cSid;
-          break;
-        }
-      }
-      if (!callSid) {
-        throw new Error(`No CallSid found for conversation ${conversationId}`);
-      }
-      const last = metadata?.last === void 0 ? true : metadata.last;
-      cr.sendText(callSid, message, last);
-    } catch (error) {
-      this.handleError(error instanceof Error ? error : new Error(String(error)), {
-        conversationId,
-        message,
-        metadata
-      });
-      throw error;
-    }
+  async sendResponse(_conversationId, _message, _metadata) {
+    throw new Error(
+      "VoiceChannel.sendResponse is not supported. Passive voice has no outbound path \u2014 Maestro Actions API rejects `channel: VOICE`. Use ConversationRelayChannel for active voice (CR WebSocket egress)."
+    );
   }
-  /**
-   * Process a voice-channel Maestro webhook event.
-   *
-   * In **active mode** (CR connected), COMMUNICATION_CREATED events are
-   * intentionally dropped: the CR WebSocket is the source of truth for user
-   * turns, so letting the webhook path also emit would double-deliver.
-   * Lifecycle events (CONVERSATION_CREATED / CONVERSATION_UPDATED) are
-   * handled for session bookkeeping regardless.
-   *
-   * In **passive mode** (no CR), COMMUNICATION_CREATED emits `ChannelMessage`
-   * exactly like SMS/Chat — this is the BYO-CR / webhook-only path.
-   */
   async processWebhook(payload, idempotencyToken) {
     await this.webhookProcessor.process(
       payload,
@@ -3548,7 +3273,7 @@ var VoiceChannel = class {
     );
   }
   // ===========================================================================
-  // Passive-Mode Webhook Handlers
+  // Webhook Handlers
   // ===========================================================================
   handleVoiceConversationCreated(payload) {
     const conversationId = extractConversationId(payload, this.logger);
@@ -3588,13 +3313,6 @@ var VoiceChannel = class {
     }
     if (!message) {
       this.logger.info({ conversation_id: conversationId }, "Ignoring empty voice webhook message");
-      return;
-    }
-    if (this.conversationRelay) {
-      this.logger.debug(
-        { conversation_id: conversationId, author },
-        "Active mode: dropping passive voice webhook communication (CR owns user turns)"
-      );
       return;
     }
     if (author === this.config.phoneNumber) {
@@ -3654,6 +3372,9 @@ var VoiceChannel = class {
       await this.sessionStore.end(conversationId);
     }
   }
+  // ===========================================================================
+  // Channel plumbing
+  // ===========================================================================
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
   on(event, callback) {
     switch (event) {
@@ -3678,103 +3399,316 @@ var VoiceChannel = class {
     return this.sessionStore.isActive(conversationId);
   }
   shutdown() {
-    this.conversationRelay?.shutdown();
-    this.callSidToConversationId.clear();
     this.sessionStore.clear();
     delete this.callbacks.onConversationStarted;
     delete this.callbacks.onConversationEnded;
     delete this.callbacks.onError;
     delete this.callbacks.onMessage;
   }
-  // ===========================================================================
-  // Tool Registry
-  // ===========================================================================
-  /**
-   * List tools registered on this channel (for LLM discovery).
-   *
-   * In active mode, returns CR built-in protocol tools (playMedia, sendDigits,
-   * switchLanguage, endCall) plus any user-registered tools.
-   * In passive mode, returns only user-registered tools on the local registry —
-   * CR protocol tools are unavailable because there is no WebSocket to ship
-   * outgoingMessage frames over.
-   */
-  listTools() {
-    return this.conversationRelay ? this.conversationRelay.listTools() : Array.from(this.tools.values());
-  }
-  /**
-   * Register a tool on this channel. Overwrites any tool with the same name.
-   * In active mode, the tool is delegated to the embedded ConversationRelay so
-   * that protocol-tool outgoingMessage frames can be auto-shipped.
-   */
-  registerTool(tool) {
-    if (this.conversationRelay) {
-      this.conversationRelay.registerTool(tool);
-    } else {
-      this.tools.set(tool.name, tool);
-    }
-  }
-  /**
-   * Execute a registered tool by name.
-   *
-   * Active mode: if the tool returns an `outgoingMessage` (CR protocol tool),
-   * it is validated and auto-shipped via the ConversationRelay WebSocket.
-   * Passive mode: throws — CR protocol tools cannot dispatch without a WS.
-   */
-  async executeTool(conversationId, name, args) {
-    const cr = this.assertCR("executeTool");
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    return cr.executeTool(callSid, name, args);
-  }
-  /**
-   * Send DTMF digits to the caller.
-   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-   */
-  sendDigits(conversationId, digits) {
-    const cr = this.assertCR("sendDigits");
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    cr.sendDigits(callSid, digits);
-  }
-  /**
-   * Play media from a URL to the caller.
-   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-   */
-  sendPlay(conversationId, source, options) {
-    const cr = this.assertCR("sendPlay");
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    cr.sendPlay(callSid, source, options);
-  }
-  /**
-   * End the call with optional handoff data.
-   * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-   */
-  endCall(conversationId, handoffData) {
-    const cr = this.assertCR("endCall");
-    const callSid = this.findCallSid(conversationId);
-    if (!callSid) {
-      throw new Error(`No CallSid found for conversation ${conversationId}`);
-    }
-    cr.endCall(callSid, handoffData);
-  }
-  findCallSid(conversationId) {
-    for (const [callSid, convId] of this.callSidToConversationId.entries()) {
-      if (convId === conversationId) {
-        return callSid;
+  handleError(error, context) {
+    this.logger.error({ err: error, ...context }, "Channel error");
+    if (this.callbacks.onError) {
+      if (context) {
+        this.callbacks.onError({ error, context });
+      } else {
+        this.callbacks.onError({ error });
       }
     }
-    return void 0;
+  }
+};
+
+// packages/core/src/channels/crelay.ts
+var ConversationRelayChannel = class {
+  config;
+  logger;
+  conversationClient;
+  callbacks;
+  conversationRelay;
+  /** Primary per-call handle. Keyed by `ConversationId` → O(1) public lookups. */
+  bindings;
+  /** Reverse index for teardown. WeakMap → auto-cleanup when session GC'd. */
+  reverseIndex;
+  memoryRetriever;
+  sessionStore;
+  constructor(deps, channelConfig) {
+    this.config = deps.config;
+    this.logger = deps.logger.child({ component: "channel" });
+    this.conversationClient = deps.conversationClient;
+    this.memoryRetriever = deps.memoryRetriever;
+    this.callbacks = {};
+    this.bindings = /* @__PURE__ */ new Map();
+    this.reverseIndex = /* @__PURE__ */ new WeakMap();
+    this.conversationRelay = channelConfig.conversationRelay;
+    this.sessionStore = new ConversationSessionStore({
+      logger: this.logger,
+      channelType: "crelay",
+      callbacks: {
+        onConversationStarted: (data) => {
+          this.callbacks.onConversationStarted?.(data);
+        },
+        onConversationEnded: (data) => this.callbacks.onConversationEnded?.(data)
+      }
+    });
+    this.wireCRCallbacks();
+    this.logger.info("ConversationRelayChannel initialized");
+  }
+  get channelType() {
+    return "crelay";
   }
   // ===========================================================================
-  // Session Management
+  // CR Callback Wiring — the one place in core that names CR payload types
   // ===========================================================================
+  wireCRCallbacks() {
+    this.conversationRelay.onSessionStarted((session, data) => {
+      this.handleSetupFromRelay(session, data);
+    });
+    this.conversationRelay.onPrompt((session, _message, data) => {
+      this.handlePromptFromRelay(session, data);
+    });
+    this.conversationRelay.onInterrupt((session, data) => {
+      this.handleInterruptFromRelay(session, data);
+    });
+    this.conversationRelay.onDtmf((session, data) => {
+      const conversationId = this.reverseIndex.get(session);
+      if (conversationId) {
+        this.emitMessage(conversationId, {
+          messageType: "system",
+          message: `User pressed ${data.digit}`,
+          metadata: { type: "dtmf", digit: data.digit }
+        });
+      }
+    });
+    this.conversationRelay.onInfo((session, data) => {
+      const conversationId = this.reverseIndex.get(session);
+      if (conversationId) {
+        this.emitMessage(conversationId, {
+          messageType: "system",
+          message: JSON.stringify(data.info ?? {}),
+          metadata: { type: "info", info: data.info }
+        });
+      }
+    });
+    this.conversationRelay.onSessionEnded((session) => {
+      this.handleCloseFromRelay(session);
+    });
+    this.conversationRelay.onError((session, error) => {
+      this.handleError(error, { callSid: session.callSid });
+    });
+  }
+  handleSetupFromRelay(session, data) {
+    const conversationId = this.handleSetupMessage(data);
+    this.bindings.set(conversationId, session);
+    this.reverseIndex.set(session, conversationId);
+    this.emitMessage(conversationId, {
+      messageType: "system",
+      message: `Call details: from ${data.from}, to ${data.to}, callSid ${data.callSid}`,
+      metadata: {
+        type: "setup",
+        callSid: data.callSid,
+        from: data.from,
+        to: data.to,
+        direction: data.direction
+      }
+    });
+  }
+  handlePromptFromRelay(session, data) {
+    const conversationId = this.reverseIndex.get(session);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: session.callSid }, "No conversation bound to session in prompt");
+      return;
+    }
+    void this.handlePromptMessage(conversationId, data).catch((err) => {
+      this.logger.error(
+        { err, conversation_id: conversationId },
+        "Failed to handle prompt message"
+      );
+    });
+  }
+  handleInterruptFromRelay(session, data) {
+    const conversationId = this.reverseIndex.get(session);
+    if (!conversationId) {
+      this.logger.warn(
+        { call_sid: session.callSid },
+        "No conversation bound to session in interrupt"
+      );
+      return;
+    }
+    const parts = ["User interrupted"];
+    if (data.durationUntilInterruptMs !== void 0) {
+      parts.push(`after ${data.durationUntilInterruptMs}ms`);
+    }
+    if (data.utteranceUntilInterrupt) {
+      parts.push(`Last heard: '${data.utteranceUntilInterrupt}'`);
+    }
+    this.emitMessage(conversationId, {
+      messageType: "system",
+      message: parts.join(". "),
+      metadata: {
+        type: "interrupt",
+        utteranceUntilInterrupt: data.utteranceUntilInterrupt,
+        durationUntilInterruptMs: data.durationUntilInterruptMs
+      }
+    });
+  }
+  handleCloseFromRelay(session) {
+    const conversationId = this.reverseIndex.get(session);
+    if (!conversationId) {
+      this.logger.warn({ call_sid: session.callSid }, "No conversation bound to session in close");
+      return;
+    }
+    this.bindings.delete(conversationId);
+    void this.endConversation(conversationId).catch((err) => {
+      this.logger.error(
+        { err, conversation_id: conversationId },
+        "WebSocket disconnect handler error"
+      );
+    });
+  }
+  handleSetupMessage(message) {
+    const { callSid, from, customParameters } = message;
+    let conversationId;
+    let profileId;
+    if (customParameters?.conversation_id && typeof customParameters.conversation_id === "string" && isConversationId(customParameters.conversation_id)) {
+      conversationId = customParameters.conversation_id;
+    } else {
+      conversationId = callSid;
+    }
+    if (customParameters?.profile_id && typeof customParameters.profile_id === "string" && isProfileId(customParameters.profile_id)) {
+      profileId = customParameters.profile_id;
+    }
+    const session = this.startConversation(conversationId, profileId);
+    session.authorInfo = { address: from };
+    return conversationId;
+  }
+  async handlePromptMessage(conversationId, message) {
+    const transcript = message.voicePrompt;
+    const session = this.getConversationSession(conversationId);
+    let userMemory;
+    if (session) {
+      try {
+        userMemory = await this.memoryRetriever(session, transcript);
+        this.logger.debug({ conversation_id: conversationId }, "Retrieved memory for voice prompt");
+      } catch (error) {
+        this.logger.warn(
+          { err: error, conversation_id: conversationId },
+          "Failed to retrieve memory for voice prompt"
+        );
+      }
+    }
+    this.emitMessage(conversationId, {
+      messageType: "user",
+      message: transcript,
+      metadata: { type: "prompt", lang: message.lang, last: message.last },
+      memory: userMemory
+    });
+  }
+  // ===========================================================================
+  // Unified Message Emission
+  // ===========================================================================
+  emitMessage(conversationId, msg) {
+    const session = this.getConversationSession(conversationId);
+    const channelMessage = {
+      conversationId,
+      messageType: msg.messageType,
+      message: msg.message,
+      channel: "crelay",
+      metadata: msg.metadata,
+      conversation: session ? {
+        profileId: session.profileId,
+        memory: msg.memory,
+        author: session.authorInfo?.address ?? "unknown",
+        serviceId: session.serviceId,
+        authorInfo: session.authorInfo ? { address: session.authorInfo.address } : void 0,
+        startedAt: session.startedAt
+      } : void 0
+    };
+    if (this.callbacks.onMessage) {
+      void Promise.resolve(this.callbacks.onMessage(channelMessage)).catch((err) => {
+        this.logger.error({ err, conversation_id: conversationId }, "Error in message callback");
+      });
+    }
+  }
+  // ===========================================================================
+  // Outbound — all methods resolve the session O(1) via bindings
+  // ===========================================================================
+  requireSession(conversationId) {
+    const session = this.bindings.get(conversationId);
+    if (!session) {
+      throw new Error(`No active session for conversation ${conversationId}`);
+    }
+    return session;
+  }
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async sendResponse(conversationId, message, metadata) {
+    try {
+      const session = this.requireSession(conversationId);
+      const last = metadata?.last === void 0 ? true : metadata.last;
+      session.sendText(message, last);
+    } catch (error) {
+      this.handleError(error instanceof Error ? error : new Error(String(error)), {
+        conversationId,
+        message,
+        metadata
+      });
+      throw error;
+    }
+  }
+  sendDigits(conversationId, digits) {
+    this.requireSession(conversationId).sendDigits(digits);
+  }
+  sendPlay(conversationId, source, options) {
+    this.requireSession(conversationId).sendPlay(source, options);
+  }
+  endCall(conversationId, handoffData) {
+    this.requireSession(conversationId).endCall(handoffData);
+  }
+  // ===========================================================================
+  // Tool Registry — forwards to the shared CR registry
+  // ===========================================================================
+  listTools() {
+    return this.conversationRelay.getToolRegistry().list();
+  }
+  registerTool(tool) {
+    this.conversationRelay.getToolRegistry().register(tool);
+  }
+  async executeTool(conversationId, name, args) {
+    return this.requireSession(conversationId).executeTool(name, args);
+  }
+  // ===========================================================================
+  // Channel Interface plumbing
+  // ===========================================================================
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic event callback needs to accept any args
+  on(event, callback) {
+    switch (event) {
+      case "message":
+        this.callbacks.onMessage = callback;
+        break;
+      case "conversationStarted":
+        this.callbacks.onConversationStarted = callback;
+        break;
+      case "conversationEnded":
+        this.callbacks.onConversationEnded = callback;
+        break;
+      case "error":
+        this.callbacks.onError = callback;
+        break;
+    }
+  }
+  getConversationSession(conversationId) {
+    return this.sessionStore.get(conversationId);
+  }
+  isConversationActive(conversationId) {
+    return this.sessionStore.isActive(conversationId);
+  }
+  shutdown() {
+    this.conversationRelay.shutdown();
+    this.bindings.clear();
+    this.sessionStore.clear();
+    delete this.callbacks.onConversationStarted;
+    delete this.callbacks.onConversationEnded;
+    delete this.callbacks.onError;
+    delete this.callbacks.onMessage;
+  }
   startConversation(conversationId, profileId, serviceId) {
     return this.sessionStore.start(conversationId, profileId, serviceId);
   }
@@ -3792,22 +3726,21 @@ var VoiceChannel = class {
     }
   }
   // ===========================================================================
-  // Incoming Call Handling — Maestro Only
+  // Incoming Call — Maestro conversation creation for TwiML params
   // ===========================================================================
   /**
    * Create the Maestro conversation for an incoming voice call and return the
-   * four IDs that CR needs to inject as TwiML customParameters. No CR, no
-   * TwiML — pure Maestro work. Wire this to `ConversationRelayServer.onIncomingCall` so
-   * the CR server renders the TwiML with these IDs as customParameters.
+   * IDs that CR injects as TwiML customParameters. Wire to
+   * `ConversationRelayServer.onIncomingCall`.
    */
   async createConversationForCall(input) {
     const { toNumber, fromNumber, callSid } = input;
     const timestamp = (/* @__PURE__ */ new Date()).toISOString().replaceAll(/[-:.]/g, "").slice(0, 15) + "Z";
-    const conversationName = `tac-voice-${fromNumber}-${timestamp}`;
+    const conversationName = `tac-crelay-${fromNumber}-${timestamp}`;
     const conversation = await this.conversationClient.createConversation(conversationName);
     if (!isConversationId(conversation.id)) {
       throw new Error(
-        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-9a-z]{26}. This indicates an issue with the Conversations API.`
+        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-9a-z]{26}.`
       );
     }
     const conversationId = conversation.id;
@@ -3833,7 +3766,7 @@ var VoiceChannel = class {
     };
   }
   // ===========================================================================
-  // ConversationRelay Callback Handling
+  // ConversationRelay HTTP Callback Handling
   // ===========================================================================
   async handleConversationRelayCallback(payload, handoffHandler) {
     this.logger.debug(
@@ -3868,7 +3801,7 @@ var VoiceChannel = class {
         if (!isConversationId(conversation.id)) {
           this.logger.warn(
             { conversation_id: conversation.id, call_sid: callSid },
-            "Invalid conversation ID format from Conversation Service. Skipping conversation close."
+            "Invalid conversation ID format from Conversation Service. Skipping."
           );
           continue;
         }
@@ -3906,6 +3839,92 @@ function createLogger2(options) {
   }
   return pino(pinoOptions);
 }
+
+// packages/conversationrelay/src/lib/silence-handler.ts
+var SilenceHandler = class {
+  timer = null;
+  reminderIndex = 0;
+  enabled = true;
+  config;
+  logger;
+  constructor(config, logger2) {
+    this.config = config;
+    this.logger = logger2.child({ component: "silence-handler" });
+  }
+  /**
+   * Reset the silence timer. Call on any signal of life from the caller
+   * (prompt, interrupt, DTMF). Also used to start the timer for the first
+   * time. No-op if the handler is currently disabled.
+   */
+  reset() {
+    this.clearTimer();
+    this.reminderIndex = 0;
+    if (this.enabled) {
+      this.startTimer();
+    }
+    this.logger.debug({ enabled: this.enabled }, "Silence timer reset");
+  }
+  /**
+   * Stop monitoring. Clears the timer and resets the reminder index. Call on
+   * session end.
+   */
+  stop() {
+    this.clearTimer();
+    this.reminderIndex = 0;
+    this.logger.debug("Silence monitoring stopped");
+  }
+  /**
+   * Enable or disable silence handling.
+   *
+   * When disabled: the active timer is cleared, `reset()` becomes a no-op,
+   * and no reminders fire. When re-enabled: the caller must invoke `reset()`
+   * to re-arm the timer — this is deliberate, so the re-enabler decides when
+   * the clock restarts.
+   */
+  setEnabled(enabled) {
+    if (this.enabled === enabled) {
+      return;
+    }
+    this.enabled = enabled;
+    if (!enabled) {
+      this.clearTimer();
+    }
+    this.logger.info({ enabled }, `Silence handling ${enabled ? "enabled" : "disabled"}`);
+  }
+  /** Whether silence handling is currently enabled */
+  isEnabled() {
+    return this.enabled;
+  }
+  /** Whether a timer is currently scheduled */
+  isActive() {
+    return this.timer !== null;
+  }
+  // ===========================================================================
+  // Internal
+  // ===========================================================================
+  startTimer() {
+    this.timer = setTimeout(() => {
+      const index = this.reminderIndex;
+      const reminder = this.config.reminders[index];
+      if (reminder === void 0) {
+        this.logger.info("Silence terminal \u2014 reminders exhausted");
+        this.config.onTerminate();
+        this.stop();
+        return;
+      }
+      this.logger.info({ reminder_index: index }, "Silence reminder");
+      this.config.onReminder(reminder);
+      this.reminderIndex = index + 1;
+      this.startTimer();
+    }, this.config.thresholdSeconds * 1e3);
+  }
+  clearTimer() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+};
 var SetupMessageSchema = z.object({
   type: z.literal("setup"),
   sessionId: z.string(),
@@ -3992,7 +4011,7 @@ var OutgoingMessageSchema = z.discriminatedUnion("type", [
   SwitchLanguageMessageBaseSchema,
   EndMessageSchema
 ]);
-var LanguageAttributesSchema2 = z.object({
+var LanguageAttributesSchema = z.object({
   /** Language code (e.g., 'en-US', 'es-ES', 'en-AU') */
   code: z.string(),
   /** TTS provider for this language */
@@ -4008,7 +4027,7 @@ var LanguageAttributesSchema2 = z.object({
   /** Transcription language (may differ from code) */
   transcriptionLanguage: z.string().optional()
 });
-var ConversationRelayAttributesSchema2 = z.object({
+var ConversationRelayAttributesSchema = z.object({
   /** WebSocket URL for ConversationRelay (required) */
   url: z.string().url(),
   // Welcome greeting settings
@@ -4058,11 +4077,11 @@ var ConversationRelayAttributesSchema2 = z.object({
   /** Conversational Intelligence Service ID or unique name */
   intelligenceService: z.string().optional()
 });
-var ConversationRelayConfigSchema = ConversationRelayAttributesSchema2.extend({
+var ConversationRelayConfigSchema = ConversationRelayAttributesSchema.extend({
   /** Optional language configurations as child <Language> elements */
-  languages: z.array(LanguageAttributesSchema2).optional()
+  languages: z.array(LanguageAttributesSchema).optional()
 });
-var CustomParametersSchema2 = z.record(z.string(), z.string()).refine(
+var CustomParametersSchema = z.record(z.string(), z.string()).refine(
   (params) => {
     return Object.keys(params).every((key) => key.trim().length > 0);
   },
@@ -4107,6 +4126,309 @@ var HandoffDataSchema = z.object({
   call_summary: z.string(),
   sentiment: z.string()
 });
+
+// packages/conversationrelay/src/lib/conversation-relay-session.ts
+var LISTEN_MODE_GATED_TYPES = /* @__PURE__ */ new Set([
+  "text",
+  "play",
+  "language"
+]);
+var ConversationRelaySession = class {
+  callSid;
+  from;
+  to;
+  startedAt;
+  customParameters;
+  ws;
+  logger;
+  toolRegistry;
+  callbacks;
+  _listenMode = false;
+  _suppressedCount = 0;
+  _silenceHandler;
+  /**
+   * Terminal `OutgoingMessage` (currently only `type: 'end'`) deferred until
+   * the next `sendText(..., last: true)` flush. This gives the LLM's
+   * streaming farewell a chance to reach TTS before Twilio hangs up —
+   * today's race produces mid-sentence cutoffs.
+   */
+  pendingTerminalMessage = null;
+  constructor(opts) {
+    this.ws = opts.ws;
+    this.logger = opts.logger;
+    this.toolRegistry = opts.toolRegistry;
+    this.callbacks = opts.callbacks;
+    this.callSid = opts.setup.callSid;
+    this.from = opts.setup.from;
+    this.to = opts.setup.to;
+    this.startedAt = /* @__PURE__ */ new Date();
+    this.customParameters = opts.setup.customParameters;
+    if (opts.silenceTemplate) {
+      this._silenceHandler = this.buildSilenceHandler(opts.silenceTemplate);
+      this._silenceHandler.reset();
+    }
+  }
+  // ===========================================================================
+  // Public accessors — keep fields internal, expose what callers need
+  // ===========================================================================
+  isListenMode() {
+    return this._listenMode;
+  }
+  getSuppressedMessageCount() {
+    return this._suppressedCount;
+  }
+  get silenceHandler() {
+    return this._silenceHandler;
+  }
+  // ===========================================================================
+  // Incoming frames — dispatched by the manager after setup
+  // ===========================================================================
+  /**
+   * Dispatch a validated incoming frame (post-setup) to the session.
+   * The manager owns `ws.on('message')` and does schema validation; this
+   * method fans out to callbacks and resets the silence timer on signal-
+   * of-life events.
+   */
+  handleIncomingFrame(message) {
+    switch (message.type) {
+      case "prompt":
+        this._silenceHandler?.reset();
+        this.callbacks.onPrompt?.(this, message.voicePrompt, message);
+        break;
+      case "interrupt":
+        this._silenceHandler?.reset();
+        this.callbacks.onInterrupt?.(this, message);
+        break;
+      case "dtmf":
+        this._silenceHandler?.reset();
+        this.callbacks.onDtmf?.(this, message);
+        break;
+      case "info":
+        this.callbacks.onInfo?.(this, message);
+        break;
+      case "error": {
+        const err = new Error(message.description ?? "ConversationRelay error");
+        this.callbacks.onError?.(this, err);
+        break;
+      }
+      case "setup":
+        break;
+      default:
+        this.logger.warn({ call_sid: this.callSid, message }, "Unhandled CR message type");
+    }
+  }
+  // ===========================================================================
+  // Listen mode
+  // ===========================================================================
+  /**
+   * Toggle listen-mode. When enabled, outgoing speech-equivalent messages
+   * (`text`, `play`, `language`) are suppressed; DTMF and end-call still work.
+   * Also interlocks with the silence handler: enabling listen-mode pauses
+   * silence monitoring; disabling re-enables and resets from zero.
+   */
+  setListenMode(enabled) {
+    this._listenMode = enabled;
+    if (this._silenceHandler) {
+      if (enabled) {
+        this._silenceHandler.setEnabled(false);
+      } else {
+        this._silenceHandler.setEnabled(true);
+        this._silenceHandler.reset();
+      }
+    }
+    this.logger.info(
+      { call_sid: this.callSid, listen_mode: enabled },
+      `Listen-mode ${enabled ? "enabled" : "disabled"}`
+    );
+  }
+  // ===========================================================================
+  // Outgoing — the single path back to Twilio for this session
+  // ===========================================================================
+  /**
+   * Ship a validated `OutgoingMessage` to Twilio via this session's ws.
+   * Listen-mode gating: when enabled, `text`/`play`/`language` are suppressed
+   * and `suppressedCount` is incremented. `sendDigits` and `end` are never
+   * suppressed.
+   */
+  sendResponse(message) {
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error(
+        `WebSocket not open for CallSid: ${this.callSid} (state: ${this.ws.readyState})`
+      );
+    }
+    if (this._listenMode && LISTEN_MODE_GATED_TYPES.has(message.type)) {
+      this._suppressedCount += 1;
+      this.logger.debug(
+        {
+          call_sid: this.callSid,
+          message_type: message.type,
+          suppressed_count: this._suppressedCount
+        },
+        "Outgoing message suppressed (listen mode)"
+      );
+      return;
+    }
+    this.ws.send(JSON.stringify(message));
+    this.logger.debug({ call_sid: this.callSid, message_type: message.type }, "Sent CR message");
+  }
+  /**
+   * Send a text token to Twilio TTS. When `last` is true and a terminal
+   * frame is stashed (from a prior `executeTool`), flush the terminal
+   * *after* the text. Listen-mode suppression still applies to the text
+   * frame; the terminal frame (`end`) is never suppressed and always fires.
+   */
+  sendText(token, last = true) {
+    this.sendResponse({ type: "text", token, last });
+    if (last && this.pendingTerminalMessage) {
+      const terminal = this.pendingTerminalMessage;
+      this.pendingTerminalMessage = null;
+      this.logger.debug(
+        { call_sid: this.callSid, message_type: terminal.type },
+        "Flushing deferred terminal message after last text token"
+      );
+      this.sendResponse(terminal);
+    }
+  }
+  sendDigits(digits) {
+    this.sendResponse({ type: "sendDigits", digits });
+  }
+  sendPlay(source, options) {
+    this.sendResponse({ type: "play", source, ...options });
+  }
+  switchLanguage(options) {
+    this.sendResponse({ type: "language", ...options });
+  }
+  /**
+   * End the call with optional handoff data. Bypasses terminal deferral —
+   * callers who invoke this directly are asking for immediate hangup.
+   */
+  endCall(handoffData) {
+    this.sendResponse({
+      type: "end",
+      handoffData: handoffData ? JSON.stringify(handoffData) : void 0
+    });
+  }
+  // ===========================================================================
+  // Tool dispatch
+  // ===========================================================================
+  /**
+   * Execute a registered tool against this session. Result conventions:
+   *
+   *   - `outgoingMessage`: validated and shipped. Terminal `type: 'end'`
+   *     frames are stashed for deferred flush after the next
+   *     `sendText(..., last: true)` — this prevents Twilio from hanging up
+   *     mid-farewell. All other types ship immediately.
+   *   - `listenMode: boolean`: applied via `setListenMode`.
+   *   - `silenceEnabled: boolean`: applied against the per-session silence
+   *     handler (on enable, also resets the timer). No-op for sessions
+   *     without a silence handler.
+   *
+   * @throws if the tool is not registered or produces an invalid
+   *   `outgoingMessage`.
+   */
+  async executeTool(name, args) {
+    const tool = this.toolRegistry.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    const result = await tool.implementation(args);
+    this.applyOutgoingMessageConvention(name, result);
+    this.applyListenModeConvention(result);
+    this.applySilenceConvention(result);
+    return result;
+  }
+  applyOutgoingMessageConvention(name, result) {
+    if (result === null || typeof result !== "object" || !("outgoingMessage" in result) || result.outgoingMessage === void 0) {
+      return;
+    }
+    const candidate = result.outgoingMessage;
+    const validated = OutgoingMessageSchema.safeParse(candidate);
+    if (!validated.success) {
+      this.logger.error(
+        { tool: name, errors: validated.error.errors, outgoingMessage: candidate },
+        "Tool produced invalid outgoingMessage \u2014 not shipping"
+      );
+      throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
+    }
+    if (validated.data.type === "end") {
+      this.pendingTerminalMessage = validated.data;
+      this.logger.debug(
+        { call_sid: this.callSid, tool: name },
+        "Deferring terminal message until next last-text flush"
+      );
+      return;
+    }
+    this.sendResponse(validated.data);
+  }
+  applyListenModeConvention(result) {
+    if (result !== null && typeof result === "object" && "listenMode" in result && typeof result.listenMode === "boolean") {
+      this.setListenMode(result.listenMode);
+    }
+  }
+  applySilenceConvention(result) {
+    if (result === null || typeof result !== "object" || !("silenceEnabled" in result) || typeof result.silenceEnabled !== "boolean") {
+      return;
+    }
+    const enabled = result.silenceEnabled;
+    if (!this._silenceHandler) {
+      this.logger.debug(
+        { call_sid: this.callSid, silence_enabled: enabled },
+        "silenceEnabled result had no effect \u2014 no silence handler on this session"
+      );
+      return;
+    }
+    this._silenceHandler.setEnabled(enabled);
+    if (enabled) {
+      this._silenceHandler.reset();
+    }
+  }
+  // ===========================================================================
+  // Lifecycle
+  // ===========================================================================
+  /**
+   * Handle ws close. Stops the silence handler. The manager handles
+   * registry removal and `onSessionEnded` callback dispatch.
+   */
+  handleClose() {
+    this._silenceHandler?.stop();
+  }
+  /** Force-close the ws. Used by `ConversationRelay.shutdown()`. */
+  close() {
+    this._silenceHandler?.stop();
+    this.ws.close();
+  }
+  /** Read-only access to the raw ws — for diagnostics / tests. */
+  getWebSocket() {
+    return this.ws;
+  }
+  /** @internal Used by the manager to detect non-Buffer frames in the raw listener. */
+  static isBuffer(data) {
+    return Buffer.isBuffer(data);
+  }
+  // ===========================================================================
+  // Silence handler factory
+  // ===========================================================================
+  buildSilenceHandler(template) {
+    const reminders = ["Are you still there?", ...template.additionalPrompts ?? []];
+    const thresholdSeconds = template.thresholdSeconds ?? 20;
+    return new SilenceHandler(
+      {
+        thresholdSeconds,
+        reminders,
+        onReminder: (reminder) => {
+          this.sendText(reminder, true);
+        },
+        onTerminate: () => {
+          this.endCall({
+            reasonCode: "unresponsive",
+            reason: "The caller was not speaking"
+          });
+        }
+      },
+      this.logger
+    );
+  }
+};
 z.object({
   type: z.enum(["object", "string", "number", "boolean", "array"]),
   properties: z.record(z.any()).optional(),
@@ -4115,7 +4437,7 @@ z.object({
   enum: z.array(z.any()).optional(),
   description: z.string().optional()
 });
-var CRTool = class {
+var ConversationRelayTool = class {
   constructor(name, description, parameters, implementation) {
     this.name = name;
     this.description = description;
@@ -4156,7 +4478,7 @@ function defineTool(name, description, parameters, implementation) {
   if (!implementation) {
     throw new Error("Tool implementation is required");
   }
-  return new CRTool(name, description, parameters, implementation);
+  return new ConversationRelayTool(name, description, parameters, implementation);
 }
 
 // packages/conversationrelay/src/tools/play-media.ts
@@ -4377,249 +4699,118 @@ var setSilenceDetectionTool = defineTool(
   }
 );
 
-// packages/conversationrelay/src/lib/silence-handler.ts
-var SilenceHandler = class {
-  timer = null;
-  reminderIndex = 0;
-  enabled = true;
-  config;
-  logger;
-  constructor(config, logger2) {
-    this.config = config;
-    this.logger = logger2.child({ component: "silence-handler" });
+// packages/conversationrelay/src/lib/tool-registry.ts
+var CONVERSATION_RELAY_TOOLS = [
+  // Cast through `unknown` — each tool is `ConversationRelayTool<SpecificParams, SpecificResult>`
+  // but the registry holds the base `ConversationRelayTool<unknown, unknown>`. TypeScript's
+  // strict invariance on generics requires the widening cast.
+  playMediaTool,
+  sendDigitsTool,
+  switchLanguageTool,
+  endCallTool,
+  liveAgentHandoffTool,
+  setListenModeTool,
+  setSilenceDetectionTool
+];
+var ToolRegistry = class {
+  tools = /* @__PURE__ */ new Map();
+  constructor(initial = []) {
+    for (const tool of initial) {
+      this.tools.set(tool.name, tool);
+    }
+  }
+  /** Register a tool. Overwrites any tool previously registered under the same name. */
+  register(tool) {
+    this.tools.set(tool.name, tool);
+  }
+  /** Remove a tool by name. No-op if no tool by that name was registered. */
+  unregister(name) {
+    this.tools.delete(name);
+  }
+  /** Whether a tool with the given name is registered. */
+  has(name) {
+    return this.tools.has(name);
+  }
+  /** Fetch a registered tool by name, or `undefined` if not registered. */
+  get(name) {
+    return this.tools.get(name);
   }
   /**
-   * Reset the silence timer. Call on any signal of life from the caller
-   * (prompt, interrupt, DTMF). Also used to start the timer for the first
-   * time. No-op if the handler is currently disabled.
+   * All registered tools, in registration order. Feed the results into the
+   * LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
    */
-  reset() {
-    this.clearTimer();
-    this.reminderIndex = 0;
-    if (this.enabled) {
-      this.startTimer();
-    }
-    this.logger.debug({ enabled: this.enabled }, "Silence timer reset");
-  }
-  /**
-   * Stop monitoring. Clears the timer and resets the reminder index. Call on
-   * session end.
-   */
-  stop() {
-    this.clearTimer();
-    this.reminderIndex = 0;
-    this.logger.debug("Silence monitoring stopped");
-  }
-  /**
-   * Enable or disable silence handling.
-   *
-   * When disabled: the active timer is cleared, `reset()` becomes a no-op,
-   * and no reminders fire. When re-enabled: the caller must invoke `reset()`
-   * to re-arm the timer — this is deliberate, so the re-enabler decides when
-   * the clock restarts.
-   */
-  setEnabled(enabled) {
-    if (this.enabled === enabled) {
-      return;
-    }
-    this.enabled = enabled;
-    if (!enabled) {
-      this.clearTimer();
-    }
-    this.logger.info({ enabled }, `Silence handling ${enabled ? "enabled" : "disabled"}`);
-  }
-  /** Whether silence handling is currently enabled */
-  isEnabled() {
-    return this.enabled;
-  }
-  /** Whether a timer is currently scheduled */
-  isActive() {
-    return this.timer !== null;
-  }
-  // ===========================================================================
-  // Internal
-  // ===========================================================================
-  startTimer() {
-    this.timer = setTimeout(() => {
-      const index = this.reminderIndex;
-      const reminder = this.config.reminders[index];
-      if (reminder === void 0) {
-        this.logger.info("Silence terminal \u2014 reminders exhausted");
-        this.config.onTerminate();
-        this.stop();
-        return;
-      }
-      this.logger.info({ reminder_index: index }, "Silence reminder");
-      this.config.onReminder(reminder);
-      this.reminderIndex = index + 1;
-      this.startTimer();
-    }, this.config.thresholdSeconds * 1e3);
-  }
-  clearTimer() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+  list() {
+    return Array.from(this.tools.values());
   }
 };
 
 // packages/conversationrelay/src/crelay.ts
-var LISTEN_MODE_GATED_TYPES = /* @__PURE__ */ new Set([
-  "text",
-  "play",
-  "language"
-]);
 var ConversationRelay = class _ConversationRelay {
   logger;
-  connections;
   sessions;
-  tools;
+  toolRegistry;
   silenceTemplate;
   callbacks;
   constructor(logger2, config) {
     this.logger = logger2 ?? createLogger2({ name: "conversation-relay" });
-    this.connections = /* @__PURE__ */ new Map();
     this.sessions = /* @__PURE__ */ new Map();
     this.callbacks = {};
     this.silenceTemplate = config?.silence;
-    this.tools = /* @__PURE__ */ new Map();
-    const builtIns = [
-      playMediaTool,
-      sendDigitsTool,
-      switchLanguageTool,
-      endCallTool,
-      liveAgentHandoffTool,
-      setListenModeTool,
-      setSilenceDetectionTool
-    ];
-    for (const tool of builtIns) {
-      this.tools.set(tool.name, tool);
-    }
+    this.toolRegistry = config?.tools ?? new ToolRegistry(CONVERSATION_RELAY_TOOLS);
   }
   // ===========================================================================
   // Callback Registration
   // ===========================================================================
-  /** Register callback for session started (setup message received) */
   onSessionStarted(callback) {
     this.callbacks.onSessionStarted = callback;
   }
-  /** Register callback for user prompt (transcribed speech from the caller) */
   onPrompt(callback) {
     this.callbacks.onPrompt = callback;
   }
-  /** Register callback for user interrupt */
   onInterrupt(callback) {
     this.callbacks.onInterrupt = callback;
   }
-  /** Register callback for DTMF input (placeholder) */
   onDtmf(callback) {
     this.callbacks.onDtmf = callback;
   }
-  /** Register callback for info events (placeholder) */
   onInfo(callback) {
     this.callbacks.onInfo = callback;
   }
-  /** Register callback for session ended (WebSocket closed) */
   onSessionEnded(callback) {
     this.callbacks.onSessionEnded = callback;
   }
-  /** Register callback for errors */
   onError(callback) {
     this.callbacks.onError = callback;
   }
   // ===========================================================================
-  // Tool Registry
+  // Tool registry accessor — for ConversationRelayChannel / app wiring
   // ===========================================================================
-  /** Register an additional tool. Overwrites any tool with the same name. */
-  registerTool(tool) {
-    this.tools.set(tool.name, tool);
-  }
-  /** Unregister a tool by name. */
-  unregisterTool(name) {
-    this.tools.delete(name);
-  }
   /**
-   * List all registered tools (built-in protocol tools + user-registered).
-   * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+   * The shared tool registry. `ConversationRelayChannel` forwards `listTools()`
+   * to this; standalone apps can read/register tools here before wiring the
+   * CR server.
    */
-  listTools() {
-    return Array.from(this.tools.values());
-  }
-  /**
-   * Execute a registered tool by name. The tool result may trigger side
-   * effects on CR via one of three result-convention fields:
-   *
-   *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
-   *     `sendResponse` (used by playMediaTool, sendDigitsTool,
-   *     switchLanguageTool, endCallTool, liveAgentHandoffTool).
-   *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
-   *     (used by setListenModeTool).
-   *   - `silenceEnabled: boolean` — applied via
-   *     `session.silenceHandler.setEnabled(...)` (on enable, also resets
-   *     the timer). Used by setSilenceDetectionTool. No-op (with debug
-   *     log) for sessions without a silence handler.
-   *
-   * The tool result is returned so the caller can feed it back to the LLM
-   * loop. Tools that need no side effect return their own plain result.
-   *
-   * @throws if the tool is not registered or if an `outgoingMessage` fails
-   *   schema validation.
-   */
-  async executeTool(callSid, name, args) {
-    const tool = this.tools.get(name);
-    if (!tool) {
-      throw new Error(`Unknown tool: ${name}`);
-    }
-    const result = await tool.implementation(args);
-    if (result !== null && typeof result === "object" && "outgoingMessage" in result && result.outgoingMessage !== void 0) {
-      const candidate = result.outgoingMessage;
-      const validated = OutgoingMessageSchema.safeParse(candidate);
-      if (!validated.success) {
-        this.logger.error(
-          { tool: name, errors: validated.error.errors, outgoingMessage: candidate },
-          "Tool produced invalid outgoingMessage \u2014 not shipping"
-        );
-        throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
-      }
-      this.sendResponse(callSid, validated.data);
-    }
-    if (result !== null && typeof result === "object" && "listenMode" in result && typeof result.listenMode === "boolean") {
-      const enabled = result.listenMode;
-      this.setListenMode(callSid, enabled);
-    }
-    if (result !== null && typeof result === "object" && "silenceEnabled" in result && typeof result.silenceEnabled === "boolean") {
-      const enabled = result.silenceEnabled;
-      const session = this.sessions.get(callSid);
-      if (session?.silenceHandler) {
-        session.silenceHandler.setEnabled(enabled);
-        if (enabled) {
-          session.silenceHandler.reset();
-        }
-      } else {
-        this.logger.debug(
-          { call_sid: callSid, silence_enabled: enabled },
-          "silenceEnabled result had no effect \u2014 no silence handler on this session"
-        );
-      }
-    }
-    return result;
+  getToolRegistry() {
+    return this.toolRegistry;
   }
   // ===========================================================================
   // WebSocket Connection Handling
   // ===========================================================================
   /**
    * Handle incoming WebSocket connection from Twilio ConversationRelay.
-   * Extracts CallSid from setup message and routes subsequent messages.
+   * The manager owns `ws.on(...)` for the lifetime of the session. On the
+   * first `setup` frame, we construct a `ConversationRelaySession` and
+   * forward subsequent frames to it.
    */
   handleConnection(ws) {
-    let callSid = null;
+    let session = null;
     ws.on("message", (data) => {
       try {
         if (!Buffer.isBuffer(data)) {
           this.logger.error(
             {
               data_type: data instanceof ArrayBuffer ? "ArrayBuffer" : "Buffer[]",
-              call_sid: callSid
+              call_sid: session?.callSid
             },
             "Unexpected WebSocket data type - expected Buffer from ConversationRelay"
           );
@@ -4628,237 +4819,86 @@ var ConversationRelay = class _ConversationRelay {
         const messageText = data.toString();
         const messageData = JSON.parse(messageText);
         this.logger.debug({ raw_message: messageData }, "Received ConversationRelay message");
-        const validatedMessage = WebSocketMessageSchema.safeParse(messageData);
-        if (!validatedMessage.success) {
+        const validated = WebSocketMessageSchema.safeParse(messageData);
+        if (!validated.success) {
           this.logger.error(
-            { validation_errors: validatedMessage.error.errors, raw_message: messageData },
+            { validation_errors: validated.error.errors, raw_message: messageData },
             "Invalid ConversationRelay message"
           );
           return;
         }
-        const message = validatedMessage.data;
-        switch (message.type) {
-          case "setup": {
-            callSid = message.callSid;
-            this.connections.set(callSid, ws);
-            const session = {
-              callSid,
-              from: message.from,
-              to: message.to,
-              startedAt: /* @__PURE__ */ new Date(),
-              customParameters: message.customParameters,
-              listenMode: false,
-              suppressedCount: 0
-            };
-            this.sessions.set(callSid, session);
-            if (this.silenceTemplate) {
-              session.silenceHandler = this.createSilenceHandler(callSid);
-              session.silenceHandler.reset();
-            }
-            this.callbacks.onSessionStarted?.(callSid, session, message);
-            break;
-          }
-          case "prompt":
-            if (callSid) {
-              this.sessions.get(callSid)?.silenceHandler?.reset();
-              this.callbacks.onPrompt?.(callSid, message.voicePrompt, message);
-            }
-            break;
-          case "interrupt":
-            if (callSid) {
-              this.sessions.get(callSid)?.silenceHandler?.reset();
-              this.callbacks.onInterrupt?.(callSid, message);
-            }
-            break;
-          case "dtmf":
-            if (callSid) {
-              this.sessions.get(callSid)?.silenceHandler?.reset();
-              this.callbacks.onDtmf?.(callSid, message);
-            }
-            break;
-          case "info":
-            if (callSid) {
-              this.callbacks.onInfo?.(callSid, message);
-            }
-            break;
-          case "error":
-            if (callSid) {
-              const err = new Error(message.description ?? "ConversationRelay error");
-              this.callbacks.onError?.(callSid, err);
-            }
-            break;
-          default:
-            this.logger.warn(
-              { call_sid: callSid, message: messageData },
-              "Unhandled ConversationRelay message type"
-            );
-            break;
+        const message = validated.data;
+        if (message.type === "setup") {
+          session = this.createSession(ws, message);
+          this.callbacks.onSessionStarted?.(session, message);
+          return;
         }
+        if (!session) {
+          this.logger.warn(
+            { message_type: message.type },
+            "Received non-setup frame before session was created \u2014 dropping"
+          );
+          return;
+        }
+        session.handleIncomingFrame(message);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        this.logger.error({ err, call_sid: callSid }, "Error processing ConversationRelay message");
-        if (callSid) {
-          this.callbacks.onError?.(callSid, err);
+        this.logger.error(
+          { err, call_sid: session?.callSid },
+          "Error processing ConversationRelay message"
+        );
+        if (session) {
+          this.callbacks.onError?.(session, err);
         }
       }
     });
     ws.on("close", () => {
-      if (callSid) {
-        this.sessions.get(callSid)?.silenceHandler?.stop();
-        this.connections.delete(callSid);
-        this.sessions.delete(callSid);
-        this.logger.debug({ call_sid: callSid }, "ConversationRelay WebSocket closed");
-        this.callbacks.onSessionEnded?.(callSid);
+      if (session) {
+        session.handleClose();
+        this.sessions.delete(session.callSid);
+        this.logger.debug({ call_sid: session.callSid }, "ConversationRelay WebSocket closed");
+        this.callbacks.onSessionEnded?.(session);
       }
     });
     ws.on("error", (error) => {
-      this.logger.error({ err: error, call_sid: callSid }, "ConversationRelay WebSocket error");
-      if (callSid) {
-        this.callbacks.onError?.(callSid, error);
+      this.logger.error(
+        { err: error, call_sid: session?.callSid },
+        "ConversationRelay WebSocket error"
+      );
+      if (session) {
+        this.callbacks.onError?.(session, error);
       }
     });
   }
+  createSession(ws, setup) {
+    const sessionCallbacks = {
+      onPrompt: (s, msg, data) => this.callbacks.onPrompt?.(s, msg, data),
+      onInterrupt: (s, data) => this.callbacks.onInterrupt?.(s, data),
+      onDtmf: (s, data) => this.callbacks.onDtmf?.(s, data),
+      onInfo: (s, data) => this.callbacks.onInfo?.(s, data),
+      onError: (s, err) => this.callbacks.onError?.(s, err)
+    };
+    const session = new ConversationRelaySession({
+      ws,
+      setup,
+      toolRegistry: this.toolRegistry,
+      logger: this.logger,
+      silenceTemplate: this.silenceTemplate,
+      callbacks: sessionCallbacks
+    });
+    this.sessions.set(session.callSid, session);
+    return session;
+  }
   // ===========================================================================
-  // Session Access
+  // Directory access — out-of-band callers (status webhooks, tests)
   // ===========================================================================
-  /** Get session for a CallSid */
+  /** Fetch the active session for a CallSid, or `undefined` if none. */
   getSession(callSid) {
     return this.sessions.get(callSid);
   }
-  /** Check if a session exists for a CallSid */
+  /** Whether an active session exists for a CallSid. */
   hasSession(callSid) {
     return this.sessions.has(callSid);
-  }
-  // ===========================================================================
-  // Listen Mode
-  // ===========================================================================
-  /**
-   * Toggle listen-mode for a session. When enabled, outgoing speech-equivalent
-   * messages (`text`, `play`, `language`) are suppressed for this CallSid;
-   * DTMF and end-call still work. Typical use: outbound IVR navigation where
-   * the agent listens for a human before speaking.
-   *
-   * No-op (with a debug log) if no session exists for the CallSid — common
-   * during call-end races.
-   */
-  setListenMode(callSid, enabled) {
-    const session = this.sessions.get(callSid);
-    if (!session) {
-      this.logger.debug(
-        { call_sid: callSid, enabled },
-        "setListenMode called for unknown CallSid \u2014 ignoring"
-      );
-      return;
-    }
-    session.listenMode = enabled;
-    if (session.silenceHandler) {
-      if (enabled) {
-        session.silenceHandler.setEnabled(false);
-      } else {
-        session.silenceHandler.setEnabled(true);
-        session.silenceHandler.reset();
-      }
-    }
-    this.logger.info(
-      { call_sid: callSid, listen_mode: enabled },
-      `Listen-mode ${enabled ? "enabled" : "disabled"}`
-    );
-  }
-  /** Whether listen-mode is active for a CallSid. False if no session exists. */
-  isListenMode(callSid) {
-    return this.sessions.get(callSid)?.listenMode ?? false;
-  }
-  /**
-   * Count of messages suppressed by listen-mode on this session. Returns 0
-   * for unknown CallSids. Primarily for tests and diagnostics.
-   */
-  getSuppressedMessageCount(callSid) {
-    return this.sessions.get(callSid)?.suppressedCount ?? 0;
-  }
-  // ===========================================================================
-  // sendResponse — single path back to Twilio
-  // ===========================================================================
-  /**
-   * Send a message to Twilio ConversationRelay via the session's WebSocket.
-   * This is the single path back to Twilio for every outgoing protocol
-   * frame — text tokens, play (media URL), sendDigits (DTMF), language
-   * (TTS/STT switch), end (hang up).
-   *
-   * Listen-mode gating: when the session has listen-mode enabled, outgoing
-   * speech-equivalent frames (`text`, `play`, `language`) are suppressed
-   * and the session's `suppressedCount` is incremented. `sendDigits` and
-   * `end` are never suppressed — DTMF navigation and termination must
-   * always work.
-   *
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#sending-messages-to-twilio
-   */
-  sendResponse(callSid, message) {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
-    }
-    const session = this.sessions.get(callSid);
-    if (session?.listenMode && LISTEN_MODE_GATED_TYPES.has(message.type)) {
-      session.suppressedCount += 1;
-      this.logger.debug(
-        {
-          call_sid: callSid,
-          message_type: message.type,
-          suppressed_count: session.suppressedCount
-        },
-        "Outgoing message suppressed (listen mode)"
-      );
-      return;
-    }
-    ws.send(JSON.stringify(message));
-    this.logger.debug({ call_sid: callSid, message_type: message.type }, "Sent CR message");
-  }
-  // ===========================================================================
-  // Typed senders — thin wrappers that build an OutgoingMessage and hand it
-  // to `sendResponse`. Callers never touch protocol shape.
-  // ===========================================================================
-  /**
-   * Send a text token to Twilio TTS.
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-message
-   */
-  sendText(callSid, token, last = true) {
-    this.sendResponse(callSid, { type: "text", token, last });
-  }
-  /**
-   * Send DTMF digits to the caller. Supports 0-9, `w` (500ms pause), `*`, `#`.
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
-   */
-  sendDigits(callSid, digits) {
-    this.sendResponse(callSid, { type: "sendDigits", digits });
-  }
-  /**
-   * Play media from a URL to the caller.
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
-   */
-  sendPlay(callSid, source, options) {
-    this.sendResponse(callSid, { type: "play", source, ...options });
-  }
-  /**
-   * Switch TTS or transcription language mid-call.
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
-   */
-  switchLanguage(callSid, options) {
-    this.sendResponse(callSid, { type: "language", ...options });
-  }
-  /**
-   * End the call with optional handoff data. Twilio expects `handoffData` as
-   * a JSON string — the object is stringified here so callers pass a plain
-   * object.
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
-   */
-  endCall(callSid, handoffData) {
-    this.sendResponse(callSid, {
-      type: "end",
-      handoffData: handoffData ? JSON.stringify(handoffData) : void 0
-    });
   }
   // ===========================================================================
   // TwiML Generation
@@ -4866,8 +4906,8 @@ var ConversationRelay = class _ConversationRelay {
   /**
    * Generate TwiML for a ConversationRelay connection.
    *
-   * Produces a <Response><Connect><ConversationRelay> TwiML document
-   * with optional <Parameter> child elements and <Language> configurations.
+   * Produces a <Response><Connect><ConversationRelay> document with optional
+   * <Parameter> child elements and <Language> configurations.
    */
   generateTwiML(config, parameters, options) {
     const validationResult = ConversationRelayConfigSchema.safeParse(config);
@@ -4877,7 +4917,7 @@ var ConversationRelay = class _ConversationRelay {
     }
     const validatedConfig = validationResult.data;
     if (parameters) {
-      const paramsValidation = CustomParametersSchema2.safeParse(parameters);
+      const paramsValidation = CustomParametersSchema.safeParse(parameters);
       if (!paramsValidation.success) {
         const errorMessage = paramsValidation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ");
         throw new Error(`Invalid custom parameters: ${errorMessage}`);
@@ -4902,71 +4942,22 @@ var ConversationRelay = class _ConversationRelay {
     return response.toString();
   }
   // ===========================================================================
-  // Connection Management
+  // Shutdown
   // ===========================================================================
-  /** Get WebSocket connection for a CallSid */
-  getWebSocket(callSid) {
-    return this.connections.get(callSid) || null;
-  }
-  /** Close a specific connection */
-  closeConnection(callSid) {
-    const ws = this.connections.get(callSid);
-    if (ws) {
-      ws.close();
-      this.connections.delete(callSid);
-      this.sessions.delete(callSid);
-      this.logger.debug({ call_sid: callSid }, "Closed ConversationRelay connection");
-    }
-  }
-  /** Shutdown — close all connections */
+  /** Close every session's ws and clear the registry. */
   shutdown() {
-    for (const [callSid, ws] of this.connections.entries()) {
-      ws.close();
-      this.logger.debug({ call_sid: callSid }, "Shutdown: closed ConversationRelay connection");
+    for (const session of this.sessions.values()) {
+      session.close();
+      this.logger.debug(
+        { call_sid: session.callSid },
+        "Shutdown: closed ConversationRelay connection"
+      );
     }
-    this.connections.clear();
     this.sessions.clear();
-  }
-  // ===========================================================================
-  // Silence Handling — factory
-  // ===========================================================================
-  /**
-   * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
-   * on CR `setup`. The handler's callbacks close over the CallSid:
-   * `onReminder` routes each reminder through `sendText` (which is gated by
-   * listen-mode, though listen-mode also disables this handler entirely),
-   * and `onTerminate` hangs up via `endCall`.
-   */
-  createSilenceHandler(callSid) {
-    const template = this.silenceTemplate;
-    if (!template) {
-      throw new Error("createSilenceHandler called without silence template");
-    }
-    const reminders = ["Are you still there?", ...template.additionalPrompts ?? []];
-    const thresholdSeconds = template.thresholdSeconds ?? 20;
-    return new SilenceHandler(
-      {
-        thresholdSeconds,
-        reminders,
-        onReminder: (reminder) => {
-          this.sendText(callSid, reminder, true);
-        },
-        onTerminate: () => {
-          this.endCall(callSid, {
-            reasonCode: "unresponsive",
-            reason: "The caller was not speaking"
-          });
-        }
-      },
-      this.logger
-    );
   }
   // ===========================================================================
   // Private Utilities
   // ===========================================================================
-  /**
-   * Filter undefined/null values from object for clean TwiML attributes
-   */
   static filterUnsetValues(obj) {
     return Object.fromEntries(
       Object.entries(obj).filter(([_, value]) => value !== void 0 && value !== null)
@@ -5766,6 +5757,6 @@ var TACServer = class {
   }
 };
 
-export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationRelayServer, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, ConversationRelayServer, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, VoiceServerConfigSchema, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

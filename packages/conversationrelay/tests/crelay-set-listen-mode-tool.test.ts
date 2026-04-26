@@ -1,10 +1,9 @@
 /**
  * set_listen_mode built-in tool + executeTool listenMode result-convention.
  *
- * Tool body is pure — returns {success, message, listenMode}. CR's
+ * Tool body is pure — returns {success, message, listenMode}. The session's
  * executeTool inspects the result, finds the listenMode field, and calls
- * setListenMode(callSid, ...) internally. No CR reference, no callSid
- * threading through the tool.
+ * setListenMode(...) on itself. No CR reference, no callSid threading.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -13,7 +12,7 @@ import { ConversationRelay } from '../src/crelay';
 import { setListenModeTool } from '../src/tools/set-listen-mode';
 import type { CallSid } from '../src/types';
 
-describe('ConversationRelay: set_listen_mode tool + executeTool listenMode convention', () => {
+describe('ConversationRelaySession: set_listen_mode tool + listenMode convention', () => {
   let cr: ConversationRelay;
   const logger = createLogger({ name: 'test', level: 'silent' });
   const CALL_SID: CallSid = 'CA1234567890abcdef1234567890abcdef' as CallSid;
@@ -97,19 +96,19 @@ describe('ConversationRelay: set_listen_mode tool + executeTool listenMode conve
   // ===========================================================================
 
   describe('registration', () => {
-    it('appears in listTools()', () => {
-      const names = cr.listTools().map(t => t.name);
+    it('appears in the registry', () => {
+      const names = cr.getToolRegistry().list().map(t => t.name);
       expect(names).toContain('set_listen_mode');
     });
 
-    it('can be removed via unregisterTool()', () => {
-      cr.unregisterTool('set_listen_mode');
-      const names = cr.listTools().map(t => t.name);
+    it('can be removed via unregister()', () => {
+      cr.getToolRegistry().unregister('set_listen_mode');
+      const names = cr.getToolRegistry().list().map(t => t.name);
       expect(names).not.toContain('set_listen_mode');
     });
 
     it('has an OpenAI-format export', () => {
-      const tool = cr.listTools().find(t => t.name === 'set_listen_mode');
+      const tool = cr.getToolRegistry().get('set_listen_mode');
       expect(tool).toBeDefined();
       const format = tool?.toOpenAIFormat() as { type: string; function: { name: string } };
       expect(format.type).toBe('function');
@@ -124,36 +123,40 @@ describe('ConversationRelay: set_listen_mode tool + executeTool listenMode conve
   describe('executeTool — listenMode result-convention', () => {
     it('enabled=true flips session listen-mode to true', async () => {
       openSession();
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      const session = cr.getSession(CALL_SID)!;
+      expect(session.isListenMode()).toBe(false);
 
-      await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: true });
+      await session.executeTool('set_listen_mode', { enabled: true });
 
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
+      expect(session.isListenMode()).toBe(true);
     });
 
     it('enabled=false flips session listen-mode to false', async () => {
       openSession();
-      cr.setListenMode(CALL_SID, true);
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
+      const session = cr.getSession(CALL_SID)!;
+      session.setListenMode(true);
+      expect(session.isListenMode()).toBe(true);
 
-      await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: false });
+      await session.executeTool('set_listen_mode', { enabled: false });
 
-      expect(cr.isListenMode(CALL_SID)).toBe(false);
+      expect(session.isListenMode()).toBe(false);
     });
 
     it('subsequent sendText is suppressed after enabled=true', async () => {
       const ws = openSession();
-      await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: true });
+      const session = cr.getSession(CALL_SID)!;
+      await session.executeTool('set_listen_mode', { enabled: true });
 
-      cr.sendText(CALL_SID, 'Hello');
+      session.sendText('Hello');
 
       expect(ws.send).not.toHaveBeenCalled();
-      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(session.getSuppressedMessageCount()).toBe(1);
     });
 
     it('returns the tool result to the caller (for LLM feedback loop)', async () => {
       openSession();
-      const result = (await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: true })) as {
+      const session = cr.getSession(CALL_SID)!;
+      const result = (await session.executeTool('set_listen_mode', { enabled: true })) as {
         success: boolean;
         listenMode: boolean;
       };
@@ -171,12 +174,13 @@ describe('ConversationRelay: set_listen_mode tool + executeTool listenMode conve
         { type: 'object', properties: {}, required: [] },
         () => ({ success: true, listenMode: true, reason: 'custom' })
       );
-      cr.registerTool(customTool);
+      cr.getToolRegistry().register(customTool);
       openSession();
+      const session = cr.getSession(CALL_SID)!;
 
-      await cr.executeTool(CALL_SID, 'force_listen', {});
+      await session.executeTool('force_listen', {});
 
-      expect(cr.isListenMode(CALL_SID)).toBe(true);
+      expect(session.isListenMode()).toBe(true);
     });
   });
 });

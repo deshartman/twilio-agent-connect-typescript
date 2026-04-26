@@ -254,7 +254,7 @@ describe('ConversationRelay: silence auto-wiring on session setup', () => {
     it('setListenMode(true) stops the silence timer', () => {
       const ws = openSession();
 
-      cr.setListenMode(CALL_SID, true);
+      cr.getSession(CALL_SID)!.setListenMode(true);
       vi.advanceTimersByTime(10000); // past threshold
 
       expect(ws.send).not.toHaveBeenCalled();
@@ -262,12 +262,12 @@ describe('ConversationRelay: silence auto-wiring on session setup', () => {
 
     it('setListenMode(false) re-arms silence timer from zero', () => {
       const ws = openSession();
-      cr.setListenMode(CALL_SID, true);
+      cr.getSession(CALL_SID)!.setListenMode(true);
 
       // Advance 10s with listen-mode on — no fire
       vi.advanceTimersByTime(10000);
 
-      cr.setListenMode(CALL_SID, false);
+      cr.getSession(CALL_SID)!.setListenMode(false);
 
       // Only 3s should not fire yet
       vi.advanceTimersByTime(3000);
@@ -281,11 +281,11 @@ describe('ConversationRelay: silence auto-wiring on session setup', () => {
     it('set_listen_mode tool flips silence off then back on', async () => {
       const ws = openSession();
 
-      await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: true });
+      await cr.getSession(CALL_SID)!.executeTool('set_listen_mode', { enabled: true });
       vi.advanceTimersByTime(10000);
       expect(ws.send).not.toHaveBeenCalled();
 
-      await cr.executeTool(CALL_SID, 'set_listen_mode', { enabled: false });
+      await cr.getSession(CALL_SID)!.executeTool('set_listen_mode', { enabled: false });
       vi.advanceTimersByTime(5000);
       // One message was sent — but it was the tool-result side-effect path,
       // which doesn't write to WS, so the one send here is the silence reminder.

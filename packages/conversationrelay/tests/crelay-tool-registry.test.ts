@@ -2,17 +2,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import pino from 'pino';
 import { WebSocket } from 'ws';
 import { ConversationRelay } from '../src/crelay';
+import { ToolRegistry, CONVERSATION_RELAY_TOOLS } from '../src/lib/tool-registry';
 import { defineTool } from '../src/lib/define-tool';
 import type { CallSid } from '../src/types';
 
 /**
- * Tests for the ConversationRelay tool registry and executeTool dispatch.
+ * Tests for the tool registry + executeTool dispatch.
  *
- * Registry contract:
- * - Four CR built-in protocol tools are auto-registered in the constructor.
- * - registerTool / unregisterTool / listTools manage the registry.
- * - executeTool runs the tool's implementation and, if the result carries a valid
- *   `outgoingMessage`, validates it and ships it via the WebSocket automatically.
+ * Registry contract (ToolRegistry, not ConversationRelay):
+ * - CONVERSATION_RELAY_TOOLS contains the seven CR built-ins.
+ * - register / unregister / get / has / list manage the registry.
+ *
+ * Dispatch contract (ConversationRelaySession.executeTool):
+ * - Looks up by name in the shared ToolRegistry.
+ * - If the tool result carries a valid non-terminal `outgoingMessage`, ships
+ *   it via the WebSocket automatically. Terminal (`type: 'end'`) frames are
+ *   deferred for the next sendText(last=true) flush — see crelay-terminal-
+ *   deferral.test.ts for that path.
  */
 describe('ConversationRelay tool registry', () => {
   const createTestLogger = () => pino({ level: 'silent' });
@@ -49,14 +55,9 @@ describe('ConversationRelay tool registry', () => {
     ws._emit('message', Buffer.from(setupMessage));
   };
 
-  let conversationRelay: ConversationRelay;
-  beforeEach(() => {
-    conversationRelay = new ConversationRelay(createTestLogger());
-  });
-
-  describe('listTools / registerTool / unregisterTool', () => {
-    it('auto-registers the seven built-in tools', () => {
-      const names = conversationRelay.listTools().map(t => t.name);
+  describe('ToolRegistry (direct)', () => {
+    it('CONVERSATION_RELAY_TOOLS contains the seven built-ins', () => {
+      const names = CONVERSATION_RELAY_TOOLS.map(t => t.name);
       expect(names).toEqual(
         expect.arrayContaining([
           'play_media',
@@ -71,20 +72,21 @@ describe('ConversationRelay tool registry', () => {
       expect(names).toHaveLength(7);
     });
 
-    it('registerTool adds a user tool', () => {
+    it('register adds a user tool', () => {
+      const registry = new ToolRegistry(CONVERSATION_RELAY_TOOLS);
       const userTool = defineTool(
         'lookup_order',
         'Fetch order status',
         { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
         async () => ({ status: 'ok' })
       );
-      conversationRelay.registerTool(userTool);
-      const names = conversationRelay.listTools().map(t => t.name);
-      expect(names).toContain('lookup_order');
-      expect(conversationRelay.listTools()).toHaveLength(8);
+      registry.register(userTool);
+      expect(registry.has('lookup_order')).toBe(true);
+      expect(registry.list()).toHaveLength(8);
     });
 
-    it('registerTool overwrites a tool with the same name', () => {
+    it('register overwrites a tool with the same name', () => {
+      const registry = new ToolRegistry(CONVERSATION_RELAY_TOOLS);
       const first = defineTool(
         'custom',
         'first',
@@ -97,38 +99,72 @@ describe('ConversationRelay tool registry', () => {
         { type: 'object' },
         () => ({ which: 'second' })
       );
-      conversationRelay.registerTool(first);
-      conversationRelay.registerTool(second);
-      const tool = conversationRelay.listTools().find(t => t.name === 'custom');
-      expect(tool?.description).toBe('second');
+      registry.register(first);
+      registry.register(second);
+      expect(registry.get('custom')?.description).toBe('second');
     });
 
-    it('unregisterTool removes a built-in tool', () => {
-      conversationRelay.unregisterTool('end_call');
-      const names = conversationRelay.listTools().map(t => t.name);
-      expect(names).not.toContain('end_call');
+    it('unregister removes a built-in tool', () => {
+      const registry = new ToolRegistry(CONVERSATION_RELAY_TOOLS);
+      registry.unregister('end_call');
+      expect(registry.has('end_call')).toBe(false);
+    });
+
+    it('empty construction yields an empty registry', () => {
+      const registry = new ToolRegistry();
+      expect(registry.list()).toHaveLength(0);
+    });
+
+    it('construction from a filtered subset lets callers opt out of built-ins', () => {
+      const registry = new ToolRegistry(CONVERSATION_RELAY_TOOLS.filter(t => t.name !== 'end_call'));
+      expect(registry.has('end_call')).toBe(false);
+      expect(registry.list()).toHaveLength(6);
     });
   });
 
-  describe('executeTool', () => {
+  describe('ConversationRelay.getToolRegistry()', () => {
+    it('returns the default registry populated with CONVERSATION_RELAY_TOOLS', () => {
+      const cr = new ConversationRelay(createTestLogger());
+      const names = cr.getToolRegistry().list().map(t => t.name);
+      expect(names).toHaveLength(7);
+    });
+
+    it('honors a user-supplied registry', () => {
+      const registry = new ToolRegistry();
+      const cr = new ConversationRelay(createTestLogger(), { tools: registry });
+      expect(cr.getToolRegistry()).toBe(registry);
+      expect(cr.getToolRegistry().list()).toHaveLength(0);
+    });
+  });
+
+  describe('ConversationRelaySession.executeTool', () => {
+    let conversationRelay: ConversationRelay;
+    beforeEach(() => {
+      conversationRelay = new ConversationRelay(createTestLogger());
+    });
+
     it('throws on unknown tool name', async () => {
-      await expect(
-        conversationRelay.executeTool('CA_unused' as CallSid, 'nope', {})
-      ).rejects.toThrow('Unknown tool: nope');
+      const ws = createMockWebSocket();
+      conversationRelay.handleConnection(ws);
+      emitSetup(ws, 'CA_unknown_tool');
+      const session = conversationRelay.getSession('CA_unknown_tool' as CallSid)!;
+
+      await expect(session.executeTool('nope', {})).rejects.toThrow('Unknown tool: nope');
     });
 
     it('auto-ships a valid protocol outgoingMessage via the WebSocket', async () => {
       const ws = createMockWebSocket();
       conversationRelay.handleConnection(ws);
       emitSetup(ws, 'CA_auto_ship');
+      const session = conversationRelay.getSession('CA_auto_ship' as CallSid)!;
 
-      const result = (await conversationRelay.executeTool('CA_auto_ship' as CallSid, 'send_digits', {
-        digits: '1234',
-      })) as { success: boolean; outgoingMessage: { type: string; digits: string } };
+      const result = (await session.executeTool('send_digits', { digits: '1234' })) as {
+        success: boolean;
+        outgoingMessage: { type: string; digits: string };
+      };
 
       expect(result.success).toBe(true);
 
-      // The WebSocket should have received the sendDigits frame
       const shippedFrames = ws.send.mock.calls.map((call: unknown[]) =>
         JSON.parse(call[0] as string)
       );
@@ -138,8 +174,6 @@ describe('ConversationRelay tool registry', () => {
     });
 
     it('rejects an invalid outgoingMessage without shipping', async () => {
-      // Inject a logger with a spy on error() so we can assert the diagnostic
-      // alongside the thrown error — breaking either surface should fail this test.
       const errorSpy = vi.fn();
       const loggerWithSpy = Object.assign(pino({ level: 'silent' }), { error: errorSpy });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,21 +185,19 @@ describe('ConversationRelay tool registry', () => {
         { type: 'object' },
         () => ({ outgoingMessage: { type: 'not-a-real-type', payload: 'nope' } })
       );
-      cr.registerTool(badTool);
+      cr.getToolRegistry().register(badTool);
 
       const ws = createMockWebSocket();
       cr.handleConnection(ws);
       emitSetup(ws, 'CA_bad_msg');
+      const session = cr.getSession('CA_bad_msg' as CallSid)!;
 
-      await expect(
-        cr.executeTool('CA_bad_msg' as CallSid, 'bad_protocol', {})
-      ).rejects.toThrow("Tool 'bad_protocol' produced invalid outgoingMessage");
+      await expect(session.executeTool('bad_protocol', {})).rejects.toThrow(
+        "Tool 'bad_protocol' produced invalid outgoingMessage"
+      );
 
-      // Nothing should have been sent after the setup
       expect(ws.send).not.toHaveBeenCalled();
 
-      // The validation error must be logged so invalid protocol frames leave a
-      // trail — silent failures here would be very hard to debug in production.
       expect(errorSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           tool: 'bad_protocol',
@@ -183,20 +215,15 @@ describe('ConversationRelay tool registry', () => {
         { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
         async ({ id }: { id: string }) => ({ id, status: 'shipped' })
       );
-      conversationRelay.registerTool(lookupTool);
+      conversationRelay.getToolRegistry().register(lookupTool);
 
       const ws = createMockWebSocket();
       conversationRelay.handleConnection(ws);
       emitSetup(ws, 'CA_plain_tool');
+      const session = conversationRelay.getSession('CA_plain_tool' as CallSid)!;
 
-      const result = await conversationRelay.executeTool(
-        'CA_plain_tool' as CallSid,
-        'lookup_order',
-        { id: 'ord_42' }
-      );
+      const result = await session.executeTool('lookup_order', { id: 'ord_42' });
       expect(result).toEqual({ id: 'ord_42', status: 'shipped' });
-
-      // No outgoingMessage, so nothing ships after setup
       expect(ws.send).not.toHaveBeenCalled();
     });
   });

@@ -10,7 +10,7 @@ import OpenAI from 'openai';
 import {
   TAC,
   TACConfig,
-  VoiceChannel,
+  ConversationRelayChannel,
   SMSChannel,
   type ConversationId,
   ConversationSession,
@@ -30,16 +30,16 @@ const openai = new OpenAI({
 // Initialize TAC and channels
 const tac = await TAC.create({ config: TACConfig.fromEnv() });
 
-// Active voice mode: construct a ConversationRelay and pass it to VoiceChannel.
-// VoiceChannel handles the CR ↔ Maestro bridge (setup, prompt, interrupt events
-// become unified ChannelMessages). Omit `conversationRelay` for passive mode
-// (webhook-only / BYO-CR).
+// Active voice: construct a ConversationRelay and pass it to
+// ConversationRelayChannel. The channel handles the CR ↔ Maestro bridge
+// (setup, prompt, interrupt events become unified ChannelMessages).
+// Passive Maestro voice (webhook-only / BYO-CR) would use VoiceChannel instead.
 const conversationRelay = new ConversationRelay(tac.logger.child({ component: 'crelay' }));
-const voiceChannel = new VoiceChannel(tac.getChannelDeps(), { conversationRelay });
+const crChannel = new ConversationRelayChannel(tac.getChannelDeps(), { conversationRelay });
 const smsChannel = new SMSChannel(tac.getChannelDeps());
 
 // Register channels
-tac.registerChannel(voiceChannel);
+tac.registerChannel(crChannel);
 tac.registerChannel(smsChannel);
 
 // Store conversation history per conversation
@@ -172,7 +172,7 @@ async function dispatchVoiceToolCalls(
     if (!call.name) continue;
     try {
       const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
-      await voiceChannel.executeTool(convId, call.name, args);
+      await crChannel.executeTool(convId, call.name, args);
     } catch (err) {
       console.error(`Tool execution failed (${call.name}):`, err);
     }
@@ -188,7 +188,7 @@ async function handleVoiceMessage(
   // Discover voice tools via the uniform Channel surface. Includes CR built-ins
   // (playMedia, sendDigits, switchLanguage, endCall) plus any user-registered tools.
   // toOpenAIFormat() returns Record<string, unknown>; cast for OpenAI's typed slot.
-  const tools = voiceChannel
+  const tools = crChannel
     .listTools()
     .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
 
@@ -213,12 +213,12 @@ async function handleVoiceMessage(
       const token = delta?.content || '';
       if (token) {
         fullResponse += token;
-        await voiceChannel.sendResponse(convId, token, { last: false });
+        await crChannel.sendResponse(convId, token, { last: false });
       }
       accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
     }
     // Final empty token signals completion to TTS
-    await voiceChannel.sendResponse(convId, '', { last: true });
+    await crChannel.sendResponse(convId, '', { last: true });
   } catch (err) {
     // OpenAI SDK throws AbortError when the signal fires — that's the
     // interruption path and is a clean exit, not a failure.
@@ -262,7 +262,7 @@ tac.onMessageReady(async msg => {
   // Without the rewrite, the next prompt carries text the caller never received
   // and multi-turn accuracy degrades fast.
   if (
-    msg.channel === 'voice' &&
+    msg.channel === 'crelay' &&
     msg.messageType === 'system' &&
     (msg.metadata as { type?: string } | undefined)?.type === 'interrupt'
   ) {
@@ -306,7 +306,7 @@ tac.onMessageReady(async msg => {
       ...conversationMessages[convIdStr],
     ];
 
-    if (msg.channel === 'voice') {
+    if (msg.channel === 'crelay') {
       const controller = new AbortController();
       voiceStreams.set(convIdStr, controller);
       try {
@@ -351,8 +351,8 @@ const crServer = new ConversationRelayServer(conversationRelay, {
     ttsProvider: 'ElevenLabs',
     voice: 'jqcCZkN6Knx8BJ5TBdYR',
   },
-  onIncomingCall: input => voiceChannel.createConversationForCall(input),
-  onConversationRelayCallback: payload => voiceChannel.handleConversationRelayCallback(payload),
+  onIncomingCall: input => crChannel.createConversationForCall(input),
+  onConversationRelayCallback: payload => crChannel.handleConversationRelayCallback(payload),
   development: true,
 });
 

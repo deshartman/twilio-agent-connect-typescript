@@ -2,13 +2,13 @@ import { z } from 'zod';
 export { z } from 'zod';
 import pino from 'pino';
 import { AxiosInstance } from 'axios';
-import { WebSocket } from 'ws';
+import { WebSocket, RawData } from 'ws';
 import { FastifyServerOptions, FastifyInstance } from 'fastify';
 
 /**
  * Channel types supported by the framework
  */
-declare const ChannelTypeSchema: z.ZodEnum<["sms", "voice", "chat"]>;
+declare const ChannelTypeSchema: z.ZodEnum<["sms", "voice", "chat", "crelay"]>;
 type ChannelType = z.infer<typeof ChannelTypeSchema>;
 /**
  * TAC configuration schema
@@ -782,7 +782,7 @@ type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSumm
 /**
  * Session Types
  *
- * Session abstractions for Maestro-backed channels (voice / SMS / chat).
+ * Session abstractions for Maestro-backed channels (voice / crelay / SMS / chat).
  * `ConversationId` is the canonical session key across all TAC channels —
  * this is the unified-identity model this branch's refactor standardises on.
  */
@@ -791,8 +791,8 @@ type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSumm
  * Base session context for a TAC channel session.
  *
  * `conversationId` is always a Maestro ConversationId — the single session key
- * shared across voice, SMS and chat. If you need raw-CallSid sessions (standalone
- * ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
+ * shared across voice, crelay, SMS and chat. If you need raw-CallSid sessions
+ * (standalone ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
  * directly — it ships its own `CallSid` branded type and does not use this interface.
  */
 interface SessionContext {
@@ -1807,7 +1807,7 @@ type MemoryStoreId = string & {
  */
 declare const ConversationSessionSchema: z.ZodObject<{
     conversationId: z.ZodString;
-    channel: z.ZodEnum<["sms", "voice", "chat"]>;
+    channel: z.ZodEnum<["sms", "voice", "chat", "crelay"]>;
     startedAt: z.ZodDate;
     metadata: z.ZodDefault<z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>>;
     profileId: z.ZodOptional<z.ZodString>;
@@ -1824,7 +1824,7 @@ declare const ConversationSessionSchema: z.ZodObject<{
     }>>;
     profile: z.ZodOptional<z.ZodType<Profile, z.ZodTypeDef, Profile>>;
 }, "strip", z.ZodTypeAny, {
-    channel: "sms" | "voice" | "chat";
+    channel: "sms" | "voice" | "chat" | "crelay";
     conversationId: string;
     startedAt: Date;
     metadata: Record<string, unknown>;
@@ -1836,7 +1836,7 @@ declare const ConversationSessionSchema: z.ZodObject<{
     } | undefined;
     profile?: Profile | undefined;
 }, {
-    channel: "sms" | "voice" | "chat";
+    channel: "sms" | "voice" | "chat" | "crelay";
     conversationId: string;
     startedAt: Date;
     metadata?: Record<string, unknown> | undefined;
@@ -2822,8 +2822,8 @@ interface SilenceHandlerConfig {
  *   {
  *     thresholdSeconds: 20,
  *     reminders: ['Are you still there?', 'Hello? Can you hear me?'],
- *     onReminder: (reminder) => cr.sendText(callSid, reminder),
- *     onTerminate: () => cr.endCall(callSid),
+ *     onReminder: (reminder) => session.sendText(reminder),
+ *     onTerminate: () => session.endCall(),
  *   },
  *   logger
  * );
@@ -2866,6 +2866,84 @@ declare class SilenceHandler {
     isActive(): boolean;
     private startTimer;
     private clearTimer;
+}
+
+/**
+ * CR Tool definition helpers.
+ *
+ * Vendored locally so the ConversationRelay package stays free of any
+ * dependency on @twilio/tac-tools. CR tools are only invoked by CR itself.
+ */
+
+declare const JSONSchemaSchema$1: z.ZodObject<{
+    type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
+    properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+    required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    items: z.ZodOptional<z.ZodAny>;
+    enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
+    description: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}>;
+type JSONSchema$1 = z.infer<typeof JSONSchemaSchema$1>;
+type ToolFunction$1<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
+/**
+ * ConversationRelay tool with LLM-format conversion helpers.
+ */
+declare class ConversationRelayTool<TParams = unknown, TResult = unknown> {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: JSONSchema$1;
+    readonly implementation: ToolFunction$1<TParams, TResult>;
+    constructor(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>);
+    toOpenAIFormat(): Record<string, unknown>;
+    toAnthropicFormat(): Record<string, unknown>;
+    toJSON(): string;
+}
+
+/**
+ * ToolRegistry — named lookup for ConversationRelay tools.
+ *
+ * Tools are not part of the Twilio ConversationRelay wire protocol; they are a
+ * separate concern shared by every active session. One `ToolRegistry` instance
+ * is passed to a `ConversationRelay` at construction, and `ConversationRelay`
+ * hands the same reference to each `ConversationRelaySession`. Registering a
+ * tool makes it available to every in-flight call immediately.
+ */
+
+/**
+ * Named-lookup container for `ConversationRelayTool` instances. Later registrations overwrite
+ * earlier ones with the same name (last-write-wins). Ownership is by reference
+ * — `ConversationRelaySession` reads from the shared instance.
+ */
+declare class ToolRegistry {
+    private readonly tools;
+    constructor(initial?: readonly ConversationRelayTool[]);
+    /** Register a tool. Overwrites any tool previously registered under the same name. */
+    register(tool: ConversationRelayTool): void;
+    /** Remove a tool by name. No-op if no tool by that name was registered. */
+    unregister(name: string): void;
+    /** Whether a tool with the given name is registered. */
+    has(name: string): boolean;
+    /** Fetch a registered tool by name, or `undefined` if not registered. */
+    get(name: string): ConversationRelayTool | undefined;
+    /**
+     * All registered tools, in registration order. Feed the results into the
+     * LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+     */
+    list(): ConversationRelayTool[];
 }
 
 /**
@@ -3008,6 +3086,110 @@ declare const InfoMessageSchema: z.ZodObject<{
     info?: Record<string, unknown> | undefined;
 }>;
 type InfoMessage = z.infer<typeof InfoMessageSchema>;
+/**
+ * Union of all incoming WebSocket message types
+ */
+declare const WebSocketMessageSchema: z.ZodDiscriminatedUnion<"type", [z.ZodObject<{
+    type: z.ZodLiteral<"setup">;
+    sessionId: z.ZodString;
+    callSid: z.ZodString;
+    parentCallSid: z.ZodOptional<z.ZodString>;
+    from: z.ZodString;
+    to: z.ZodString;
+    forwardedFrom: z.ZodOptional<z.ZodString>;
+    callerName: z.ZodOptional<z.ZodString>;
+    direction: z.ZodString;
+    callType: z.ZodString;
+    callStatus: z.ZodString;
+    accountSid: z.ZodString;
+    customParameters: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    type: "setup";
+    accountSid: string;
+    direction: string;
+    from: string;
+    to: string;
+    sessionId: string;
+    callSid: string;
+    callType: string;
+    callStatus: string;
+    parentCallSid?: string | undefined;
+    forwardedFrom?: string | undefined;
+    callerName?: string | undefined;
+    customParameters?: Record<string, string> | undefined;
+}, {
+    type: "setup";
+    accountSid: string;
+    direction: string;
+    from: string;
+    to: string;
+    sessionId: string;
+    callSid: string;
+    callType: string;
+    callStatus: string;
+    parentCallSid?: string | undefined;
+    forwardedFrom?: string | undefined;
+    callerName?: string | undefined;
+    customParameters?: Record<string, string> | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"prompt">;
+    voicePrompt: z.ZodString;
+    lang: z.ZodOptional<z.ZodString>;
+    last: z.ZodOptional<z.ZodBoolean>;
+    agentSpeaking: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "prompt";
+    voicePrompt: string;
+    lang?: string | undefined;
+    last?: boolean | undefined;
+    agentSpeaking?: string | undefined;
+}, {
+    type: "prompt";
+    voicePrompt: string;
+    lang?: string | undefined;
+    last?: boolean | undefined;
+    agentSpeaking?: string | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"interrupt">;
+    utteranceUntilInterrupt: z.ZodOptional<z.ZodString>;
+    durationUntilInterruptMs: z.ZodOptional<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    type: "interrupt";
+    utteranceUntilInterrupt?: string | undefined;
+    durationUntilInterruptMs?: number | undefined;
+}, {
+    type: "interrupt";
+    utteranceUntilInterrupt?: string | undefined;
+    durationUntilInterruptMs?: number | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"dtmf">;
+    digit: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    type: "dtmf";
+    digit: string;
+}, {
+    type: "dtmf";
+    digit: string;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"info">;
+    info: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+}, "strip", z.ZodTypeAny, {
+    type: "info";
+    info?: Record<string, unknown> | undefined;
+}, {
+    type: "info";
+    info?: Record<string, unknown> | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"error">;
+    description: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "error";
+    description?: string | undefined;
+}, {
+    type: "error";
+    description?: string | undefined;
+}>]>;
+type WebSocketMessage = z.infer<typeof WebSocketMessageSchema>;
 /**
  * Union of all outgoing WebSocket message types
  */
@@ -3286,104 +3468,27 @@ declare const ConversationRelayCallbackPayloadSchema: z.ZodObject<{
     HandoffData?: string | undefined;
 }>;
 type ConversationRelayCallbackPayload = z.infer<typeof ConversationRelayCallbackPayloadSchema>;
-/**
- * CR-only session data — no Maestro concepts (no profileId, no conversationId).
- * Tracks the state of a single ConversationRelay WebSocket connection.
- */
-interface CRelaySession {
-    callSid: CallSid;
-    from: string;
-    to: string;
-    startedAt: Date;
-    customParameters?: Record<string, string> | undefined;
-    /**
-     * When true, `sendResponse` / `sendPlay` / `switchLanguage` are suppressed
-     * for this session — the agent listens but does not speak. `sendDigits`
-     * and `endCall` are never suppressed (DTMF navigation and termination
-     * must always work). Toggle via `ConversationRelay.setListenMode` or the
-     * `set_listen_mode` built-in tool.
-     */
-    listenMode: boolean;
-    /**
-     * Count of outgoing protocol messages suppressed by listen-mode on this
-     * session. Test-observable; not intended for production logic.
-     */
-    suppressedCount: number;
-    /**
-     * Per-session silence handler. Present only if `silence` config was passed
-     * to the `ConversationRelay` constructor. Lifetime = session lifetime; CR
-     * calls `reset()` on signal-of-life events and `stop()` on WS close.
-     */
-    silenceHandler?: SilenceHandler | undefined;
-}
 
 /**
- * CR Tool definition helpers.
+ * ConversationRelaySession — one WebSocket, one session.
  *
- * Vendored locally so the ConversationRelay package stays free of any
- * dependency on @twilio/tac-tools. CR tools are only invoked by CR itself.
- */
-
-declare const JSONSchemaSchema$1: z.ZodObject<{
-    type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
-    properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
-    required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    items: z.ZodOptional<z.ZodAny>;
-    enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
-    description: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "string" | "number" | "boolean" | "object" | "array";
-    description?: string | undefined;
-    properties?: Record<string, any> | undefined;
-    required?: string[] | undefined;
-    items?: any;
-    enum?: any[] | undefined;
-}, {
-    type: "string" | "number" | "boolean" | "object" | "array";
-    description?: string | undefined;
-    properties?: Record<string, any> | undefined;
-    required?: string[] | undefined;
-    items?: any;
-    enum?: any[] | undefined;
-}>;
-type JSONSchema$1 = z.infer<typeof JSONSchemaSchema$1>;
-type ToolFunction$1<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
-/**
- * ConversationRelay tool with LLM-format conversion helpers.
- */
-declare class CRTool<TParams = unknown, TResult = unknown> {
-    readonly name: string;
-    readonly description: string;
-    readonly parameters: JSONSchema$1;
-    readonly implementation: ToolFunction$1<TParams, TResult>;
-    constructor(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>);
-    toOpenAIFormat(): Record<string, unknown>;
-    toAnthropicFormat(): Record<string, unknown>;
-    toJSON(): string;
-}
-
-/**
- * ConversationRelay — Twilio ConversationRelay Voice Handler
+ * Owns everything previously keyed by CallSid on the old `ConversationRelay`
+ * singleton: the `ws` handle, session identity (callSid/from/to/startedAt/
+ * customParameters), listen-mode + suppressed-count, the per-session
+ * `SilenceHandler`, the `pendingTerminalMessage` deferral slot, and the
+ * reference to the shared `ToolRegistry`. All public methods operate on
+ * `this` — callers never thread a CallSid through.
  *
- * Owns ALL ConversationRelay protocol logic:
- * - WebSocket connection management and message routing
- * - Session lifecycle (CRelaySession per CallSid)
- * - Event callbacks aligned with the CR protocol
- * - TwiML generation for <ConversationRelay> noun
- * - Response sending via WebSocket
- *
- * NO dependency on @twilio/tac-core — completely standalone.
+ * Owned by `ConversationRelay` (one per WebSocket upgrade). Constructed on
+ * the first `setup` frame; destroyed on WS close.
  */
 
 /**
- * Silence-handling config supplied at `ConversationRelay` construction.
- * Absent = silence handling disabled (no per-session handler constructed).
- * Present = a `SilenceHandler` is constructed for each session on setup,
- * using this as a template.
- *
- * Reminder sequence is always `['Are you still there?', ...additionalPrompts]`.
- * The terminal reminder's breach ends the call via `endCall` with
- * `{ reasonCode: 'unresponsive', reason: 'The caller was not speaking' }`.
+ * Silence-handling config supplied at `ConversationRelay` construction and
+ * forwarded to each session. Absent = silence handling disabled for the
+ * session (no `SilenceHandler` constructed). Reminder sequence is always
+ * `['Are you still there?', ...additionalPrompts]`; the terminal reminder's
+ * breach ends the call via `endCall` with `{ reasonCode: 'unresponsive' }`.
  */
 interface SilenceConfig {
     /** Seconds of silence before a reminder fires. Default: 20. */
@@ -3392,177 +3497,210 @@ interface SilenceConfig {
     additionalPrompts?: [string] | [string, string];
 }
 /**
- * Optional config for `new ConversationRelay(logger, config)`.
+ * Callbacks the manager supplies so the session can fan events out to
+ * subscribers without importing the manager class (keeps the session
+ * free of circular deps).
  */
-interface ConversationRelayConstructorConfig {
-    silence?: SilenceConfig;
+interface SessionCallbacks {
+    onPrompt?: (session: ConversationRelaySession, message: string, data: unknown) => void;
+    onInterrupt?: (session: ConversationRelaySession, data: unknown) => void;
+    onDtmf?: (session: ConversationRelaySession, data: unknown) => void;
+    onInfo?: (session: ConversationRelaySession, data: unknown) => void;
+    onError?: (session: ConversationRelaySession, error: Error) => void;
 }
-type SessionStartedCallback = (callSid: CallSid, session: CRelaySession, data: SetupMessage) => void;
-type PromptCallback = (callSid: CallSid, message: string, data: PromptMessage) => void;
-type InterruptCallback = (callSid: CallSid, data: InterruptMessage) => void;
-type DtmfCallback = (callSid: CallSid, data: DtmfMessage) => void;
-type InfoCallback = (callSid: CallSid, data: InfoMessage) => void;
-type SessionEndedCallback = (callSid: CallSid) => void;
-type ErrorCallback$1 = (callSid: CallSid, error: Error) => void;
-/**
- * ConversationRelay — Twilio ConversationRelay voice handler
- *
- * Manages WebSocket connections, session lifecycle, and event routing
- * for the Twilio ConversationRelay protocol.
- */
-declare class ConversationRelay {
+interface ConversationRelaySessionOptions {
+    ws: WebSocket;
+    setup: SetupMessage;
+    toolRegistry: ToolRegistry;
+    logger: Logger$1;
+    silenceTemplate?: SilenceConfig | undefined;
+    callbacks: SessionCallbacks;
+}
+declare class ConversationRelaySession {
+    readonly callSid: CallSid;
+    readonly from: string;
+    readonly to: string;
+    readonly startedAt: Date;
+    readonly customParameters: Record<string, string> | undefined;
+    private readonly ws;
     private readonly logger;
-    private readonly connections;
-    private readonly sessions;
-    private readonly tools;
-    private readonly silenceTemplate;
+    private readonly toolRegistry;
     private readonly callbacks;
-    constructor(logger?: Logger$1, config?: ConversationRelayConstructorConfig);
-    /** Register callback for session started (setup message received) */
-    onSessionStarted(callback: SessionStartedCallback): void;
-    /** Register callback for user prompt (transcribed speech from the caller) */
-    onPrompt(callback: PromptCallback): void;
-    /** Register callback for user interrupt */
-    onInterrupt(callback: InterruptCallback): void;
-    /** Register callback for DTMF input (placeholder) */
-    onDtmf(callback: DtmfCallback): void;
-    /** Register callback for info events (placeholder) */
-    onInfo(callback: InfoCallback): void;
-    /** Register callback for session ended (WebSocket closed) */
-    onSessionEnded(callback: SessionEndedCallback): void;
-    /** Register callback for errors */
-    onError(callback: ErrorCallback$1): void;
-    /** Register an additional tool. Overwrites any tool with the same name. */
-    registerTool(tool: CRTool): void;
-    /** Unregister a tool by name. */
-    unregisterTool(name: string): void;
+    private _listenMode;
+    private _suppressedCount;
+    private readonly _silenceHandler;
     /**
-     * List all registered tools (built-in protocol tools + user-registered).
-     * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+     * Terminal `OutgoingMessage` (currently only `type: 'end'`) deferred until
+     * the next `sendText(..., last: true)` flush. This gives the LLM's
+     * streaming farewell a chance to reach TTS before Twilio hangs up —
+     * today's race produces mid-sentence cutoffs.
      */
-    listTools(): CRTool[];
+    private pendingTerminalMessage;
+    constructor(opts: ConversationRelaySessionOptions);
+    isListenMode(): boolean;
+    getSuppressedMessageCount(): number;
+    get silenceHandler(): SilenceHandler | undefined;
     /**
-     * Execute a registered tool by name. The tool result may trigger side
-     * effects on CR via one of three result-convention fields:
-     *
-     *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
-     *     `sendResponse` (used by playMediaTool, sendDigitsTool,
-     *     switchLanguageTool, endCallTool, liveAgentHandoffTool).
-     *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
-     *     (used by setListenModeTool).
-     *   - `silenceEnabled: boolean` — applied via
-     *     `session.silenceHandler.setEnabled(...)` (on enable, also resets
-     *     the timer). Used by setSilenceDetectionTool. No-op (with debug
-     *     log) for sessions without a silence handler.
-     *
-     * The tool result is returned so the caller can feed it back to the LLM
-     * loop. Tools that need no side effect return their own plain result.
-     *
-     * @throws if the tool is not registered or if an `outgoingMessage` fails
-     *   schema validation.
+     * Dispatch a validated incoming frame (post-setup) to the session.
+     * The manager owns `ws.on('message')` and does schema validation; this
+     * method fans out to callbacks and resets the silence timer on signal-
+     * of-life events.
      */
-    executeTool(callSid: CallSid, name: string, args: unknown): Promise<unknown>;
+    handleIncomingFrame(message: WebSocketMessage): void;
     /**
-     * Handle incoming WebSocket connection from Twilio ConversationRelay.
-     * Extracts CallSid from setup message and routes subsequent messages.
+     * Toggle listen-mode. When enabled, outgoing speech-equivalent messages
+     * (`text`, `play`, `language`) are suppressed; DTMF and end-call still work.
+     * Also interlocks with the silence handler: enabling listen-mode pauses
+     * silence monitoring; disabling re-enables and resets from zero.
      */
-    handleConnection(ws: WebSocket): void;
-    /** Get session for a CallSid */
-    getSession(callSid: CallSid): CRelaySession | undefined;
-    /** Check if a session exists for a CallSid */
-    hasSession(callSid: CallSid): boolean;
+    setListenMode(enabled: boolean): void;
     /**
-     * Toggle listen-mode for a session. When enabled, outgoing speech-equivalent
-     * messages (`text`, `play`, `language`) are suppressed for this CallSid;
-     * DTMF and end-call still work. Typical use: outbound IVR navigation where
-     * the agent listens for a human before speaking.
-     *
-     * No-op (with a debug log) if no session exists for the CallSid — common
-     * during call-end races.
+     * Ship a validated `OutgoingMessage` to Twilio via this session's ws.
+     * Listen-mode gating: when enabled, `text`/`play`/`language` are suppressed
+     * and `suppressedCount` is incremented. `sendDigits` and `end` are never
+     * suppressed.
      */
-    setListenMode(callSid: CallSid, enabled: boolean): void;
-    /** Whether listen-mode is active for a CallSid. False if no session exists. */
-    isListenMode(callSid: CallSid): boolean;
+    sendResponse(message: OutgoingMessage): void;
     /**
-     * Count of messages suppressed by listen-mode on this session. Returns 0
-     * for unknown CallSids. Primarily for tests and diagnostics.
+     * Send a text token to Twilio TTS. When `last` is true and a terminal
+     * frame is stashed (from a prior `executeTool`), flush the terminal
+     * *after* the text. Listen-mode suppression still applies to the text
+     * frame; the terminal frame (`end`) is never suppressed and always fires.
      */
-    getSuppressedMessageCount(callSid: CallSid): number;
-    /**
-     * Send a message to Twilio ConversationRelay via the session's WebSocket.
-     * This is the single path back to Twilio for every outgoing protocol
-     * frame — text tokens, play (media URL), sendDigits (DTMF), language
-     * (TTS/STT switch), end (hang up).
-     *
-     * Listen-mode gating: when the session has listen-mode enabled, outgoing
-     * speech-equivalent frames (`text`, `play`, `language`) are suppressed
-     * and the session's `suppressedCount` is incremented. `sendDigits` and
-     * `end` are never suppressed — DTMF navigation and termination must
-     * always work.
-     *
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#sending-messages-to-twilio
-     */
-    sendResponse(callSid: CallSid, message: OutgoingMessage): void;
-    /**
-     * Send a text token to Twilio TTS.
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-message
-     */
-    sendText(callSid: CallSid, token: string, last?: boolean): void;
-    /**
-     * Send DTMF digits to the caller. Supports 0-9, `w` (500ms pause), `*`, `#`.
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
-     */
-    sendDigits(callSid: CallSid, digits: string): void;
-    /**
-     * Play media from a URL to the caller.
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
-     */
-    sendPlay(callSid: CallSid, source: string, options?: {
+    sendText(token: string, last?: boolean): void;
+    sendDigits(digits: string): void;
+    sendPlay(source: string, options?: {
         loop?: number;
         interruptible?: boolean;
         preemptible?: boolean;
     }): void;
-    /**
-     * Switch TTS or transcription language mid-call.
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
-     */
-    switchLanguage(callSid: CallSid, options: {
+    switchLanguage(options: {
         ttsLanguage?: string;
         transcriptionLanguage?: string;
     }): void;
     /**
-     * End the call with optional handoff data. Twilio expects `handoffData` as
-     * a JSON string — the object is stringified here so callers pass a plain
-     * object.
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
+     * End the call with optional handoff data. Bypasses terminal deferral —
+     * callers who invoke this directly are asking for immediate hangup.
      */
-    endCall(callSid: CallSid, handoffData?: Record<string, unknown>): void;
+    endCall(handoffData?: Record<string, unknown>): void;
+    /**
+     * Execute a registered tool against this session. Result conventions:
+     *
+     *   - `outgoingMessage`: validated and shipped. Terminal `type: 'end'`
+     *     frames are stashed for deferred flush after the next
+     *     `sendText(..., last: true)` — this prevents Twilio from hanging up
+     *     mid-farewell. All other types ship immediately.
+     *   - `listenMode: boolean`: applied via `setListenMode`.
+     *   - `silenceEnabled: boolean`: applied against the per-session silence
+     *     handler (on enable, also resets the timer). No-op for sessions
+     *     without a silence handler.
+     *
+     * @throws if the tool is not registered or produces an invalid
+     *   `outgoingMessage`.
+     */
+    executeTool(name: string, args: unknown): Promise<unknown>;
+    private applyOutgoingMessageConvention;
+    private applyListenModeConvention;
+    private applySilenceConvention;
+    /**
+     * Handle ws close. Stops the silence handler. The manager handles
+     * registry removal and `onSessionEnded` callback dispatch.
+     */
+    handleClose(): void;
+    /** Force-close the ws. Used by `ConversationRelay.shutdown()`. */
+    close(): void;
+    /** Read-only access to the raw ws — for diagnostics / tests. */
+    getWebSocket(): WebSocket;
+    /** @internal Used by the manager to detect non-Buffer frames in the raw listener. */
+    static isBuffer(data: RawData): data is Buffer;
+    private buildSilenceHandler;
+}
+
+/**
+ * ConversationRelay — Twilio ConversationRelay protocol manager.
+ *
+ * Holds only what is genuinely shared across sessions or lifecycle-external:
+ *   - `sessions: Map<CallSid, ConversationRelaySession>` — directory for
+ *     out-of-band lookup (status callbacks, shutdown).
+ *   - `toolRegistry: ToolRegistry` — tool definitions shared by every
+ *     active call; registering a tool makes it available to all sessions.
+ *   - `silenceTemplate?: SilenceConfig` — blueprint copied into each
+ *     session's `SilenceHandler` on setup.
+ *   - `callbacks` — subscriber fan-out registered by consumers
+ *     (`ConversationRelayChannel` or standalone apps).
+ *   - TwiML generation.
+ *
+ * The manager owns `ws.on('message' | 'close' | 'error')` for every
+ * upgrade. On the first `setup` frame it constructs a
+ * `ConversationRelaySession`, registers it, fires `onSessionStarted`, and
+ * forwards subsequent frames to `session.handleIncomingFrame(...)`. No
+ * listener transfer — one set of ws handlers, owned by the manager.
+ *
+ * NO dependency on @twilio/tac-core — completely standalone.
+ */
+
+/**
+ * Optional config for `new ConversationRelay(logger, config)`.
+ *
+ * - `silence`: enables per-session silence monitoring with the supplied
+ *   threshold + additional prompts. Omit to disable silence handling entirely.
+ * - `tools`: the shared `ToolRegistry`. Omit for a default registry populated
+ *   with the seven `CONVERSATION_RELAY_TOOLS` built-ins.
+ */
+interface ConversationRelayConstructorConfig {
+    silence?: SilenceConfig;
+    tools?: ToolRegistry;
+}
+type SessionStartedCallback = (session: ConversationRelaySession, data: SetupMessage) => void;
+type PromptCallback = (session: ConversationRelaySession, message: string, data: PromptMessage) => void;
+type InterruptCallback = (session: ConversationRelaySession, data: InterruptMessage) => void;
+type DtmfCallback = (session: ConversationRelaySession, data: DtmfMessage) => void;
+type InfoCallback = (session: ConversationRelaySession, data: InfoMessage) => void;
+type SessionEndedCallback = (session: ConversationRelaySession) => void;
+type ErrorCallback$1 = (session: ConversationRelaySession, error: Error) => void;
+declare class ConversationRelay {
+    private readonly logger;
+    private readonly sessions;
+    private readonly toolRegistry;
+    private readonly silenceTemplate;
+    private readonly callbacks;
+    constructor(logger?: Logger$1, config?: ConversationRelayConstructorConfig);
+    onSessionStarted(callback: SessionStartedCallback): void;
+    onPrompt(callback: PromptCallback): void;
+    onInterrupt(callback: InterruptCallback): void;
+    onDtmf(callback: DtmfCallback): void;
+    onInfo(callback: InfoCallback): void;
+    onSessionEnded(callback: SessionEndedCallback): void;
+    onError(callback: ErrorCallback$1): void;
+    /**
+     * The shared tool registry. `ConversationRelayChannel` forwards `listTools()`
+     * to this; standalone apps can read/register tools here before wiring the
+     * CR server.
+     */
+    getToolRegistry(): ToolRegistry;
+    /**
+     * Handle incoming WebSocket connection from Twilio ConversationRelay.
+     * The manager owns `ws.on(...)` for the lifetime of the session. On the
+     * first `setup` frame, we construct a `ConversationRelaySession` and
+     * forward subsequent frames to it.
+     */
+    handleConnection(ws: WebSocket): void;
+    private createSession;
+    /** Fetch the active session for a CallSid, or `undefined` if none. */
+    getSession(callSid: CallSid): ConversationRelaySession | undefined;
+    /** Whether an active session exists for a CallSid. */
+    hasSession(callSid: CallSid): boolean;
     /**
      * Generate TwiML for a ConversationRelay connection.
      *
-     * Produces a <Response><Connect><ConversationRelay> TwiML document
-     * with optional <Parameter> child elements and <Language> configurations.
+     * Produces a <Response><Connect><ConversationRelay> document with optional
+     * <Parameter> child elements and <Language> configurations.
      */
     generateTwiML(config: ConversationRelayConfig, parameters?: CustomParameters, options?: {
         actionUrl?: string;
     }): string;
-    /** Get WebSocket connection for a CallSid */
-    getWebSocket(callSid: CallSid): WebSocket | null;
-    /** Close a specific connection */
-    closeConnection(callSid: CallSid): void;
-    /** Shutdown — close all connections */
+    /** Close every session's ws and clear the registry. */
     shutdown(): void;
-    /**
-     * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
-     * on CR `setup`. The handler's callbacks close over the CallSid:
-     * `onReminder` routes each reminder through `sendText` (which is gated by
-     * listen-mode, though listen-mode also disables this handler entirely),
-     * and `onTerminate` hangs up via `endCall`.
-     */
-    private createSilenceHandler;
-    /**
-     * Filter undefined/null values from object for clean TwiML attributes
-     */
     private static filterUnsetValues;
 }
 
@@ -3628,9 +3766,9 @@ interface ConversationRelayServerConfig {
      *     normal call-completed path).
      *
      * Integrated mode: wire to
-     * `voiceChannel.handleConversationRelayCallback(payload, handoffHandler)`
-     * — VoiceChannel closes the Maestro conversation on `completed` and
-     * delegates handoffs to your handler.
+     * `conversationRelayChannel.handleConversationRelayCallback(payload, handoffHandler)`
+     * — `ConversationRelayChannel` closes the Maestro conversation on `completed`
+     * and delegates handoffs to your handler.
      *
      * Standalone mode: omit — the route replies 200 OK no-op and call-end is
      * observable via the CR `onSessionEnded` event subscription.
@@ -3769,17 +3907,19 @@ interface Channel {
     shutdown(): void;
     /**
      * List all tools registered on this channel (for LLM discovery).
-     * Feed the results into your LLM via `tool.toOpenAIFormat()` / `toAnthropicFormat()`.
+     * Optional — only channels with outbound capability (SMS, Chat,
+     * ConversationRelayChannel) implement tool dispatch. Passive VoiceChannel
+     * has no outbound path and omits this.
      */
-    listTools(): CRTool[];
+    listTools?(): ConversationRelayTool[];
     /**
      * Register an additional tool on this channel. Overwrites any tool with the same name.
      */
-    registerTool(tool: CRTool): void;
+    registerTool?(tool: ConversationRelayTool): void;
     /**
      * Execute a registered tool by name.
      *
-     * VoiceChannel (active mode) auto-ships any `outgoingMessage` the tool produces
+     * ConversationRelayChannel auto-ships any `outgoingMessage` the tool produces
      * via the CR WebSocket. Other channels simply invoke the tool's implementation.
      *
      * @param conversationId - Conversation identifier to scope the execution
@@ -3787,13 +3927,13 @@ interface Channel {
      * @param args - Arguments forwarded to the tool's implementation
      * @returns The tool's result (to feed back to the LLM loop)
      */
-    executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    executeTool?(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Process a Maestro Conversations Service webhook payload.
      *
-     * Optional because some channels (e.g. an active-only VoiceChannel with CR
-     * strapped in) don't consume webhooks directly. The server fans out every
-     * incoming webhook to all registered channels via
+     * Optional because some channels (e.g. `ConversationRelayChannel`) don't
+     * consume Maestro webhooks directly. The server fans out every incoming
+     * webhook to all registered channels via
      * `channel.processWebhook?.(body, idempotencyToken)`; channels that don't
      * implement it simply ignore the event.
      *
@@ -4894,8 +5034,8 @@ declare class TAC {
      */
     createMemoryRetriever(): MemoryRetriever;
     /**
-     * Get channel dependencies for creating channels (VoiceChannel, SMSChannel, ChatChannel).
-     * Returns all dependencies needed to construct a channel.
+     * Get channel dependencies for creating channels (VoiceChannel, ConversationRelayChannel,
+     * SMSChannel, ChatChannel). Returns all dependencies needed to construct a channel.
      */
     getChannelDeps(): {
         config: TACConfig;
@@ -4977,8 +5117,8 @@ declare class SMSChannel implements Channel {
     isConversationActive(conversationId: ConversationId): boolean;
     on(event: string, callback: (...args: any[]) => void): void;
     shutdown(): void;
-    listTools(): CRTool[];
-    registerTool(tool: CRTool): void;
+    listTools(): ConversationRelayTool[];
+    registerTool(tool: ConversationRelayTool): void;
     executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Process an SMS webhook event from Twilio Conversation Orchestrator.
@@ -5043,8 +5183,8 @@ declare class ChatChannel implements Channel {
     isConversationActive(conversationId: ConversationId): boolean;
     on(event: string, callback: (...args: any[]) => void): void;
     shutdown(): void;
-    listTools(): CRTool[];
-    registerTool(tool: CRTool): void;
+    listTools(): ConversationRelayTool[];
+    registerTool(tool: ConversationRelayTool): void;
     executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Process a Chat webhook event from Twilio Conversation Orchestrator.
@@ -5064,63 +5204,33 @@ declare class ChatChannel implements Channel {
 }
 
 /**
- * VoiceChannel — CR + Maestro voice channel
+ * VoiceChannel — passive Maestro voice channel.
  *
- * Handles voice conversations using ConversationRelay WebSocket protocol
- * WITH full Maestro Conversations Service integration. Always has ConversationClient.
- * Uses ConversationRelay from the CR package for WebSocket protocol handling.
+ * Consumes voice-channel Conversation Orchestrator (Maestro) webhooks and
+ * emits unified `ChannelMessage`s like SMS/Chat. Use for BYO-CR flows,
+ * inbound-analysis pipelines, or any voice path where this service
+ * does not own the CR WebSocket.
  *
- * All CR events are emitted as unified 'message' events with conversation bundle.
+ * Outbound voice is **not supported** here — Maestro's Actions API rejects
+ * `channel: 'VOICE'`. For active voice (agent speaks over a CR WS), use
+ * `ConversationRelayChannel` in `./crelay.ts`.
+ *
+ * Zero dependency on `@twilio/tac-conversationrelay` — that boundary is
+ * owned exclusively by `ConversationRelayChannel`.
  */
 
-/**
- * VoiceChannel construction options.
- */
 interface VoiceChannelConfig {
-    /**
-     * ConversationRelay instance. When provided, VoiceChannel runs in **active** mode:
-     *   - WebSocket events (prompt, interrupt, dtmf, info) are the source of user turns
-     *   - Passive Maestro webhook COMMUNICATION_CREATED events are dropped to avoid
-     *     double-emitting user turns (CR WebSocket is authoritative)
-     *   - sendResponse routes through CR's WebSocket
-     *
-     * When omitted, VoiceChannel runs in **passive** mode (BYO-CR or webhook-only):
-     *   - Maestro webhook events emit ChannelMessages like SMS/Chat
-     *   - sendResponse throws (outbound voice requires CR)
-     *   - WebSocket / TwiML / CR callback methods are not available
-     */
-    conversationRelay?: ConversationRelay | undefined;
-    /** Maximum number of idempotency tokens to track for passive-mode deduplication (default: 10,000) */
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
     dedupCapacity?: number | undefined;
 }
-/**
- * Voice Channel — Maestro-backed voice with two construction modes.
- *
- * **Active mode** (`conversationRelay` provided): Handles voice via
- * ConversationRelay WebSocket (CR). Creates Maestro conversations in
- * createConversationForCall(). WebSocket events are the source of user
- * turns; passive Maestro webhook COMMUNICATION_CREATED events are dropped
- * to avoid double-emits. Wire `createConversationForCall` and
- * `handleConversationRelayCallback` into `ConversationRelayServer`'s callbacks
- * (onIncomingCall / onConversationRelayCallback) — ConversationRelayServer owns the /twiml, /ws,
- * and /conversation-relay-callback routes.
- *
- * **Passive mode** (`conversationRelay` omitted): Webhook-only / BYO-CR.
- * Inbound user turns come through Maestro webhooks just like SMS/Chat.
- * sendResponse throws because the Actions API rejects `channel: 'VOICE'`;
- * outbound voice requires a CR WebSocket.
- */
 declare class VoiceChannel implements Channel {
     protected readonly config: TACConfig;
     protected readonly logger: Logger;
     protected readonly conversationClient: ConversationClient;
     protected readonly callbacks: ChannelEvents;
-    private readonly conversationRelay;
-    private readonly callSidToConversationId;
     private readonly memoryRetriever;
     private readonly sessionStore;
     private readonly webhookProcessor;
-    private readonly tools;
     constructor(deps: {
         config: TACConfig;
         logger: Logger;
@@ -5129,31 +5239,7 @@ declare class VoiceChannel implements Channel {
     }, channelConfig?: VoiceChannelConfig);
     get channelType(): ChannelType;
     private emitMessage;
-    private handleSetupFromRelay;
-    private handlePromptFromRelay;
-    private handleInterruptFromRelay;
-    private handleCloseFromRelay;
-    private handleSetupMessage;
-    private handlePromptMessage;
-    private handleWebSocketDisconnect;
-    /**
-     * Returns the active ConversationRelay, or throws a clear error if the
-     * channel was constructed in passive mode.
-     */
-    private assertCR;
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Process a voice-channel Maestro webhook event.
-     *
-     * In **active mode** (CR connected), COMMUNICATION_CREATED events are
-     * intentionally dropped: the CR WebSocket is the source of truth for user
-     * turns, so letting the webhook path also emit would double-deliver.
-     * Lifecycle events (CONVERSATION_CREATED / CONVERSATION_UPDATED) are
-     * handled for session bookkeeping regardless.
-     *
-     * In **passive mode** (no CR), COMMUNICATION_CREATED emits `ChannelMessage`
-     * exactly like SMS/Chat — this is the BYO-CR / webhook-only path.
-     */
+    sendResponse(_conversationId: ConversationId, _message: string, _metadata?: Record<string, unknown>): Promise<void>;
     processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
     private handleVoiceConversationCreated;
     private handleVoiceParticipantAdded;
@@ -5163,58 +5249,77 @@ declare class VoiceChannel implements Channel {
     getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
     isConversationActive(conversationId: ConversationId): boolean;
     shutdown(): void;
-    /**
-     * List tools registered on this channel (for LLM discovery).
-     *
-     * In active mode, returns CR built-in protocol tools (playMedia, sendDigits,
-     * switchLanguage, endCall) plus any user-registered tools.
-     * In passive mode, returns only user-registered tools on the local registry —
-     * CR protocol tools are unavailable because there is no WebSocket to ship
-     * outgoingMessage frames over.
-     */
-    listTools(): CRTool[];
-    /**
-     * Register a tool on this channel. Overwrites any tool with the same name.
-     * In active mode, the tool is delegated to the embedded ConversationRelay so
-     * that protocol-tool outgoingMessage frames can be auto-shipped.
-     */
-    registerTool(tool: CRTool): void;
-    /**
-     * Execute a registered tool by name.
-     *
-     * Active mode: if the tool returns an `outgoingMessage` (CR protocol tool),
-     * it is validated and auto-shipped via the ConversationRelay WebSocket.
-     * Passive mode: throws — CR protocol tools cannot dispatch without a WS.
-     */
-    executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
-    /**
-     * Send DTMF digits to the caller.
-     * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-     */
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
+}
+
+/**
+ * ConversationRelayChannel — CR + Maestro active-voice channel.
+ *
+ * Bridges the `@twilio/tac-conversationrelay` WebSocket protocol to Maestro
+ * Conversations: CR events (setup/prompt/interrupt/dtmf/info/close/error)
+ * are translated into TAC `ChannelMessage`s and emitted via `onMessage`.
+ * Outbound text/dtmf/play/endCall go through the ConversationRelaySession
+ * handle.
+ *
+ * This is the **only** file in tac-core that imports CR payload types
+ * (SetupMessage / PromptMessage / InterruptMessage). Passive voice via
+ * Maestro webhooks lives in `./voice.ts` and has zero CR dependency.
+ */
+
+interface ConversationRelayChannelConfig {
+    /** Active ConversationRelay instance. Required — this channel is the CR bridge. */
+    conversationRelay: ConversationRelay;
+}
+declare class ConversationRelayChannel implements Channel {
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger;
+    protected readonly conversationClient: ConversationClient;
+    protected readonly callbacks: ChannelEvents;
+    private readonly conversationRelay;
+    /** Primary per-call handle. Keyed by `ConversationId` → O(1) public lookups. */
+    private readonly bindings;
+    /** Reverse index for teardown. WeakMap → auto-cleanup when session GC'd. */
+    private readonly reverseIndex;
+    private readonly memoryRetriever;
+    private readonly sessionStore;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever;
+    }, channelConfig: ConversationRelayChannelConfig);
+    get channelType(): ChannelType;
+    private wireCRCallbacks;
+    private handleSetupFromRelay;
+    private handlePromptFromRelay;
+    private handleInterruptFromRelay;
+    private handleCloseFromRelay;
+    private handleSetupMessage;
+    private handlePromptMessage;
+    private emitMessage;
+    private requireSession;
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
     sendDigits(conversationId: ConversationId, digits: string): void;
-    /**
-     * Play media from a URL to the caller.
-     * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-     */
     sendPlay(conversationId: ConversationId, source: string, options?: {
         loop?: number;
         interruptible?: boolean;
         preemptible?: boolean;
     }): void;
-    /**
-     * End the call with optional handoff data.
-     * @throws in passive mode, or if no active CallSid is mapped to the conversationId
-     */
     endCall(conversationId: ConversationId, handoffData?: Record<string, unknown>): void;
-    private findCallSid;
+    listTools(): ConversationRelayTool[];
+    registerTool(tool: ConversationRelayTool): void;
+    executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    on(event: string, callback: (...args: any[]) => void): void;
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    isConversationActive(conversationId: ConversationId): boolean;
+    shutdown(): void;
     protected startConversation(conversationId: ConversationId, profileId?: ProfileId, serviceId?: string): ConversationSession;
     protected endConversation(conversationId: ConversationId): Promise<void>;
     protected handleError(error: Error, context?: Record<string, unknown>): void;
     /**
      * Create the Maestro conversation for an incoming voice call and return the
-     * four IDs that CR needs to inject as TwiML customParameters. No CR, no
-     * TwiML — pure Maestro work. Wire this to `ConversationRelayServer.onIncomingCall` so
-     * the CR server renders the TwiML with these IDs as customParameters.
+     * IDs that CR injects as TwiML customParameters. Wire to
+     * `ConversationRelayServer.onIncomingCall`.
      */
     createConversationForCall(input: {
         toNumber: string;
@@ -5721,4 +5826,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type VoiceServerConfig, VoiceServerConfigSchema, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, type ConversationRelayChannelConfig, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type VoiceServerConfig, VoiceServerConfigSchema, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
