@@ -562,6 +562,17 @@ export class ConversationRelayChannel implements Channel {
           continue;
         }
 
+        // Skip conversations already in terminal state. A second CallStatus=completed
+        // callback (Twilio retry), a listConversations dupe, or an app-level close via
+        // onConversationEnded would otherwise PUT CLOSED→CLOSED and trip a benign 400.
+        if (conversation.status === 'CLOSED') {
+          this.logger.debug(
+            { conversation_id: conversation.id, call_sid: callSid },
+            'Conversation already CLOSED; skipping update'
+          );
+          continue;
+        }
+
         try {
           await this.conversationClient.updateConversation(conversation.id, 'CLOSED');
           this.logger.debug({ conversation_id: conversation.id }, 'Closed conversation');

@@ -77,6 +77,7 @@ export abstract class BaseClient {
             method: error.config?.method,
             url: error.config?.url,
             status,
+            responseBody: error.response?.data as unknown,
           };
           // Log 4xx as warn (client errors, may be expected/handled)
           // Log 5xx/network as error (server/infrastructure failures)

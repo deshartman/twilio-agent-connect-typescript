@@ -392,6 +392,27 @@ describe('ConversationRelayChannel', () => {
       expect(listSpy).toHaveBeenCalledWith({ channelId: 'CA123' });
       expect(updateSpy).toHaveBeenCalledWith('conv_conversation_01ktestabcdefghijklmnopqrs', 'CLOSED');
     });
+
+    it('should skip already-CLOSED conversations on repeat call completion', async () => {
+      const { channel, conversationClient } = createCRChannel();
+
+      const mockConversation = {
+        id: 'conv_conversation_01ktestabcdefghijklmnopqrs',
+        status: 'CLOSED',
+      };
+      vi.spyOn(conversationClient, 'listConversations').mockResolvedValue([mockConversation] as any);
+      const updateSpy = vi.spyOn(conversationClient, 'updateConversation');
+
+      await channel.handleConversationRelayCallback({
+        AccountSid: 'ACtest123',
+        CallSid: 'CA123',
+        CallStatus: 'completed',
+        From: '+15551234567',
+        To: '+15559876543',
+      });
+
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('sendResponse', () => {

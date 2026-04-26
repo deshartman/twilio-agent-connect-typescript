@@ -795,7 +795,8 @@ var BaseClient = class {
             error: error.message,
             method: error.config?.method,
             url: error.config?.url,
-            status
+            status,
+            responseBody: error.response?.data
           };
           if (status !== void 0 && status >= 400 && status < 500) {
             this.logger.warn(logContext, "HTTP request client error");
@@ -1272,8 +1273,9 @@ var ConversationClient = class extends BaseClient {
       const data = await this.makeRequest(url, "PUT", requestBody);
       return ConversationResponseSchema.parse(data);
     } catch (error) {
+      const bodyMsg = axios.isAxiosError(error) && error.response?.data ? ` | body: ${JSON.stringify(error.response.data)}` : "";
       throw new Error(
-        `Failed to update conversation: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to update conversation: ${error instanceof Error ? error.message : String(error)}${bodyMsg}`,
         { cause: error }
       );
     }
@@ -3802,6 +3804,13 @@ var ConversationRelayChannel = class {
           this.logger.warn(
             { conversation_id: conversation.id, call_sid: callSid },
             "Invalid conversation ID format from Conversation Service. Skipping."
+          );
+          continue;
+        }
+        if (conversation.status === "CLOSED") {
+          this.logger.debug(
+            { conversation_id: conversation.id, call_sid: callSid },
+            "Conversation already CLOSED; skipping update"
           );
           continue;
         }
