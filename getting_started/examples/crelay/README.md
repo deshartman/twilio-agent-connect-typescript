@@ -10,8 +10,12 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 - ✅ Uses standalone `ConversationRelayServer` from conversationrelay package
 - ✅ No dependency on TAC framework
 - ✅ OpenAI GPT-4 integration with streaming
-- ✅ Built-in CR protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) auto-registered and LLM-dispatchable
+- ✅ Seven built-in tools auto-registered and LLM-dispatchable:
+  protocol (`play_media`, `send_digits`, `switch_language`, `end_call`,
+  `live_agent_handoff`) and state (`set_listen_mode`, `set_silence_detection`)
+- ✅ Built-in silence handling — 30s threshold, auto-wired per session
 - ✅ Session-based conversation history
+- ✅ Interruption handling via AbortController
 - ✅ Webhook validation enabled
 
 ## Setup
@@ -70,8 +74,9 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 2. Server responds with TwiML connecting to WebSocket at `/ws`
 3. Voice audio transcribed and delivered to `conversationRelay.onPrompt(...)`
 4. OpenAI GPT-4 generates a streamed response, optionally emitting `tool_calls`
-5. For each tool call, `conversationRelay.executeTool(callSid, name, args)` runs the tool and, if it's a CR protocol tool, auto-ships the resulting `outgoingMessage` (play/sendDigits/language/end) over the WebSocket
-6. Text tokens are streamed back via `sendResponse(...)` and spoken to the caller
+5. For each tool call, `conversationRelay.executeTool(callSid, name, args)` runs the tool and applies the appropriate side-effect — ships an `outgoingMessage` over the WebSocket for protocol tools, mutates session state for `set_listen_mode` / `set_silence_detection`
+6. Text tokens are streamed back via `sendText(...)` and spoken to the caller
+7. If the caller goes quiet for 30s, CR auto-sends "Are you still there?"; another 30s of silence and the call is terminated with `reasonCode: 'unresponsive'`
 
 ## Architecture
 
@@ -143,6 +148,36 @@ The `onInterrupt` handler does two things the framework cannot do for you:
 2. **Rewrite the last assistant turn** in `state.history` to `utteranceUntilInterrupt`. This is the critical step — if you skip it, the next LLM call will believe the assistant said text the caller never heard, and multi-turn accuracy drops quickly.
 
 See `src/index.ts` for the complete pattern.
+
+## Silence handling
+
+This example opts into CR's built-in silence handling with a 30-second threshold. The setup is a single line at construction:
+
+```typescript
+const conversationRelay = new ConversationRelay(undefined, {
+  silence: { thresholdSeconds: 30 },
+});
+```
+
+CR auto-constructs a per-session `SilenceHandler` on each new call, resets it on every `prompt` / `interrupt` / `dtmf`, and stops it on WS close. There's no silence code in `src/index.ts` beyond that one config object.
+
+Behaviour with defaults:
+- **t=0**: caller connects, timer starts.
+- **t=30s silent**: CR fires `sendText(callSid, 'Are you still there?')`.
+- **t=60s silent**: CR fires `endCall(callSid, { reasonCode: 'unresponsive', reason: 'The caller was not speaking' })`.
+
+Any caller activity (speech, interrupt, DTMF) resets the timer to zero. If the LLM wants to pause silence handling for a known-quiet stretch of call, it can call the `set_silence_detection` tool with `enabled: false` and re-enable it later.
+
+## Listen mode
+
+CR also ships a built-in listen-mode — the agent listens but suppresses outgoing TTS (useful for outbound IVR navigation, where the LLM sends DTMF to traverse menus and waits for a human before speaking). Listen-mode is always available; the LLM toggles it via the auto-registered `set_listen_mode` tool.
+
+While listen-mode is on for a session:
+- `sendText`, `sendPlay`, and `switchLanguage` are suppressed (session's `suppressedCount` increments).
+- `sendDigits` and `endCall` still work, so the LLM can navigate and hang up.
+- Any configured silence handling is paused automatically; when listen-mode turns off, the silence timer re-arms from zero.
+
+This example doesn't exercise listen-mode in its default flow, but registering the tool gives the LLM the option — ask the agent "please just listen for a minute" and it will call `set_listen_mode({ enabled: true })`.
 
 ## Key Differences from Full TAC
 

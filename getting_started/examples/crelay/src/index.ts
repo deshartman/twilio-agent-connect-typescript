@@ -34,8 +34,16 @@ Important constraints: This is VOICE - never reference websites, documentation, 
 This demo: You're running ON Conversation Relay right now - the user is experiencing the technology firsthand. You can discuss the WebSocket message types, voice configuration, implementation patterns, and how this application itself works as a working example.`,
 };
 
-// Initialize ConversationRelay voice handler (defaults its own logger when none is passed)
-const conversationRelay = new ConversationRelay();
+// Initialize ConversationRelay voice handler.
+//
+// Silence handling is enabled with a 30s threshold: after 30s of silence, CR
+// fires "Are you still there?" via TTS; after 30s more, it hangs up with
+// reasonCode: 'unresponsive'. The per-session SilenceHandler is auto-wired
+// by CR — it resets on prompt/interrupt/dtmf and stops on WS close, with
+// zero code in this file.
+const conversationRelay = new ConversationRelay(logger, {
+  silence: { thresholdSeconds: 30 },
+});
 
 // Per-call state: conversation history + handle to any in-flight OpenAI stream.
 // The AbortController is what lets us cancel the LLM mid-turn when the caller
