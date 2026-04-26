@@ -164,7 +164,7 @@ describe('ConversationRelay: set_listen_mode tool + executeTool listenMode conve
     it('a user tool returning listenMode also triggers the side-effect', async () => {
       // Custom user tool that happens to return listenMode in its result.
       // This proves the convention is honored generically, not keyed on tool name.
-      const { defineTool } = await import('../src/tools/define-tool');
+      const { defineTool } = await import('../src/lib/define-tool');
       const customTool = defineTool(
         'force_listen',
         'Test tool',

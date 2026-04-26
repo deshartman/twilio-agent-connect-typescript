@@ -41,7 +41,7 @@ const LISTEN_MODE_GATED_TYPES: ReadonlySet<OutgoingMessage['type']> = new Set([
   'play',
   'language',
 ]);
-import { CRTool } from './tools/define-tool';
+import { CRTool } from './lib/define-tool';
 import {
   playMediaTool,
   sendDigitsTool,

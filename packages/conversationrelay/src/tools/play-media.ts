@@ -2,7 +2,7 @@
  * Play Media Tool - Play audio file from URL during CR call
  */
 
-import { defineTool } from './define-tool';
+import { defineTool } from '../lib/define-tool';
 import type { PlayMessage } from '../types';
 
 /**

@@ -2,7 +2,7 @@
  * End Call Tool - Terminate CR call with optional handoff data
  */
 
-import { defineTool } from './define-tool';
+import { defineTool } from '../lib/define-tool';
 import type { EndMessage } from '../types';
 
 /**

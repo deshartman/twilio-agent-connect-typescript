@@ -2,7 +2,7 @@
  * Switch Language Tool - Change TTS or transcription language mid-call
  */
 
-import { defineTool } from './define-tool';
+import { defineTool } from '../lib/define-tool';
 import type { SwitchLanguageMessage } from '../types';
 
 /**

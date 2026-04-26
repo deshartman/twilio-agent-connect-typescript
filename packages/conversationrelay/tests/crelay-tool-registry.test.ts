@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import pino from 'pino';
 import { WebSocket } from 'ws';
 import { ConversationRelay } from '../src/crelay';
-import { defineTool } from '../src/tools/define-tool';
+import { defineTool } from '../src/lib/define-tool';
 import type { CallSid } from '../src/types';
 
 /**

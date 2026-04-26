@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defineTool, CRTool } from '../src/tools/define-tool';
+import { defineTool, CRTool } from '../src/lib/define-tool';
 
 describe('CR defineTool', () => {
   describe('defineTool factory', () => {

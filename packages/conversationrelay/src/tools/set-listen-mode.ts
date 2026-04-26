@@ -13,7 +13,7 @@
  * means the tool never touches CR state or CallSid directly.
  */
 
-import { defineTool } from './define-tool';
+import { defineTool } from '../lib/define-tool';
 
 /**
  * Tool parameters for set_listen_mode

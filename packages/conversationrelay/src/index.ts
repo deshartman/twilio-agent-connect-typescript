@@ -40,8 +40,8 @@ export {
 } from './tools/index';
 
 // Tool definition helpers (for user-authored CR tools)
-export { CRTool, defineTool, JSONSchemaSchema } from './tools/index';
-export type { JSONSchema, ToolFunction } from './tools/index';
+export { CRTool, defineTool, JSONSchemaSchema } from './lib/define-tool';
+export type { JSONSchema, ToolFunction } from './lib/define-tool';
 
 // Message types (incoming WebSocket)
 export type {

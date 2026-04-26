@@ -2,7 +2,7 @@
  * Send DTMF Digits Tool - Send touch-tone digits to caller
  */
 
-import { defineTool } from './define-tool';
+import { defineTool } from '../lib/define-tool';
 import type { SendDigitsMessage } from '../types';
 
 /**
