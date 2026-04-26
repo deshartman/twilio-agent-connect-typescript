@@ -133,6 +133,6 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 ## Next Steps
 
 - Customize the agent's behavior by modifying the message handler in `examples/conversation/src/index.ts`
-- Register your own tools with `channel.registerTool(defineTool(...))` — they show up in `channel.listTools()` alongside CR's built-in protocol tools (`play_media`, `send_digits`, `switch_language`, `end_call`) and dispatch through the same `channel.executeTool(conversationId, name, args)` call
+- Register your own tools with `channel.registerTool(defineTool(...))` — they show up in `channel.listTools()` alongside CR's seven built-in tools and dispatch through the same `channel.executeTool(conversationId, name, args)` call. Built-ins split into *protocol* tools that ship a WebSocket frame (`play_media`, `send_digits`, `switch_language`, `end_call`, `live_agent_handoff`) and *state* tools that mutate per-session CR state (`set_listen_mode`, `set_silence_detection`).
 - Explore the main [README](../README.md) for advanced features
 - Review [CLAUDE.md](../CLAUDE.md) for architecture and development guidelines

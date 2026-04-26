@@ -3554,10 +3554,10 @@ declare class ConversationRelay {
     shutdown(): void;
     /**
      * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
-     * on CR `setup`. The handler's `onSilence` callback closes over the
-     * CallSid and routes reminders through `sendText` (gateable by listen-mode
-     * — though listen-mode also disables this handler entirely) and
-     * terminal breach through `endCall`.
+     * on CR `setup`. The handler's callbacks close over the CallSid:
+     * `onReminder` routes each reminder through `sendText` (which is gated by
+     * listen-mode, though listen-mode also disables this handler entirely),
+     * and `onTerminate` hangs up via `endCall`.
      */
     private createSilenceHandler;
     /**

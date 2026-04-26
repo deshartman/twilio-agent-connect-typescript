@@ -227,8 +227,14 @@ describe('ConversationRelay Outgoing Messages', () => {
       if (result.success) {
         expect(result.data.type).toBe('end');
         expect(result.data.handoffData).toBe(handoffData);
-        // Verify it's valid JSON
-        expect(() => JSON.parse(result.data.handoffData!)).not.toThrow();
+        // Verify handoffData parses back to the same structure — stronger
+        // signal than just `expect(...).not.toThrow()`, which would pass
+        // for any valid JSON regardless of contents.
+        expect(JSON.parse(result.data.handoffData)).toEqual({
+          reasonCode: 'live-agent-handoff',
+          issueType: 'billing',
+          priority: 'high',
+        });
       }
     });
 

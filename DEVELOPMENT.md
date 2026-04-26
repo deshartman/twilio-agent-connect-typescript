@@ -121,23 +121,32 @@ npm run example:chat             # Chat example
    cd packages/my-new-package
    ```
 
-2. **Create package.json**:
+2. **Create package.json** (matching repo convention — tsup, not raw tsc):
    ```json
    {
      "name": "@twilio/tac-my-new-package",
      "version": "1.0.0",
-     "main": "dist/index.js",
-     "types": "dist/index.d.ts",
+     "type": "module",
+     "main": "./dist/index.js",
+     "types": "./dist/index.d.ts",
+     "exports": {
+       ".": {
+         "types": "./dist/index.d.ts",
+         "import": "./dist/index.js"
+       }
+     },
      "scripts": {
-       "build": "rimraf dist && tsc",
+       "build": "tsup",
        "clean": "rimraf dist",
-       "dev": "tsc --watch"
+       "test": "vitest --run"
      },
      "dependencies": {
        "@twilio/tac-core": "*"
      }
    }
    ```
+
+   > Note: today only `@twilio/tac-conversationrelay` has its own `package.json` + independent `dist/`. `core`, `server`, and `tools` are TypeScript-only workspaces bundled into the root `dist/` via the repo-level `tsup` config. If you're adding a package that should ship independently (like CR), follow the CR layout; if it should bundle into the root, skip the package.json and add to `src/index.ts` re-exports instead.
 
 3. **Create tsconfig.json**:
    ```json
@@ -227,7 +236,8 @@ vim packages/core/src/lib/tac.ts
 npm run build
 
 # 3. Examples automatically use new build
-npm run example:sms  # Uses your changes!
+npm run example:getting-started  # Uses your changes!
+# or: npm run example:chat
 ```
 
 ### Why This Works
