@@ -55,12 +55,18 @@ describe('ConversationRelay tool registry', () => {
   });
 
   describe('listTools / registerTool / unregisterTool', () => {
-    it('auto-registers the four built-in protocol tools', () => {
+    it('auto-registers the five built-in tools', () => {
       const names = conversationRelay.listTools().map(t => t.name);
       expect(names).toEqual(
-        expect.arrayContaining(['play_media', 'send_digits', 'switch_language', 'end_call'])
+        expect.arrayContaining([
+          'play_media',
+          'send_digits',
+          'switch_language',
+          'end_call',
+          'set_listen_mode',
+        ])
       );
-      expect(names).toHaveLength(4);
+      expect(names).toHaveLength(5);
     });
 
     it('registerTool adds a user tool', () => {
@@ -73,7 +79,7 @@ describe('ConversationRelay tool registry', () => {
       conversationRelay.registerTool(userTool);
       const names = conversationRelay.listTools().map(t => t.name);
       expect(names).toContain('lookup_order');
-      expect(conversationRelay.listTools()).toHaveLength(5);
+      expect(conversationRelay.listTools()).toHaveLength(6);
     });
 
     it('registerTool overwrites a tool with the same name', () => {

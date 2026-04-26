@@ -36,6 +36,7 @@ export {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
+  setListenModeTool,
 } from './tools/index';
 
 // Tool definition helpers (for user-authored CR tools)

@@ -47,6 +47,7 @@ import {
   sendDigitsTool,
   switchLanguageTool,
   endCallTool,
+  setListenModeTool,
 } from './tools/index';
 
 // =============================================================================
@@ -88,9 +89,17 @@ export class ConversationRelay {
     this.sessions = new Map();
     this.callbacks = {};
 
-    // Auto-register built-in CR protocol tools. Users can remove any via unregisterTool().
+    // Auto-register built-in tools. Users can remove any via unregisterTool().
+    // Protocol tools ship an outgoingMessage; setListenModeTool mutates session
+    // state via the listenMode result-convention (see executeTool).
     this.tools = new Map();
-    const builtIns = [playMediaTool, sendDigitsTool, switchLanguageTool, endCallTool];
+    const builtIns = [
+      playMediaTool,
+      sendDigitsTool,
+      switchLanguageTool,
+      endCallTool,
+      setListenModeTool,
+    ];
     for (const tool of builtIns) {
       this.tools.set(tool.name, tool as unknown as CRTool);
     }
@@ -158,12 +167,20 @@ export class ConversationRelay {
   }
 
   /**
-   * Execute a registered tool by name. If the tool returns an object with an
-   * `outgoingMessage` field (the built-in CR protocol tools), CR validates it
-   * against `OutgoingMessageSchema` and ships it via the WebSocket automatically.
-   * The tool result is returned so the caller can feed it back to the LLM loop.
+   * Execute a registered tool by name. The tool result may trigger side
+   * effects on CR via one of two result-convention fields:
    *
-   * @throws if the tool is not registered or if an `outgoingMessage` fails schema validation.
+   *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
+   *     `sendResponse` (used by playMediaTool, sendDigitsTool,
+   *     switchLanguageTool, endCallTool).
+   *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
+   *     (used by setListenModeTool).
+   *
+   * The tool result is returned so the caller can feed it back to the LLM
+   * loop. Tools that need neither side effect return their own plain result.
+   *
+   * @throws if the tool is not registered or if an `outgoingMessage` fails
+   *   schema validation.
    */
   public async executeTool(callSid: CallSid, name: string, args: unknown): Promise<unknown> {
     const tool = this.tools.get(name);
@@ -189,6 +206,16 @@ export class ConversationRelay {
         throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
       }
       this.sendResponse(callSid, validated.data);
+    }
+
+    if (
+      result !== null &&
+      typeof result === 'object' &&
+      'listenMode' in result &&
+      typeof (result as { listenMode?: unknown }).listenMode === 'boolean'
+    ) {
+      const enabled = (result as { listenMode: boolean }).listenMode;
+      this.setListenMode(callSid, enabled);
     }
 
     return result;
