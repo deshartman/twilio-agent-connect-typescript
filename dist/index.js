@@ -3510,7 +3510,7 @@ var VoiceChannel = class {
         throw new Error(`No CallSid found for conversation ${conversationId}`);
       }
       const last = metadata?.last === void 0 ? true : metadata.last;
-      cr.sendResponse(callSid, message, last);
+      cr.sendText(callSid, message, last);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,
@@ -4295,20 +4295,203 @@ var endCallTool = defineTool(
   }
 );
 
+// packages/conversationrelay/src/tools/live-agent-handoff.ts
+var liveAgentHandoffTool = defineTool(
+  "live_agent_handoff",
+  "Terminate the current call and hand off to a live agent. Provide a brief summary of the interaction so far; the server-side callback handler will typically bridge the caller to a queue.",
+  {
+    type: "object",
+    properties: {
+      summary: {
+        type: "string",
+        description: "Short summary of the conversation, forwarded to the handoff handler."
+      },
+      extra: {
+        type: "object",
+        description: 'Optional extra context to include in handoffData (e.g. { priority: "high", skill: "billing" }).'
+      }
+    },
+    required: ["summary"]
+  },
+  (params) => {
+    const handoffPayload = {
+      reasonCode: "live-agent-handoff",
+      reason: params.summary,
+      ...params.extra ?? {}
+    };
+    return {
+      success: true,
+      message: `Handing off to live agent: ${params.summary}`,
+      summary: params.summary,
+      outgoingMessage: {
+        type: "end",
+        handoffData: JSON.stringify(handoffPayload)
+      }
+    };
+  }
+);
+
+// packages/conversationrelay/src/tools/set-listen-mode.ts
+var setListenModeTool = defineTool(
+  "set_listen_mode",
+  "Toggle whether the agent speaks aloud. Enable (true) when listening for IVR prompts or during sensitive-input capture; disable (false) when ready to speak again.",
+  {
+    type: "object",
+    properties: {
+      enabled: {
+        type: "boolean",
+        description: "true = agent listens but does not speak (text/play/language suppressed). false = normal speaking mode."
+      }
+    },
+    required: ["enabled"]
+  },
+  (params) => {
+    return {
+      success: true,
+      message: `Listen-mode ${params.enabled ? "enabled (agent suppressed)" : "disabled (agent will speak)"}`,
+      listenMode: params.enabled
+    };
+  }
+);
+
+// packages/conversationrelay/src/tools/set-silence-detection.ts
+var setSilenceDetectionTool = defineTool(
+  "set_silence_detection",
+  "Toggle silence detection monitoring. Enable (true) to monitor for caller silence and trigger reminders/termination; disable (false) to suppress silence reminders entirely.",
+  {
+    type: "object",
+    properties: {
+      enabled: {
+        type: "boolean",
+        description: "true = monitor for silence and fire reminders/terminate. false = suppress reminders entirely."
+      }
+    },
+    required: ["enabled"]
+  },
+  (params) => {
+    return {
+      success: true,
+      message: `Silence detection ${params.enabled ? "enabled (monitoring for silence)" : "disabled (reminders suppressed)"}`,
+      silenceEnabled: params.enabled
+    };
+  }
+);
+
+// packages/conversationrelay/src/lib/silence-handler.ts
+var SilenceHandler = class {
+  timer = null;
+  reminderIndex = 0;
+  enabled = true;
+  config;
+  logger;
+  constructor(config, logger2) {
+    this.config = config;
+    this.logger = logger2.child({ component: "silence-handler" });
+  }
+  /**
+   * Reset the silence timer. Call on any signal of life from the caller
+   * (prompt, interrupt, DTMF). Also used to start the timer for the first
+   * time. No-op if the handler is currently disabled.
+   */
+  reset() {
+    this.clearTimer();
+    this.reminderIndex = 0;
+    if (this.enabled) {
+      this.startTimer();
+    }
+    this.logger.debug({ enabled: this.enabled }, "Silence timer reset");
+  }
+  /**
+   * Stop monitoring. Clears the timer and resets the reminder index. Call on
+   * session end.
+   */
+  stop() {
+    this.clearTimer();
+    this.reminderIndex = 0;
+    this.logger.debug("Silence monitoring stopped");
+  }
+  /**
+   * Enable or disable silence handling.
+   *
+   * When disabled: the active timer is cleared, `reset()` becomes a no-op,
+   * and no reminders fire. When re-enabled: the caller must invoke `reset()`
+   * to re-arm the timer — this is deliberate, so the re-enabler decides when
+   * the clock restarts.
+   */
+  setEnabled(enabled) {
+    if (this.enabled === enabled) {
+      return;
+    }
+    this.enabled = enabled;
+    if (!enabled) {
+      this.clearTimer();
+    }
+    this.logger.info({ enabled }, `Silence handling ${enabled ? "enabled" : "disabled"}`);
+  }
+  /** Whether silence handling is currently enabled */
+  isEnabled() {
+    return this.enabled;
+  }
+  /** Whether a timer is currently scheduled */
+  isActive() {
+    return this.timer !== null;
+  }
+  // ===========================================================================
+  // Internal
+  // ===========================================================================
+  startTimer() {
+    this.timer = setTimeout(() => {
+      const index = this.reminderIndex;
+      const reminder = this.config.reminders[index];
+      if (reminder === void 0) {
+        this.logger.info("Silence terminal \u2014 reminders exhausted");
+        this.config.onTerminate();
+        this.stop();
+        return;
+      }
+      this.logger.info({ reminder_index: index }, "Silence reminder");
+      this.config.onReminder(reminder);
+      this.reminderIndex = index + 1;
+      this.startTimer();
+    }, this.config.thresholdSeconds * 1e3);
+  }
+  clearTimer() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+};
+
 // packages/conversationrelay/src/crelay.ts
+var LISTEN_MODE_GATED_TYPES = /* @__PURE__ */ new Set([
+  "text",
+  "play",
+  "language"
+]);
 var ConversationRelay = class _ConversationRelay {
   logger;
   connections;
   sessions;
   tools;
+  silenceTemplate;
   callbacks;
-  constructor(logger2) {
+  constructor(logger2, config) {
     this.logger = logger2 ?? createLogger2({ name: "conversation-relay" });
     this.connections = /* @__PURE__ */ new Map();
     this.sessions = /* @__PURE__ */ new Map();
     this.callbacks = {};
+    this.silenceTemplate = config?.silence;
     this.tools = /* @__PURE__ */ new Map();
-    const builtIns = [playMediaTool, sendDigitsTool, switchLanguageTool, endCallTool];
+    const builtIns = [
+      playMediaTool,
+      sendDigitsTool,
+      switchLanguageTool,
+      endCallTool,
+      liveAgentHandoffTool,
+      setListenModeTool,
+      setSilenceDetectionTool
+    ];
     for (const tool of builtIns) {
       this.tools.set(tool.name, tool);
     }
@@ -4363,12 +4546,24 @@ var ConversationRelay = class _ConversationRelay {
     return Array.from(this.tools.values());
   }
   /**
-   * Execute a registered tool by name. If the tool returns an object with an
-   * `outgoingMessage` field (the built-in CR protocol tools), CR validates it
-   * against `OutgoingMessageSchema` and ships it via the WebSocket automatically.
-   * The tool result is returned so the caller can feed it back to the LLM loop.
+   * Execute a registered tool by name. The tool result may trigger side
+   * effects on CR via one of three result-convention fields:
    *
-   * @throws if the tool is not registered or if an `outgoingMessage` fails schema validation.
+   *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
+   *     `sendResponse` (used by playMediaTool, sendDigitsTool,
+   *     switchLanguageTool, endCallTool, liveAgentHandoffTool).
+   *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
+   *     (used by setListenModeTool).
+   *   - `silenceEnabled: boolean` — applied via
+   *     `session.silenceHandler.setEnabled(...)` (on enable, also resets
+   *     the timer). Used by setSilenceDetectionTool. No-op (with debug
+   *     log) for sessions without a silence handler.
+   *
+   * The tool result is returned so the caller can feed it back to the LLM
+   * loop. Tools that need no side effect return their own plain result.
+   *
+   * @throws if the tool is not registered or if an `outgoingMessage` fails
+   *   schema validation.
    */
   async executeTool(callSid, name, args) {
     const tool = this.tools.get(name);
@@ -4386,7 +4581,26 @@ var ConversationRelay = class _ConversationRelay {
         );
         throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
       }
-      this.sendRawMessage(callSid, validated.data);
+      this.sendResponse(callSid, validated.data);
+    }
+    if (result !== null && typeof result === "object" && "listenMode" in result && typeof result.listenMode === "boolean") {
+      const enabled = result.listenMode;
+      this.setListenMode(callSid, enabled);
+    }
+    if (result !== null && typeof result === "object" && "silenceEnabled" in result && typeof result.silenceEnabled === "boolean") {
+      const enabled = result.silenceEnabled;
+      const session = this.sessions.get(callSid);
+      if (session?.silenceHandler) {
+        session.silenceHandler.setEnabled(enabled);
+        if (enabled) {
+          session.silenceHandler.reset();
+        }
+      } else {
+        this.logger.debug(
+          { call_sid: callSid, silence_enabled: enabled },
+          "silenceEnabled result had no effect \u2014 no silence handler on this session"
+        );
+      }
     }
     return result;
   }
@@ -4432,24 +4646,33 @@ var ConversationRelay = class _ConversationRelay {
               from: message.from,
               to: message.to,
               startedAt: /* @__PURE__ */ new Date(),
-              customParameters: message.customParameters
+              customParameters: message.customParameters,
+              listenMode: false,
+              suppressedCount: 0
             };
             this.sessions.set(callSid, session);
+            if (this.silenceTemplate) {
+              session.silenceHandler = this.createSilenceHandler(callSid);
+              session.silenceHandler.reset();
+            }
             this.callbacks.onSessionStarted?.(callSid, session, message);
             break;
           }
           case "prompt":
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onPrompt?.(callSid, message.voicePrompt, message);
             }
             break;
           case "interrupt":
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onInterrupt?.(callSid, message);
             }
             break;
           case "dtmf":
             if (callSid) {
+              this.sessions.get(callSid)?.silenceHandler?.reset();
               this.callbacks.onDtmf?.(callSid, message);
             }
             break;
@@ -4481,6 +4704,7 @@ var ConversationRelay = class _ConversationRelay {
     });
     ws.on("close", () => {
       if (callSid) {
+        this.sessions.get(callSid)?.silenceHandler?.stop();
         this.connections.delete(callSid);
         this.sessions.delete(callSid);
         this.logger.debug({ call_sid: callSid }, "ConversationRelay WebSocket closed");
@@ -4506,12 +4730,69 @@ var ConversationRelay = class _ConversationRelay {
     return this.sessions.has(callSid);
   }
   // ===========================================================================
-  // Response Sending
+  // Listen Mode
   // ===========================================================================
   /**
-   * Send a text response to a call via WebSocket
+   * Toggle listen-mode for a session. When enabled, outgoing speech-equivalent
+   * messages (`text`, `play`, `language`) are suppressed for this CallSid;
+   * DTMF and end-call still work. Typical use: outbound IVR navigation where
+   * the agent listens for a human before speaking.
+   *
+   * No-op (with a debug log) if no session exists for the CallSid — common
+   * during call-end races.
    */
-  sendResponse(callSid, message, last = true) {
+  setListenMode(callSid, enabled) {
+    const session = this.sessions.get(callSid);
+    if (!session) {
+      this.logger.debug(
+        { call_sid: callSid, enabled },
+        "setListenMode called for unknown CallSid \u2014 ignoring"
+      );
+      return;
+    }
+    session.listenMode = enabled;
+    if (session.silenceHandler) {
+      if (enabled) {
+        session.silenceHandler.setEnabled(false);
+      } else {
+        session.silenceHandler.setEnabled(true);
+        session.silenceHandler.reset();
+      }
+    }
+    this.logger.info(
+      { call_sid: callSid, listen_mode: enabled },
+      `Listen-mode ${enabled ? "enabled" : "disabled"}`
+    );
+  }
+  /** Whether listen-mode is active for a CallSid. False if no session exists. */
+  isListenMode(callSid) {
+    return this.sessions.get(callSid)?.listenMode ?? false;
+  }
+  /**
+   * Count of messages suppressed by listen-mode on this session. Returns 0
+   * for unknown CallSids. Primarily for tests and diagnostics.
+   */
+  getSuppressedMessageCount(callSid) {
+    return this.sessions.get(callSid)?.suppressedCount ?? 0;
+  }
+  // ===========================================================================
+  // sendResponse — single path back to Twilio
+  // ===========================================================================
+  /**
+   * Send a message to Twilio ConversationRelay via the session's WebSocket.
+   * This is the single path back to Twilio for every outgoing protocol
+   * frame — text tokens, play (media URL), sendDigits (DTMF), language
+   * (TTS/STT switch), end (hang up).
+   *
+   * Listen-mode gating: when the session has listen-mode enabled, outgoing
+   * speech-equivalent frames (`text`, `play`, `language`) are suppressed
+   * and the session's `suppressedCount` is incremented. `sendDigits` and
+   * `end` are never suppressed — DTMF navigation and termination must
+   * always work.
+   *
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#sending-messages-to-twilio
+   */
+  sendResponse(callSid, message) {
     const ws = this.connections.get(callSid);
     if (!ws) {
       throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
@@ -4519,87 +4800,65 @@ var ConversationRelay = class _ConversationRelay {
     if (ws.readyState !== WebSocket.OPEN) {
       throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
     }
-    const textMessage = {
-      type: "text",
-      token: message,
-      last
-    };
-    ws.send(JSON.stringify(textMessage));
-    this.logger.debug({ call_sid: callSid, last }, "Sent text response");
-  }
-  /**
-   * Send a raw message object via WebSocket
-   */
-  sendMessage(callSid, message) {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
-    }
-    ws.send(JSON.stringify(message));
-    this.logger.debug({ call_sid: callSid, message_type: message.type }, "Sent ConversationRelay message");
-  }
-  /**
-   * Play media from URL to the caller
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
-   */
-  sendPlay(callSid, source, options) {
-    const message = {
-      type: "play",
-      source,
-      ...options
-    };
-    this.sendRawMessage(callSid, message);
-  }
-  /**
-   * Send DTMF digits to the caller
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
-   */
-  sendDigits(callSid, digits) {
-    const message = {
-      type: "sendDigits",
-      digits
-    };
-    this.sendRawMessage(callSid, message);
-  }
-  /**
-   * Switch TTS or transcription language mid-call
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
-   */
-  switchLanguage(callSid, options) {
-    const message = {
-      type: "language",
-      ...options
-    };
-    this.sendRawMessage(callSid, message);
-  }
-  /**
-   * End the call with optional handoff data
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
-   */
-  endCall(callSid, handoffData) {
-    const message = {
-      type: "end",
-      handoffData: handoffData ? JSON.stringify(handoffData) : void 0
-    };
-    this.sendRawMessage(callSid, message);
-  }
-  /**
-   * Send a raw outgoing message via WebSocket.
-   * @private Internal helper for sending any outgoing message type.
-   */
-  sendRawMessage(callSid, message) {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
+    const session = this.sessions.get(callSid);
+    if (session?.listenMode && LISTEN_MODE_GATED_TYPES.has(message.type)) {
+      session.suppressedCount += 1;
+      this.logger.debug(
+        {
+          call_sid: callSid,
+          message_type: message.type,
+          suppressed_count: session.suppressedCount
+        },
+        "Outgoing message suppressed (listen mode)"
+      );
+      return;
     }
     ws.send(JSON.stringify(message));
     this.logger.debug({ call_sid: callSid, message_type: message.type }, "Sent CR message");
+  }
+  // ===========================================================================
+  // Typed senders — thin wrappers that build an OutgoingMessage and hand it
+  // to `sendResponse`. Callers never touch protocol shape.
+  // ===========================================================================
+  /**
+   * Send a text token to Twilio TTS.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-message
+   */
+  sendText(callSid, token, last = true) {
+    this.sendResponse(callSid, { type: "text", token, last });
+  }
+  /**
+   * Send DTMF digits to the caller. Supports 0-9, `w` (500ms pause), `*`, `#`.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
+   */
+  sendDigits(callSid, digits) {
+    this.sendResponse(callSid, { type: "sendDigits", digits });
+  }
+  /**
+   * Play media from a URL to the caller.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
+   */
+  sendPlay(callSid, source, options) {
+    this.sendResponse(callSid, { type: "play", source, ...options });
+  }
+  /**
+   * Switch TTS or transcription language mid-call.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
+   */
+  switchLanguage(callSid, options) {
+    this.sendResponse(callSid, { type: "language", ...options });
+  }
+  /**
+   * End the call with optional handoff data. Twilio expects `handoffData` as
+   * a JSON string — the object is stringified here so callers pass a plain
+   * object.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
+   */
+  endCall(callSid, handoffData) {
+    this.sendResponse(callSid, {
+      type: "end",
+      handoffData: handoffData ? JSON.stringify(handoffData) : void 0
+    });
   }
   // ===========================================================================
   // TwiML Generation
@@ -4667,6 +4926,40 @@ var ConversationRelay = class _ConversationRelay {
     }
     this.connections.clear();
     this.sessions.clear();
+  }
+  // ===========================================================================
+  // Silence Handling — factory
+  // ===========================================================================
+  /**
+   * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
+   * on CR `setup`. The handler's `onSilence` callback closes over the
+   * CallSid and routes reminders through `sendText` (gateable by listen-mode
+   * — though listen-mode also disables this handler entirely) and
+   * terminal breach through `endCall`.
+   */
+  createSilenceHandler(callSid) {
+    const template = this.silenceTemplate;
+    if (!template) {
+      throw new Error("createSilenceHandler called without silence template");
+    }
+    const reminders = ["Are you still there?", ...template.additionalPrompts ?? []];
+    const thresholdSeconds = template.thresholdSeconds ?? 20;
+    return new SilenceHandler(
+      {
+        thresholdSeconds,
+        reminders,
+        onReminder: (reminder) => {
+          this.sendText(callSid, reminder, true);
+        },
+        onTerminate: () => {
+          this.endCall(callSid, {
+            reasonCode: "unresponsive",
+            reason: "The caller was not speaking"
+          });
+        }
+      },
+      this.logger
+    );
   }
   // ===========================================================================
   // Private Utilities

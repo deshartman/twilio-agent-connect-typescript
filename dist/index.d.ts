@@ -2780,6 +2780,95 @@ declare class TACMemoryResponse {
 type Logger$1 = pino.Logger;
 
 /**
+ * SilenceHandler — Progressive reminder system for silent callers (per-session).
+ *
+ * One instance per WebSocket session. Scalar state only — the handler lives
+ * and dies with its session. Constructed by `ConversationRelay` on CR `setup`
+ * (if silence config was supplied), and stopped on WS close.
+ *
+ * Based on the simple-conversation-relay SilenceHandler pattern.
+ */
+
+/**
+ * Configuration for silence handling behavior.
+ *
+ * Progression: on each threshold breach, fire `onReminder(reminders[i])`
+ * advancing `i` until all reminders have been spoken. The NEXT breach after
+ * the last reminder fires `onTerminate()` once (typically `endCall`).
+ *
+ * With `reminders: ['Are you still there?']`:
+ *   - 1st breach → onReminder('Are you still there?')
+ *   - 2nd breach → onTerminate()
+ *
+ * With `reminders: []`:
+ *   - 1st breach → onTerminate() (no reminders, terminate immediately)
+ */
+interface SilenceHandlerConfig {
+    /** Threshold in seconds before advancing the reminder sequence */
+    thresholdSeconds: number;
+    /** Ordered reminders to speak, one per threshold breach */
+    reminders: string[];
+    /** Called when a reminder is due. Typical handling: send text to caller. */
+    onReminder: (reminder: string) => void;
+    /** Called once after the last reminder + one more breach. Typical handling: end the call. */
+    onTerminate: () => void;
+}
+/**
+ * SilenceHandler — per-session silence monitor.
+ *
+ * @example
+ * ```typescript
+ * const handler = new SilenceHandler(
+ *   {
+ *     thresholdSeconds: 20,
+ *     reminders: ['Are you still there?', 'Hello? Can you hear me?'],
+ *     onReminder: (reminder) => cr.sendText(callSid, reminder),
+ *     onTerminate: () => cr.endCall(callSid),
+ *   },
+ *   logger
+ * );
+ *
+ * handler.reset();                 // start (or restart) the timer
+ * handler.setEnabled(false);       // disable (clears timer; reset is caller's job)
+ * handler.stop();                  // stop monitoring for good
+ * ```
+ */
+declare class SilenceHandler {
+    private timer;
+    private reminderIndex;
+    private enabled;
+    private readonly config;
+    private readonly logger;
+    constructor(config: SilenceHandlerConfig, logger: Logger$1);
+    /**
+     * Reset the silence timer. Call on any signal of life from the caller
+     * (prompt, interrupt, DTMF). Also used to start the timer for the first
+     * time. No-op if the handler is currently disabled.
+     */
+    reset(): void;
+    /**
+     * Stop monitoring. Clears the timer and resets the reminder index. Call on
+     * session end.
+     */
+    stop(): void;
+    /**
+     * Enable or disable silence handling.
+     *
+     * When disabled: the active timer is cleared, `reset()` becomes a no-op,
+     * and no reminders fire. When re-enabled: the caller must invoke `reset()`
+     * to re-arm the timer — this is deliberate, so the re-enabler decides when
+     * the clock restarts.
+     */
+    setEnabled(enabled: boolean): void;
+    /** Whether silence handling is currently enabled */
+    isEnabled(): boolean;
+    /** Whether a timer is currently scheduled */
+    isActive(): boolean;
+    private startTimer;
+    private clearTimer;
+}
+
+/**
  * ConversationRelay Type Definitions
  *
  * Single source of truth for all ConversationRelay types and Zod schemas.
@@ -2920,10 +3009,9 @@ declare const InfoMessageSchema: z.ZodObject<{
 }>;
 type InfoMessage = z.infer<typeof InfoMessageSchema>;
 /**
- * Text token message to send via ConversationRelay
- * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-tokens-message
+ * Union of all outgoing WebSocket message types
  */
-declare const TextTokenMessageSchema: z.ZodObject<{
+declare const OutgoingMessageSchema: z.ZodDiscriminatedUnion<"type", [z.ZodObject<{
     type: z.ZodLiteral<"text">;
     token: z.ZodString;
     last: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
@@ -2935,8 +3023,56 @@ declare const TextTokenMessageSchema: z.ZodObject<{
     type: "text";
     token: string;
     last?: boolean | undefined;
-}>;
-type TextTokenMessage = z.infer<typeof TextTokenMessageSchema>;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"play">;
+    source: z.ZodString;
+    loop: z.ZodOptional<z.ZodNumber>;
+    interruptible: z.ZodOptional<z.ZodBoolean>;
+    preemptible: z.ZodOptional<z.ZodBoolean>;
+}, "strip", z.ZodTypeAny, {
+    type: "play";
+    source: string;
+    loop?: number | undefined;
+    interruptible?: boolean | undefined;
+    preemptible?: boolean | undefined;
+}, {
+    type: "play";
+    source: string;
+    loop?: number | undefined;
+    interruptible?: boolean | undefined;
+    preemptible?: boolean | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"sendDigits">;
+    digits: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    type: "sendDigits";
+    digits: string;
+}, {
+    type: "sendDigits";
+    digits: string;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"language">;
+    ttsLanguage: z.ZodOptional<z.ZodString>;
+    transcriptionLanguage: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "language";
+    ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+}, {
+    type: "language";
+    ttsLanguage?: string | undefined;
+    transcriptionLanguage?: string | undefined;
+}>, z.ZodObject<{
+    type: z.ZodLiteral<"end">;
+    handoffData: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "end";
+    handoffData?: string | undefined;
+}, {
+    type: "end";
+    handoffData?: string | undefined;
+}>]>;
+type OutgoingMessage = z.infer<typeof OutgoingMessageSchema>;
 /**
  * Language configuration for multi-language ConversationRelay support
  * @see https://www.twilio.com/docs/voice/conversationrelay/conversationrelay-noun#language-attributes
@@ -3160,6 +3296,25 @@ interface CRelaySession {
     to: string;
     startedAt: Date;
     customParameters?: Record<string, string> | undefined;
+    /**
+     * When true, `sendResponse` / `sendPlay` / `switchLanguage` are suppressed
+     * for this session — the agent listens but does not speak. `sendDigits`
+     * and `endCall` are never suppressed (DTMF navigation and termination
+     * must always work). Toggle via `ConversationRelay.setListenMode` or the
+     * `set_listen_mode` built-in tool.
+     */
+    listenMode: boolean;
+    /**
+     * Count of outgoing protocol messages suppressed by listen-mode on this
+     * session. Test-observable; not intended for production logic.
+     */
+    suppressedCount: number;
+    /**
+     * Per-session silence handler. Present only if `silence` config was passed
+     * to the `ConversationRelay` constructor. Lifetime = session lifetime; CR
+     * calls `reset()` on signal-of-life events and `stop()` on WS close.
+     */
+    silenceHandler?: SilenceHandler | undefined;
 }
 
 /**
@@ -3220,6 +3375,28 @@ declare class CRTool<TParams = unknown, TResult = unknown> {
  * NO dependency on @twilio/tac-core — completely standalone.
  */
 
+/**
+ * Silence-handling config supplied at `ConversationRelay` construction.
+ * Absent = silence handling disabled (no per-session handler constructed).
+ * Present = a `SilenceHandler` is constructed for each session on setup,
+ * using this as a template.
+ *
+ * Reminder sequence is always `['Are you still there?', ...additionalPrompts]`.
+ * The terminal reminder's breach ends the call via `endCall` with
+ * `{ reasonCode: 'unresponsive', reason: 'The caller was not speaking' }`.
+ */
+interface SilenceConfig {
+    /** Seconds of silence before a reminder fires. Default: 20. */
+    thresholdSeconds?: number;
+    /** Up to 2 custom prompts appended after the default "Are you still there?". */
+    additionalPrompts?: [string] | [string, string];
+}
+/**
+ * Optional config for `new ConversationRelay(logger, config)`.
+ */
+interface ConversationRelayConstructorConfig {
+    silence?: SilenceConfig;
+}
 type SessionStartedCallback = (callSid: CallSid, session: CRelaySession, data: SetupMessage) => void;
 type PromptCallback = (callSid: CallSid, message: string, data: PromptMessage) => void;
 type InterruptCallback = (callSid: CallSid, data: InterruptMessage) => void;
@@ -3238,8 +3415,9 @@ declare class ConversationRelay {
     private readonly connections;
     private readonly sessions;
     private readonly tools;
+    private readonly silenceTemplate;
     private readonly callbacks;
-    constructor(logger?: Logger$1);
+    constructor(logger?: Logger$1, config?: ConversationRelayConstructorConfig);
     /** Register callback for session started (setup message received) */
     onSessionStarted(callback: SessionStartedCallback): void;
     /** Register callback for user prompt (transcribed speech from the caller) */
@@ -3264,12 +3442,24 @@ declare class ConversationRelay {
      */
     listTools(): CRTool[];
     /**
-     * Execute a registered tool by name. If the tool returns an object with an
-     * `outgoingMessage` field (the built-in CR protocol tools), CR validates it
-     * against `OutgoingMessageSchema` and ships it via the WebSocket automatically.
-     * The tool result is returned so the caller can feed it back to the LLM loop.
+     * Execute a registered tool by name. The tool result may trigger side
+     * effects on CR via one of three result-convention fields:
      *
-     * @throws if the tool is not registered or if an `outgoingMessage` fails schema validation.
+     *   - `outgoingMessage: OutgoingMessage` — validated and shipped via
+     *     `sendResponse` (used by playMediaTool, sendDigitsTool,
+     *     switchLanguageTool, endCallTool, liveAgentHandoffTool).
+     *   - `listenMode: boolean` — applied via `setListenMode(callSid, ...)`
+     *     (used by setListenModeTool).
+     *   - `silenceEnabled: boolean` — applied via
+     *     `session.silenceHandler.setEnabled(...)` (on enable, also resets
+     *     the timer). Used by setSilenceDetectionTool. No-op (with debug
+     *     log) for sessions without a silence handler.
+     *
+     * The tool result is returned so the caller can feed it back to the LLM
+     * loop. Tools that need no side effect return their own plain result.
+     *
+     * @throws if the tool is not registered or if an `outgoingMessage` fails
+     *   schema validation.
      */
     executeTool(callSid: CallSid, name: string, args: unknown): Promise<unknown>;
     /**
@@ -3282,15 +3472,49 @@ declare class ConversationRelay {
     /** Check if a session exists for a CallSid */
     hasSession(callSid: CallSid): boolean;
     /**
-     * Send a text response to a call via WebSocket
+     * Toggle listen-mode for a session. When enabled, outgoing speech-equivalent
+     * messages (`text`, `play`, `language`) are suppressed for this CallSid;
+     * DTMF and end-call still work. Typical use: outbound IVR navigation where
+     * the agent listens for a human before speaking.
+     *
+     * No-op (with a debug log) if no session exists for the CallSid — common
+     * during call-end races.
      */
-    sendResponse(callSid: CallSid, message: string, last?: boolean): void;
+    setListenMode(callSid: CallSid, enabled: boolean): void;
+    /** Whether listen-mode is active for a CallSid. False if no session exists. */
+    isListenMode(callSid: CallSid): boolean;
     /**
-     * Send a raw message object via WebSocket
+     * Count of messages suppressed by listen-mode on this session. Returns 0
+     * for unknown CallSids. Primarily for tests and diagnostics.
      */
-    sendMessage(callSid: CallSid, message: TextTokenMessage): void;
+    getSuppressedMessageCount(callSid: CallSid): number;
     /**
-     * Play media from URL to the caller
+     * Send a message to Twilio ConversationRelay via the session's WebSocket.
+     * This is the single path back to Twilio for every outgoing protocol
+     * frame — text tokens, play (media URL), sendDigits (DTMF), language
+     * (TTS/STT switch), end (hang up).
+     *
+     * Listen-mode gating: when the session has listen-mode enabled, outgoing
+     * speech-equivalent frames (`text`, `play`, `language`) are suppressed
+     * and the session's `suppressedCount` is incremented. `sendDigits` and
+     * `end` are never suppressed — DTMF navigation and termination must
+     * always work.
+     *
+     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#sending-messages-to-twilio
+     */
+    sendResponse(callSid: CallSid, message: OutgoingMessage): void;
+    /**
+     * Send a text token to Twilio TTS.
+     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-message
+     */
+    sendText(callSid: CallSid, token: string, last?: boolean): void;
+    /**
+     * Send DTMF digits to the caller. Supports 0-9, `w` (500ms pause), `*`, `#`.
+     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
+     */
+    sendDigits(callSid: CallSid, digits: string): void;
+    /**
+     * Play media from a URL to the caller.
      * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
      */
     sendPlay(callSid: CallSid, source: string, options?: {
@@ -3299,12 +3523,7 @@ declare class ConversationRelay {
         preemptible?: boolean;
     }): void;
     /**
-     * Send DTMF digits to the caller
-     * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
-     */
-    sendDigits(callSid: CallSid, digits: string): void;
-    /**
-     * Switch TTS or transcription language mid-call
+     * Switch TTS or transcription language mid-call.
      * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
      */
     switchLanguage(callSid: CallSid, options: {
@@ -3312,15 +3531,12 @@ declare class ConversationRelay {
         transcriptionLanguage?: string;
     }): void;
     /**
-     * End the call with optional handoff data
+     * End the call with optional handoff data. Twilio expects `handoffData` as
+     * a JSON string — the object is stringified here so callers pass a plain
+     * object.
      * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
      */
     endCall(callSid: CallSid, handoffData?: Record<string, unknown>): void;
-    /**
-     * Send a raw outgoing message via WebSocket.
-     * @private Internal helper for sending any outgoing message type.
-     */
-    private sendRawMessage;
     /**
      * Generate TwiML for a ConversationRelay connection.
      *
@@ -3336,6 +3552,14 @@ declare class ConversationRelay {
     closeConnection(callSid: CallSid): void;
     /** Shutdown — close all connections */
     shutdown(): void;
+    /**
+     * Build a per-session `SilenceHandler` from `this.silenceTemplate`. Called
+     * on CR `setup`. The handler's `onSilence` callback closes over the
+     * CallSid and routes reminders through `sendText` (gateable by listen-mode
+     * — though listen-mode also disables this handler entirely) and
+     * terminal breach through `endCall`.
+     */
+    private createSilenceHandler;
     /**
      * Filter undefined/null values from object for clean TwiML attributes
      */
