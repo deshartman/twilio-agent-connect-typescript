@@ -469,7 +469,7 @@ describe('ConversationRelay', () => {
       });
       mockWs._emit('message', Buffer.from(setupMessage));
 
-      conversationRelay.sendResponse('CA_test123' as CallSid, 'Hello there!');
+      conversationRelay.sendText('CA_test123' as CallSid, 'Hello there!');
 
       expect(mockWs.send).toHaveBeenCalledTimes(1);
       const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
@@ -495,7 +495,7 @@ describe('ConversationRelay', () => {
       });
       mockWs._emit('message', Buffer.from(setupMessage));
 
-      conversationRelay.sendResponse('CA_test123' as CallSid, 'Streaming...', false);
+      conversationRelay.sendText('CA_test123' as CallSid, 'Streaming...', false);
 
       const sentMessage = JSON.parse(mockWs.send.mock.calls[0][0]);
       expect(sentMessage.last).toBe(false);
@@ -503,7 +503,7 @@ describe('ConversationRelay', () => {
 
     it('should throw error when connection not found', () => {
       expect(() => {
-        conversationRelay.sendResponse('CA_unknown' as CallSid, 'Hello');
+        conversationRelay.sendText('CA_unknown' as CallSid, 'Hello');
       }).toThrow('No WebSocket connection found');
     });
   });

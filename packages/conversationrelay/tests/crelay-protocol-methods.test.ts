@@ -439,7 +439,7 @@ describe('ConversationRelay Protocol Methods', () => {
       expect(messages[2].type).toBe('language');
     });
 
-    it('should work alongside existing sendResponse method', () => {
+    it('should work alongside sendText method', () => {
       const mockWs = createMockWebSocket();
       conversationRelay.handleConnection(mockWs);
       mockWs.simulateMessage({
@@ -454,7 +454,7 @@ describe('ConversationRelay Protocol Methods', () => {
         accountSid: 'ACtest123',
       });
 
-      conversationRelay.sendResponse(CALL_SID, 'Hello');
+      conversationRelay.sendText(CALL_SID, 'Hello');
       conversationRelay.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
 
       expect(mockWs.send).toHaveBeenCalledTimes(2);

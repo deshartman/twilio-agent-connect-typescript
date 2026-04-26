@@ -41,7 +41,7 @@ export interface SilenceHandlerConfig {
  *     ],
  *     onSilence: (reminder, isTerminal) => {
  *       if (isTerminal) cr.endCall(callSid);
- *       else cr.sendResponse(callSid, reminder);
+ *       else cr.sendText(callSid, reminder);
  *     },
  *   },
  *   logger

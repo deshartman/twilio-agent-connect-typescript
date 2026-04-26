@@ -417,7 +417,7 @@ export class VoiceChannel implements Channel {
       }
 
       const last = metadata?.last === undefined ? true : (metadata.last as boolean);
-      cr.sendResponse(callSid as CallSid, message, last);
+      cr.sendText(callSid as CallSid, message, last);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,

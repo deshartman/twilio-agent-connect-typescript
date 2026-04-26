@@ -159,4 +159,105 @@ describe('ConversationRelay: listen-mode state', () => {
       expect(cr.isListenMode(CALL_SID)).toBe(false);
     });
   });
+
+  // ===========================================================================
+  // 5. Gating (Step 4) — text/play/language suppressed; sendDigits/end pass
+  // ===========================================================================
+
+  describe('outgoing-message gating', () => {
+    it('listen-mode off: all sends go through', () => {
+      const ws = openSession();
+      cr.sendText(CALL_SID, 'Hello');
+      cr.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
+      cr.sendDigits(CALL_SID, '1234');
+      cr.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
+      cr.endCall(CALL_SID);
+
+      expect(ws.send).toHaveBeenCalledTimes(5);
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(0);
+    });
+
+    it('listen-mode on: text is suppressed, sendDigits passes through', () => {
+      const ws = openSession();
+      cr.setListenMode(CALL_SID, true);
+
+      cr.sendText(CALL_SID, 'Hello');
+      cr.sendDigits(CALL_SID, '1234');
+
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(ws.send.mock.calls[0][0] as string);
+      expect(sent.type).toBe('sendDigits');
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+    });
+
+    it('listen-mode on: play is suppressed', () => {
+      const ws = openSession();
+      cr.setListenMode(CALL_SID, true);
+
+      cr.sendPlay(CALL_SID, 'https://example.com/audio.mp3');
+
+      expect(ws.send).not.toHaveBeenCalled();
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+    });
+
+    it('listen-mode on: switchLanguage is suppressed', () => {
+      const ws = openSession();
+      cr.setListenMode(CALL_SID, true);
+
+      cr.switchLanguage(CALL_SID, { ttsLanguage: 'es-ES' });
+
+      expect(ws.send).not.toHaveBeenCalled();
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+    });
+
+    it('listen-mode on: endCall passes through (must always be able to hang up)', () => {
+      const ws = openSession();
+      cr.setListenMode(CALL_SID, true);
+
+      cr.endCall(CALL_SID);
+
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(ws.send.mock.calls[0][0] as string);
+      expect(sent.type).toBe('end');
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(0);
+    });
+
+    it('suppressedCount accumulates across multiple suppressed sends', () => {
+      openSession();
+      cr.setListenMode(CALL_SID, true);
+
+      cr.sendText(CALL_SID, 'one');
+      cr.sendText(CALL_SID, 'two');
+      cr.sendPlay(CALL_SID, 'https://example.com/a.mp3');
+
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(3);
+    });
+
+    it('flipping listen-mode off unblocks sends (counter does NOT reset)', () => {
+      const ws = openSession();
+      cr.setListenMode(CALL_SID, true);
+      cr.sendText(CALL_SID, 'suppressed');
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+
+      cr.setListenMode(CALL_SID, false);
+      cr.sendText(CALL_SID, 'now sent');
+
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+    });
+
+    it('gate applies per-session (siblings unaffected)', () => {
+      const ws1 = openSession(CALL_SID);
+      const ws2 = openSession(CALL_SID_2);
+
+      cr.setListenMode(CALL_SID, true);
+      cr.sendText(CALL_SID, 'suppressed');
+      cr.sendText(CALL_SID_2, 'goes through');
+
+      expect(ws1.send).not.toHaveBeenCalled();
+      expect(ws2.send).toHaveBeenCalledTimes(1);
+      expect(cr.getSuppressedMessageCount(CALL_SID)).toBe(1);
+      expect(cr.getSuppressedMessageCount(CALL_SID_2)).toBe(0);
+    });
+  });
 });

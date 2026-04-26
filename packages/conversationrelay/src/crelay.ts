@@ -22,11 +22,6 @@ import {
   type InterruptMessage,
   type DtmfMessage,
   type InfoMessage,
-  type TextTokenMessage,
-  type PlayMessage,
-  type SendDigitsMessage,
-  type SwitchLanguageMessage,
-  type EndMessage,
   type OutgoingMessage,
   type ConversationRelayConfig,
   type CustomParameters,
@@ -35,6 +30,17 @@ import {
   OutgoingMessageSchema,
   WebSocketMessageSchema,
 } from './types';
+
+/**
+ * Outgoing message types suppressed when a session has listen-mode enabled.
+ * `sendDigits` and `end` are deliberately excluded — DTMF navigation and
+ * call termination must always work.
+ */
+const LISTEN_MODE_GATED_TYPES: ReadonlySet<OutgoingMessage['type']> = new Set([
+  'text',
+  'play',
+  'language',
+]);
 import { CRTool } from './tools/define-tool';
 import {
   playMediaTool,
@@ -182,7 +188,7 @@ export class ConversationRelay {
         );
         throw new Error(`Tool '${name}' produced invalid outgoingMessage`);
       }
-      this.sendRawMessage(callSid, validated.data);
+      this.sendResponse(callSid, validated.data);
     }
 
     return result;
@@ -381,13 +387,24 @@ export class ConversationRelay {
   }
 
   // ===========================================================================
-  // Response Sending
+  // sendResponse — single path back to Twilio
   // ===========================================================================
 
   /**
-   * Send a text response to a call via WebSocket
+   * Send a message to Twilio ConversationRelay via the session's WebSocket.
+   * This is the single path back to Twilio for every outgoing protocol
+   * frame — text tokens, play (media URL), sendDigits (DTMF), language
+   * (TTS/STT switch), end (hang up).
+   *
+   * Listen-mode gating: when the session has listen-mode enabled, outgoing
+   * speech-equivalent frames (`text`, `play`, `language`) are suppressed
+   * and the session's `suppressedCount` is incremented. `sendDigits` and
+   * `end` are never suppressed — DTMF navigation and termination must
+   * always work.
+   *
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#sending-messages-to-twilio
    */
-  public sendResponse(callSid: CallSid, message: string, last = true): void {
+  public sendResponse(callSid: CallSid, message: OutgoingMessage): void {
     const ws = this.connections.get(callSid);
     if (!ws) {
       throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
@@ -397,35 +414,47 @@ export class ConversationRelay {
       throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
     }
 
-    const textMessage: TextTokenMessage = {
-      type: 'text',
-      token: message,
-      last,
-    };
-
-    ws.send(JSON.stringify(textMessage));
-    this.logger.debug({ call_sid: callSid, last }, 'Sent text response');
-  }
-
-  /**
-   * Send a raw message object via WebSocket
-   */
-  public sendMessage(callSid: CallSid, message: TextTokenMessage): void {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
+    const session = this.sessions.get(callSid);
+    if (session?.listenMode && LISTEN_MODE_GATED_TYPES.has(message.type)) {
+      session.suppressedCount += 1;
+      this.logger.debug(
+        {
+          call_sid: callSid,
+          message_type: message.type,
+          suppressed_count: session.suppressedCount,
+        },
+        'Outgoing message suppressed (listen mode)'
+      );
+      return;
     }
 
     ws.send(JSON.stringify(message));
-    this.logger.debug({ call_sid: callSid, message_type: message.type }, 'Sent ConversationRelay message');
+    this.logger.debug({ call_sid: callSid, message_type: message.type }, 'Sent CR message');
+  }
+
+  // ===========================================================================
+  // Typed senders — thin wrappers that build an OutgoingMessage and hand it
+  // to `sendResponse`. Callers never touch protocol shape.
+  // ===========================================================================
+
+  /**
+   * Send a text token to Twilio TTS.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#text-message
+   */
+  public sendText(callSid: CallSid, token: string, last = true): void {
+    this.sendResponse(callSid, { type: 'text', token, last });
   }
 
   /**
-   * Play media from URL to the caller
+   * Send DTMF digits to the caller. Supports 0-9, `w` (500ms pause), `*`, `#`.
+   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
+   */
+  public sendDigits(callSid: CallSid, digits: string): void {
+    this.sendResponse(callSid, { type: 'sendDigits', digits });
+  }
+
+  /**
+   * Play media from a URL to the caller.
    * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#play-message
    */
   public sendPlay(
@@ -433,69 +462,31 @@ export class ConversationRelay {
     source: string,
     options?: { loop?: number; interruptible?: boolean; preemptible?: boolean }
   ): void {
-    const message: PlayMessage = {
-      type: 'play',
-      source,
-      ...options,
-    };
-    this.sendRawMessage(callSid, message);
+    this.sendResponse(callSid, { type: 'play', source, ...options });
   }
 
   /**
-   * Send DTMF digits to the caller
-   * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#send-digits-message
-   */
-  public sendDigits(callSid: CallSid, digits: string): void {
-    const message: SendDigitsMessage = {
-      type: 'sendDigits',
-      digits,
-    };
-    this.sendRawMessage(callSid, message);
-  }
-
-  /**
-   * Switch TTS or transcription language mid-call
+   * Switch TTS or transcription language mid-call.
    * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#language-message
    */
   public switchLanguage(
     callSid: CallSid,
     options: { ttsLanguage?: string; transcriptionLanguage?: string }
   ): void {
-    const message: SwitchLanguageMessage = {
-      type: 'language',
-      ...options,
-    };
-    this.sendRawMessage(callSid, message);
+    this.sendResponse(callSid, { type: 'language', ...options });
   }
 
   /**
-   * End the call with optional handoff data
+   * End the call with optional handoff data. Twilio expects `handoffData` as
+   * a JSON string — the object is stringified here so callers pass a plain
+   * object.
    * @see https://www.twilio.com/docs/voice/conversationrelay/websocket-messages#end-message
    */
   public endCall(callSid: CallSid, handoffData?: Record<string, unknown>): void {
-    const message: EndMessage = {
+    this.sendResponse(callSid, {
       type: 'end',
       handoffData: handoffData ? JSON.stringify(handoffData) : undefined,
-    };
-    this.sendRawMessage(callSid, message);
-  }
-
-  /**
-   * Send a raw outgoing message via WebSocket.
-   * @private Internal helper for sending any outgoing message type.
-   */
-  private sendRawMessage(callSid: CallSid, message: OutgoingMessage): void {
-    const ws = this.connections.get(callSid);
-    if (!ws) {
-      throw new Error(`No WebSocket connection found for CallSid: ${callSid}`);
-    }
-
-    if (ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`WebSocket not open for CallSid: ${callSid} (state: ${ws.readyState})`);
-    }
-
-    ws.send(JSON.stringify(message));
-    this.logger.debug({ call_sid: callSid, message_type: message.type }, 'Sent CR message');
+    });
   }
 
   // ===========================================================================

@@ -117,12 +117,12 @@ async function streamAssistantTurn(callSid: CallSid, state: CallState): Promise<
       const token = delta?.content || '';
       if (token) {
         fullResponse += token;
-        conversationRelay.sendResponse(callSid, token, false);
+        conversationRelay.sendText(callSid, token, false);
       }
       accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
     }
     // Signal completion so TTS can synthesize the final utterance
-    conversationRelay.sendResponse(callSid, '', true);
+    conversationRelay.sendText(callSid, '', true);
   } catch (err) {
     // OpenAI SDK throws AbortError when controller.abort() fires — that's the
     // interruption path and is a clean exit, not a failure.
@@ -152,11 +152,7 @@ conversationRelay.onPrompt((callSid: CallSid, message: string, _data: PromptMess
 
   void streamAssistantTurn(callSid, state).catch((error: unknown) => {
     logger.error({ err: error, callSid }, 'OpenAI error');
-    conversationRelay.sendResponse(
-      callSid,
-      'Sorry, I encountered an error. Please try again.',
-      true
-    );
+    conversationRelay.sendText(callSid, 'Sorry, I encountered an error. Please try again.', true);
   });
 });
 
