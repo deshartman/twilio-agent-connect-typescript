@@ -3,12 +3,12 @@ export { z } from 'zod';
 import pino from 'pino';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
-import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
-import { WebSocket } from 'ws';
 import Fastify from 'fastify';
 import formbody from '@fastify/formbody';
-import websocket from '@fastify/websocket';
 import gracefulShutdown from 'fastify-graceful-shutdown';
+import VoiceResponse from 'twilio/lib/twiml/VoiceResponse.js';
+import { WebSocket } from 'ws';
+import websocket from '@fastify/websocket';
 import twilio from 'twilio';
 
 // packages/core/src/types/config.ts
@@ -741,9 +741,9 @@ var BaseClient = class {
   baseUrl;
   logger;
   axiosInstance;
-  constructor(baseUrl, config, logger2) {
+  constructor(baseUrl, config, logger) {
     this.baseUrl = baseUrl;
-    this.logger = logger2 ?? createLogger({ name: this.constructor.name });
+    this.logger = logger ?? createLogger({ name: this.constructor.name });
     const authHeader = "Basic " + Buffer.from(`${config.apiKey}:${config.apiSecret}`).toString("base64");
     const baseOrigin = new URL(baseUrl).origin;
     this.axiosInstance = axios.create({
@@ -816,9 +816,9 @@ var BaseClient = class {
 
 // packages/core/src/clients/memory.ts
 var MemoryClient = class extends BaseClient {
-  constructor(config, logger2) {
+  constructor(config, logger) {
     const baseUrl = config.region ? `https://memory.${config.region}.twilio.com` : "https://memory.twilio.com";
-    super(baseUrl, config, logger2);
+    super(baseUrl, config, logger);
   }
   /**
    * Retrieve memories for a specific profile
@@ -1029,9 +1029,9 @@ function isHttpStatus(err, status) {
 }
 var ConversationClient = class extends BaseClient {
   conversationConfigurationId;
-  constructor(config, logger2) {
+  constructor(config, logger) {
     const baseUrl = config.region ? `https://conversations.${config.region}.twilio.com` : "https://conversations.twilio.com";
-    super(baseUrl, config, logger2);
+    super(baseUrl, config, logger);
     this.conversationConfigurationId = config.conversationConfigurationId;
   }
   /**
@@ -1287,9 +1287,9 @@ var ConversationClient = class extends BaseClient {
 
 // packages/core/src/clients/knowledge.ts
 var KnowledgeClient = class extends BaseClient {
-  constructor(config, logger2) {
+  constructor(config, logger) {
     const baseUrl = config.region ? `https://knowledge.${config.region}.twilio.com` : "https://knowledge.twilio.com";
-    super(baseUrl, config, logger2);
+    super(baseUrl, config, logger);
   }
   /**
    * Get knowledge base metadata
@@ -1342,7 +1342,7 @@ var KnowledgeClient = class extends BaseClient {
 };
 
 // packages/core/src/lib/operator-result-processor.ts
-function extractProfileIds(operatorResult, logger2) {
+function extractProfileIds(operatorResult, logger) {
   const profileIds = [];
   if (operatorResult.executionDetails?.participants) {
     for (const participant of operatorResult.executionDetails.participants) {
@@ -1350,7 +1350,7 @@ function extractProfileIds(operatorResult, logger2) {
         if (isProfileId(participant.profileId)) {
           profileIds.push(participant.profileId);
         } else {
-          logger2.warn(
+          logger.warn(
             {
               invalid_profile_id: participant.profileId,
               operator_id: operatorResult.operator.id,
@@ -1409,10 +1409,10 @@ var OperatorResultProcessor = class {
   memoryClient;
   config;
   logger;
-  constructor(memoryClient, config, logger2) {
+  constructor(memoryClient, config, logger) {
     this.memoryClient = memoryClient;
     this.config = config;
-    this.logger = logger2 ?? createLogger({ name: "cintel-processor" });
+    this.logger = logger ?? createLogger({ name: "cintel-processor" });
   }
   /**
    * Process an operator result event webhook payload
@@ -2407,14 +2407,14 @@ var ConversationsWebhookProcessor = class {
     return typeof webhookData === "object" && typeof webhookData.eventType === "string" && webhookData.eventType.length > 0;
   }
 };
-function extractConversationId(payload, logger2) {
+function extractConversationId(payload, logger) {
   const webhookData = payload;
   const conversationId = webhookData.data?.conversationId || webhookData.data?.id;
   if (conversationId && isConversationId(conversationId)) {
     return conversationId;
   }
   if (conversationId) {
-    logger2.warn(
+    logger.warn(
       {
         provided_id: conversationId,
         operation: "extract_conversation_id",
@@ -2423,20 +2423,20 @@ function extractConversationId(payload, logger2) {
       "Invalid conversation ID format in webhook payload"
     );
   } else {
-    logger2.debug(
+    logger.debug(
       { operation: "extract_conversation_id" },
       "Conversation ID missing in webhook payload"
     );
   }
   return null;
 }
-async function ensureAgentParticipant(client, logger2, conversationId, existingParticipants, agentAddress) {
+async function ensureAgentParticipant(client, logger, conversationId, existingParticipants, agentAddress) {
   const matches = (p) => (p.type === "AI_AGENT" || p.type === "HUMAN_AGENT" || p.type === "AGENT") && Array.isArray(p.addresses) && p.addresses.some((a) => a.channel === agentAddress.channel && a.address === agentAddress.address);
   const existing = existingParticipants.find(matches);
   if (existing) {
     return existing;
   }
-  logger2.debug(
+  logger.debug(
     {
       conversation_id: conversationId,
       channel: agentAddress.channel,
@@ -2446,13 +2446,13 @@ async function ensureAgentParticipant(client, logger2, conversationId, existingP
   );
   try {
     const agent2 = await client.addParticipant(conversationId, [agentAddress], "AI_AGENT");
-    logger2.debug(
+    logger.debug(
       { conversation_id: conversationId, participant_id: agent2.id },
       "Created AI_AGENT participant"
     );
     return agent2;
   } catch (error) {
-    logger2.warn(
+    logger.warn(
       { err: error, conversation_id: conversationId },
       "Failed to create AI_AGENT, retrying participant list"
     );
@@ -2461,7 +2461,7 @@ async function ensureAgentParticipant(client, logger2, conversationId, existingP
   try {
     retried = await client.listParticipants(conversationId);
   } catch (error) {
-    logger2.error(
+    logger.error(
       { err: error, conversation_id: conversationId },
       "Failed to retry listing participants"
     );
@@ -2469,14 +2469,14 @@ async function ensureAgentParticipant(client, logger2, conversationId, existingP
   }
   const agent = retried.find(matches);
   if (!agent) {
-    logger2.error(
+    logger.error(
       { conversation_id: conversationId },
       "Failed to create or find AI_AGENT participant"
     );
   }
   return agent;
 }
-function extractProfileId(payload, logger2) {
+function extractProfileId(payload, logger) {
   const webhookData = payload;
   const conversationId = webhookData.data?.conversationId;
   const profileId = webhookData.data?.profileId;
@@ -2484,7 +2484,7 @@ function extractProfileId(payload, logger2) {
     return profileId;
   }
   if (profileId) {
-    logger2.warn(
+    logger.warn(
       {
         provided_id: profileId,
         operation: "extract_profile_id",
@@ -2494,7 +2494,7 @@ function extractProfileId(payload, logger2) {
       "Invalid profile ID format in webhook payload"
     );
   } else {
-    logger2.debug(
+    logger.debug(
       {
         operation: "extract_profile_id",
         conversation_id: conversationId
@@ -3810,6 +3810,314 @@ var ConversationRelayChannel = class {
     }
   }
 };
+
+// packages/tools/src/lib/builder.ts
+var TACTool = class {
+  constructor(name, description, parameters, implementation) {
+    this.name = name;
+    this.description = description;
+    this.parameters = parameters;
+    this.implementation = implementation;
+  }
+  /**
+   * Convert to OpenAI function calling format
+   */
+  toOpenAIFormat() {
+    return {
+      type: "function",
+      function: {
+        name: this.name,
+        description: this.description,
+        parameters: this.parameters
+      }
+    };
+  }
+  /**
+   * Convert to Anthropic tool calling format
+   */
+  toAnthropicFormat() {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: this.parameters
+    };
+  }
+  /**
+   * Convert to JSON string (OpenAI format by default)
+   */
+  toJSON() {
+    return JSON.stringify(this.toOpenAIFormat(), null, 2);
+  }
+};
+function defineTool(name, description, parameters, implementation) {
+  if (!name) {
+    throw new Error("Tool name is required");
+  }
+  if (!description) {
+    throw new Error("Tool description is required");
+  }
+  if (!parameters) {
+    throw new Error("Tool parameters schema is required");
+  }
+  if (!implementation) {
+    throw new Error("Tool implementation is required");
+  }
+  return new TACTool(name, description, parameters, implementation);
+}
+
+// packages/tools/src/built-in/memory.ts
+function createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId) {
+  return defineTool(
+    BuiltInTools.RETRIEVE_MEMORY,
+    "Retrieve user memories including observations, summaries, and conversation history",
+    {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Optional semantic search query to filter memories"
+        },
+        start_date: {
+          type: "string",
+          description: "Optional start date for filtering memories (ISO 8601 format)"
+        },
+        end_date: {
+          type: "string",
+          description: "Optional end date for filtering memories (ISO 8601 format)"
+        },
+        observation_limit: {
+          type: "number",
+          description: "Maximum number of observations to retrieve (default: 10)"
+        },
+        summary_limit: {
+          type: "number",
+          description: "Maximum number of summaries to retrieve (default: 5)"
+        },
+        session_limit: {
+          type: "number",
+          description: "Maximum number of sessions to retrieve (default: 3)"
+        }
+      },
+      required: [],
+      // No required parameters
+      description: "Retrieve memories for the current user"
+    },
+    async (params) => {
+      if (!profileId) {
+        throw new Error("No profile ID available for memory retrieval");
+      }
+      const request = {
+        query: params.query,
+        start_date: params.start_date,
+        end_date: params.end_date,
+        observation_limit: params.observation_limit ?? 10,
+        summary_limit: params.summary_limit ?? 5,
+        session_limit: params.session_limit ?? 3
+      };
+      return memoryClient.retrieveMemories(memoryStoreId, profileId, request);
+    }
+  );
+}
+function createMemoryTools(memoryClient, memoryStoreId) {
+  return {
+    /**
+     * Create memory tool for specific profile
+     */
+    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
+    /**
+     * Create memory tool for current session
+     */
+    forSession: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId)
+  };
+}
+
+// packages/tools/src/built-in/messaging.ts
+function createSendMessageTool(channel, conversationId) {
+  return defineTool(
+    BuiltInTools.SEND_MESSAGE,
+    "Send a message to the user in the current conversation",
+    {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "The message content to send to the user"
+        },
+        metadata: {
+          type: "object",
+          description: "Optional metadata to include with the message"
+        }
+      },
+      required: ["message"],
+      description: "Send a message to the user"
+    },
+    async (params) => {
+      try {
+        await channel.sendResponse(conversationId, params.message, params.metadata);
+        return {
+          success: true,
+          message_id: `msg_${Date.now()}`
+          // Simple ID generation
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  );
+}
+function createMessagingTools() {
+  return {
+    /**
+     * Create send message tool for specific channel and session
+     *
+     * @param channel - The channel to send messages through
+     * @param conversationId - The conversation ID
+     */
+    forSession: (channel, conversationId) => createSendMessageTool(channel, conversationId)
+  };
+}
+
+// packages/tools/src/built-in/handoff.ts
+function createHandoffTool(tac, conversationId) {
+  return defineTool(
+    BuiltInTools.ESCALATE_TO_HUMAN,
+    "Escalate the conversation to a human agent when the AI cannot help further",
+    {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description: "The reason for escalating to a human agent"
+        },
+        urgency: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description: "The urgency level of the handoff (default: medium)"
+        },
+        context: {
+          type: "string",
+          description: "Additional context to provide to the human agent"
+        },
+        metadata: {
+          type: "object",
+          description: "Optional metadata for the handoff"
+        }
+      },
+      required: ["reason"],
+      description: "Escalate to human agent"
+    },
+    async (params) => {
+      try {
+        let fullReason = params.reason;
+        if (params.context) {
+          fullReason += `
+
+Additional Context: ${params.context}`;
+        }
+        if (params.urgency) {
+          fullReason += `
+
+Urgency: ${params.urgency}`;
+        }
+        await tac.triggerHandoff(conversationId, fullReason);
+        return {
+          success: true,
+          handoff_id: `handoff_${Date.now()}`,
+          estimated_wait_time: getEstimatedWaitTime(params.urgency ?? "medium")
+        };
+      } catch (error) {
+        return {
+          success: false,
+          handoff_id: `failed_${Date.now()}`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  );
+}
+function getEstimatedWaitTime(urgency) {
+  switch (urgency) {
+    case "high":
+      return "< 2 minutes";
+    case "medium":
+      return "2-5 minutes";
+    case "low":
+      return "5-10 minutes";
+    default:
+      return "2-5 minutes";
+  }
+}
+function createHandoffTools() {
+  return {
+    /**
+     * Create handoff tool for specific TAC instance and session
+     *
+     * @param tac - The TAC instance
+     * @param conversationId - The conversation ID
+     */
+    forSession: (tac, conversationId) => createHandoffTool(tac, conversationId)
+  };
+}
+
+// packages/tools/src/built-in/knowledge.ts
+function createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config) {
+  const topK = config.topK ?? 5;
+  return defineTool(
+    config.name,
+    config.description,
+    {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The search query to find relevant knowledge"
+        }
+      },
+      required: ["query"],
+      description: config.description
+    },
+    async (params) => {
+      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
+    }
+  );
+}
+async function createKnowledgeSearchToolAsync(knowledgeClient, knowledgeBaseId, config) {
+  let name = config?.name;
+  let description = config?.description;
+  if (!name || !description) {
+    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId);
+    if (!name) {
+      const normalized = kb.displayName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+      name = normalized ? `search_${normalized}` : "search_knowledge_base";
+    }
+    if (!description) {
+      description = kb.description || `Search the ${kb.displayName} knowledge base`;
+    }
+  }
+  const toolConfig = {
+    name,
+    description
+  };
+  if (config?.topK !== void 0) {
+    toolConfig.topK = config.topK;
+  }
+  return createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, toolConfig);
+}
+function createKnowledgeTools(knowledgeClient) {
+  return {
+    /**
+     * Create knowledge search tool with explicit config
+     */
+    forKnowledgeBase: (knowledgeBaseId, config) => createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config),
+    /**
+     * Create knowledge search tool with auto-fetched metadata
+     */
+    forKnowledgeBaseAsync: (knowledgeBaseId, config) => createKnowledgeSearchToolAsync(knowledgeClient, knowledgeBaseId, config)
+  };
+}
 function createLogger2(options) {
   const level = options?.level || process.env.TWILIO_LOG_LEVEL || "info";
   const isDevelopment = process.env.NODE_ENV !== "production";
@@ -3837,9 +4145,9 @@ var SilenceHandler = class {
   enabled = true;
   config;
   logger;
-  constructor(config, logger2) {
+  constructor(config, logger) {
     this.config = config;
-    this.logger = logger2.child({ component: "silence-handler" });
+    this.logger = logger.child({ component: "silence-handler" });
   }
   /**
    * Reset the silence timer. Call on any signal of life from the caller
@@ -4111,7 +4419,7 @@ var ConversationRelayCallbackPayloadSchema = z.object({
   HandoffData: z.string().optional()
   // JSON string
 });
-var HandoffDataSchema = z.object({
+z.object({
   reason: z.string(),
   call_summary: z.string(),
   sentiment: z.string()
@@ -4451,7 +4759,7 @@ var ConversationRelayTool = class {
     return JSON.stringify(this.toOpenAIFormat(), null, 2);
   }
 };
-function defineTool(name, description, parameters, implementation) {
+function defineTool2(name, description, parameters, implementation) {
   if (!name) {
     throw new Error("Tool name is required");
   }
@@ -4468,7 +4776,7 @@ function defineTool(name, description, parameters, implementation) {
 }
 
 // packages/conversationrelay/src/tools/play-media.ts
-var playMediaTool = defineTool(
+var playMediaTool = defineTool2(
   "play_media",
   "Play audio file from URL to caller",
   {
@@ -4511,7 +4819,7 @@ var playMediaTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/send-digits.ts
-var sendDigitsTool = defineTool(
+var sendDigitsTool = defineTool2(
   "send_digits",
   "Send DTMF digits to caller",
   {
@@ -4538,7 +4846,7 @@ var sendDigitsTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/switch-language.ts
-var switchLanguageTool = defineTool(
+var switchLanguageTool = defineTool2(
   "switch_language",
   "Change TTS or transcription language during call",
   {
@@ -4574,7 +4882,7 @@ var switchLanguageTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/end-call.ts
-var endCallTool = defineTool(
+var endCallTool = defineTool2(
   "end_call",
   "End the call with optional handoff data",
   {
@@ -4604,7 +4912,7 @@ var endCallTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/live-agent-handoff.ts
-var liveAgentHandoffTool = defineTool(
+var liveAgentHandoffTool = defineTool2(
   "live_agent_handoff",
   "Terminate the current call and hand off to a live agent. Provide a brief summary of the interaction so far; the server-side callback handler will typically bridge the caller to a queue.",
   {
@@ -4640,7 +4948,7 @@ var liveAgentHandoffTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/set-listen-mode.ts
-var setListenModeTool = defineTool(
+var setListenModeTool = defineTool2(
   "set_listen_mode",
   "Toggle whether the agent speaks aloud. Enable (true) when listening for IVR prompts or during sensitive-input capture; disable (false) when ready to speak again.",
   {
@@ -4663,7 +4971,7 @@ var setListenModeTool = defineTool(
 );
 
 // packages/conversationrelay/src/tools/set-silence-detection.ts
-var setSilenceDetectionTool = defineTool(
+var setSilenceDetectionTool = defineTool2(
   "set_silence_detection",
   "Toggle silence detection monitoring. Enable (true) to monitor for caller silence and trigger reminders/termination; disable (false) to suppress silence reminders entirely.",
   {
@@ -4737,8 +5045,8 @@ var ConversationRelay = class _ConversationRelay {
   toolRegistry;
   silenceTemplate;
   callbacks;
-  constructor(logger2, config) {
-    this.logger = logger2 ?? createLogger2({ name: "conversation-relay" });
+  constructor(logger, config) {
+    this.logger = logger ?? createLogger2({ name: "conversation-relay" });
     this.sessions = /* @__PURE__ */ new Map();
     this.callbacks = {};
     this.silenceTemplate = config?.silence;
@@ -5193,378 +5501,7 @@ var ConversationRelayServer = class {
   }
 };
 
-// packages/core/src/util/flex.ts
-var logger = createLogger({ name: "tac-flex" });
-function handleFlexHandoffLogic(formData, flexWorkflowSid) {
-  if (!flexWorkflowSid) {
-    logger.error("No Flex workflow SID configured");
-    return {
-      success: false,
-      status: 400,
-      content: "Invalid handoff data",
-      contentType: "text/plain"
-    };
-  }
-  const response = new VoiceResponse();
-  const handoffDataRaw = formData["HandoffData"] || "";
-  if (handoffDataRaw) {
-    let handoffData;
-    try {
-      handoffData = HandoffDataSchema.parse(JSON.parse(handoffDataRaw));
-    } catch (error) {
-      logger.error({ err: error }, "Invalid handoff data");
-      return {
-        success: false,
-        status: 400,
-        content: "Invalid handoff data",
-        contentType: "text/plain"
-      };
-    }
-    const enqueue = response.enqueue({
-      workflowSid: flexWorkflowSid
-    });
-    enqueue.task(
-      {
-        priority: 5
-      },
-      JSON.stringify(handoffData)
-    );
-    logger.debug(
-      { workflow_sid: flexWorkflowSid, handoff_data: handoffData },
-      "Generated Flex handoff TwiML"
-    );
-    return {
-      success: true,
-      status: 200,
-      content: response.toString(),
-      contentType: "application/xml"
-    };
-  } else {
-    if (formData["CallStatus"] === "completed") {
-      return {
-        success: true,
-        status: 200,
-        content: "Call Completed",
-        contentType: "application/xml"
-      };
-    } else {
-      return {
-        success: false,
-        status: 400,
-        content: "Handoff Data is Missing",
-        contentType: "application/xml"
-      };
-    }
-  }
-}
-
-// packages/tools/src/lib/builder.ts
-var TACTool = class {
-  constructor(name, description, parameters, implementation) {
-    this.name = name;
-    this.description = description;
-    this.parameters = parameters;
-    this.implementation = implementation;
-  }
-  /**
-   * Convert to OpenAI function calling format
-   */
-  toOpenAIFormat() {
-    return {
-      type: "function",
-      function: {
-        name: this.name,
-        description: this.description,
-        parameters: this.parameters
-      }
-    };
-  }
-  /**
-   * Convert to Anthropic tool calling format
-   */
-  toAnthropicFormat() {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: this.parameters
-    };
-  }
-  /**
-   * Convert to JSON string (OpenAI format by default)
-   */
-  toJSON() {
-    return JSON.stringify(this.toOpenAIFormat(), null, 2);
-  }
-};
-function defineTool2(name, description, parameters, implementation) {
-  if (!name) {
-    throw new Error("Tool name is required");
-  }
-  if (!description) {
-    throw new Error("Tool description is required");
-  }
-  if (!parameters) {
-    throw new Error("Tool parameters schema is required");
-  }
-  if (!implementation) {
-    throw new Error("Tool implementation is required");
-  }
-  return new TACTool(name, description, parameters, implementation);
-}
-
-// packages/tools/src/built-in/memory.ts
-function createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId) {
-  return defineTool2(
-    BuiltInTools.RETRIEVE_MEMORY,
-    "Retrieve user memories including observations, summaries, and conversation history",
-    {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Optional semantic search query to filter memories"
-        },
-        start_date: {
-          type: "string",
-          description: "Optional start date for filtering memories (ISO 8601 format)"
-        },
-        end_date: {
-          type: "string",
-          description: "Optional end date for filtering memories (ISO 8601 format)"
-        },
-        observation_limit: {
-          type: "number",
-          description: "Maximum number of observations to retrieve (default: 10)"
-        },
-        summary_limit: {
-          type: "number",
-          description: "Maximum number of summaries to retrieve (default: 5)"
-        },
-        session_limit: {
-          type: "number",
-          description: "Maximum number of sessions to retrieve (default: 3)"
-        }
-      },
-      required: [],
-      // No required parameters
-      description: "Retrieve memories for the current user"
-    },
-    async (params) => {
-      if (!profileId) {
-        throw new Error("No profile ID available for memory retrieval");
-      }
-      const request = {
-        query: params.query,
-        start_date: params.start_date,
-        end_date: params.end_date,
-        observation_limit: params.observation_limit ?? 10,
-        summary_limit: params.summary_limit ?? 5,
-        session_limit: params.session_limit ?? 3
-      };
-      return memoryClient.retrieveMemories(memoryStoreId, profileId, request);
-    }
-  );
-}
-function createMemoryTools(memoryClient, memoryStoreId) {
-  return {
-    /**
-     * Create memory tool for specific profile
-     */
-    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
-    /**
-     * Create memory tool for current session
-     */
-    forSession: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId)
-  };
-}
-
-// packages/tools/src/built-in/messaging.ts
-function createSendMessageTool(channel, conversationId) {
-  return defineTool2(
-    BuiltInTools.SEND_MESSAGE,
-    "Send a message to the user in the current conversation",
-    {
-      type: "object",
-      properties: {
-        message: {
-          type: "string",
-          description: "The message content to send to the user"
-        },
-        metadata: {
-          type: "object",
-          description: "Optional metadata to include with the message"
-        }
-      },
-      required: ["message"],
-      description: "Send a message to the user"
-    },
-    async (params) => {
-      try {
-        await channel.sendResponse(conversationId, params.message, params.metadata);
-        return {
-          success: true,
-          message_id: `msg_${Date.now()}`
-          // Simple ID generation
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    }
-  );
-}
-function createMessagingTools() {
-  return {
-    /**
-     * Create send message tool for specific channel and session
-     *
-     * @param channel - The channel to send messages through
-     * @param conversationId - The conversation ID
-     */
-    forSession: (channel, conversationId) => createSendMessageTool(channel, conversationId)
-  };
-}
-
-// packages/tools/src/built-in/handoff.ts
-function createHandoffTool(tac, conversationId) {
-  return defineTool2(
-    BuiltInTools.ESCALATE_TO_HUMAN,
-    "Escalate the conversation to a human agent when the AI cannot help further",
-    {
-      type: "object",
-      properties: {
-        reason: {
-          type: "string",
-          description: "The reason for escalating to a human agent"
-        },
-        urgency: {
-          type: "string",
-          enum: ["low", "medium", "high"],
-          description: "The urgency level of the handoff (default: medium)"
-        },
-        context: {
-          type: "string",
-          description: "Additional context to provide to the human agent"
-        },
-        metadata: {
-          type: "object",
-          description: "Optional metadata for the handoff"
-        }
-      },
-      required: ["reason"],
-      description: "Escalate to human agent"
-    },
-    async (params) => {
-      try {
-        let fullReason = params.reason;
-        if (params.context) {
-          fullReason += `
-
-Additional Context: ${params.context}`;
-        }
-        if (params.urgency) {
-          fullReason += `
-
-Urgency: ${params.urgency}`;
-        }
-        await tac.triggerHandoff(conversationId, fullReason);
-        return {
-          success: true,
-          handoff_id: `handoff_${Date.now()}`,
-          estimated_wait_time: getEstimatedWaitTime(params.urgency ?? "medium")
-        };
-      } catch (error) {
-        return {
-          success: false,
-          handoff_id: `failed_${Date.now()}`,
-          error: error instanceof Error ? error.message : String(error)
-        };
-      }
-    }
-  );
-}
-function getEstimatedWaitTime(urgency) {
-  switch (urgency) {
-    case "high":
-      return "< 2 minutes";
-    case "medium":
-      return "2-5 minutes";
-    case "low":
-      return "5-10 minutes";
-    default:
-      return "2-5 minutes";
-  }
-}
-function createHandoffTools() {
-  return {
-    /**
-     * Create handoff tool for specific TAC instance and session
-     *
-     * @param tac - The TAC instance
-     * @param conversationId - The conversation ID
-     */
-    forSession: (tac, conversationId) => createHandoffTool(tac, conversationId)
-  };
-}
-
-// packages/tools/src/built-in/knowledge.ts
-function createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config) {
-  const topK = config.topK ?? 5;
-  return defineTool2(
-    config.name,
-    config.description,
-    {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query to find relevant knowledge"
-        }
-      },
-      required: ["query"],
-      description: config.description
-    },
-    async (params) => {
-      return knowledgeClient.searchKnowledgeBase(knowledgeBaseId, params.query, topK);
-    }
-  );
-}
-async function createKnowledgeSearchToolAsync(knowledgeClient, knowledgeBaseId, config) {
-  let name = config?.name;
-  let description = config?.description;
-  if (!name || !description) {
-    const kb = await knowledgeClient.getKnowledgeBase(knowledgeBaseId);
-    if (!name) {
-      const normalized = kb.displayName.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
-      name = normalized ? `search_${normalized}` : "search_knowledge_base";
-    }
-    if (!description) {
-      description = kb.description || `Search the ${kb.displayName} knowledge base`;
-    }
-  }
-  const toolConfig = {
-    name,
-    description
-  };
-  if (config?.topK !== void 0) {
-    toolConfig.topK = config.topK;
-  }
-  return createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, toolConfig);
-}
-function createKnowledgeTools(knowledgeClient) {
-  return {
-    /**
-     * Create knowledge search tool with explicit config
-     */
-    forKnowledgeBase: (knowledgeBaseId, config) => createKnowledgeSearchTool(knowledgeClient, knowledgeBaseId, config),
-    /**
-     * Create knowledge search tool with auto-fetched metadata
-     */
-    forKnowledgeBaseAsync: (knowledgeBaseId, config) => createKnowledgeSearchToolAsync(knowledgeClient, knowledgeBaseId, config)
-  };
-}
+// packages/server/src/lib/server.ts
 var DEFAULT_CONFIG = {
   host: "0.0.0.0",
   port: 8e3,
@@ -5761,6 +5698,6 @@ var TACServer = class {
   }
 };
 
-export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, ConversationRelayServer, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool2 as defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { ActionChannelSettingsSchema, ActionParticipantRefSchema, ActionResponseSchema, ActionTextContentSchema, AuthorInfoSchema, BaseClient, BuiltInTools, CaptureRuleSchema, ChannelSettingsSchema, ChannelTypeSchema, ChatChannel, CintelParticipantSchema, CommunicationContentSchema, CommunicationParticipantSchema, CommunicationSchema, ConversationAddressSchema, ConversationClient, ConversationConfigurationSchema, ConversationGroupingTypeSchema, ConversationIntelligenceConfigSchema, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, ConversationRelayServer, ConversationResponseSchema, ConversationSessionSchema, ConversationSessionStore, ConversationSummaryItemSchema, ConversationsV1BridgeSchema, ConversationsWebhookProcessor, CreateConversationSummariesResponseSchema, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, ExecutionDetailsSchema, IntelligenceConfigurationSchema, JSONSchemaSchema, KnowledgeBaseSchema, KnowledgeBaseStatusSchema, KnowledgeChunkResultSchema, KnowledgeClient, KnowledgeSearchResponseSchema, ListCommunicationsResponseSchema, ListConversationsResponseSchema, ListParticipantsResponseSchema, MemoryChannelTypeSchema, MemoryClient, MemoryCommunicationContentSchema, MemoryCommunicationSchema, MemoryDeliveryStatusSchema, MemoryParticipantSchema, MemoryParticipantTypeSchema, MemoryRetrievalRequestSchema, MemoryRetrievalResponseSchema, MessageDirectionSchema, ObservationInfoSchema, OpenAIToolSchema, OperatorProcessingResultSchema, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, ParticipantAddressSchema, ParticipantAddressTypeSchema, ProfileLookupResponseSchema, ProfileResponseSchema, SMSChannel, SendMessageActionPayloadSchema, SendMessageActionRequestSchema, SessionInfoSchema, SessionMessageSchema, StatusCallbackSchema, StatusTimeoutsSchema, SummaryInfoSchema, TAC, TACChannelTypeSchema, TACCommunicationAuthorSchema, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, TACConfigSchema, TACCustomParametersSchema, TACDeliveryStatusSchema, TACMemoryResponse, TACParticipantTypeSchema, TACServer, TACTool, ToolExecutionResultSchema, TranscriptionSchema, TranscriptionWordSchema, VoiceChannel, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map
