@@ -42,6 +42,7 @@ export interface VoiceChannelConfig {
 }
 
 export class VoiceChannel implements Channel {
+  public readonly channelType: ChannelType = 'voice';
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
@@ -87,10 +88,6 @@ export class VoiceChannel implements Channel {
     );
 
     this.logger.info('VoiceChannel initialized (passive Maestro webhooks)');
-  }
-
-  public get channelType(): ChannelType {
-    return 'voice';
   }
 
   // ===========================================================================

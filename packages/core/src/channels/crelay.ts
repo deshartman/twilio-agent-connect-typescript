@@ -45,6 +45,7 @@ export interface ConversationRelayChannelConfig {
 }
 
 export class ConversationRelayChannel implements Channel {
+  public readonly channelType: ChannelType = 'crelay';
   protected readonly config: TACConfig;
   protected readonly logger: Logger;
   protected readonly conversationClient: ConversationClient;
@@ -91,10 +92,6 @@ export class ConversationRelayChannel implements Channel {
 
     this.wireCRCallbacks();
     this.logger.info('ConversationRelayChannel initialized');
-  }
-
-  public get channelType(): ChannelType {
-    return 'crelay';
   }
 
   // ===========================================================================
