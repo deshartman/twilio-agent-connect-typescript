@@ -55,10 +55,6 @@ export type {
   WebhookProcessorConfig,
 } from './channels/utility';
 
-// Utility functions
-export { handleFlexHandoffLogic } from './util/flex';
-export type { FlexHandoffResult } from './util/flex';
-
 // Conversation Intelligence processor
 export { OperatorResultProcessor } from './lib/operator-result-processor';
 
