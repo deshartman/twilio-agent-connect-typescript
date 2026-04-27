@@ -9,13 +9,13 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 - ✅ Voice-only (no SMS, no Chat)
 - ✅ Uses standalone `ConversationRelayServer` from conversationrelay package
 - ✅ No dependency on TAC framework
-- ✅ OpenAI GPT-4 integration with streaming
+- ✅ OpenAI Responses API with streaming (model chosen via `OPENAI_MODEL`)
 - ✅ Seven built-in tools auto-registered and LLM-dispatchable:
   protocol (`play_media`, `send_digits`, `switch_language`, `end_call`,
   `live_agent_handoff`) and state (`set_listen_mode`, `set_silence_detection`)
 - ✅ Built-in silence handling — 30s threshold, auto-wired per session
 - ✅ Session-based conversation history
-- ✅ Interruption handling via AbortController
+- ✅ Interruption handling via a per-call `interrupted` flag
 - ✅ Webhook validation enabled
 
 ## Setup
@@ -47,6 +47,7 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
    - `TWILIO_AUTH_TOKEN` - Your Twilio Auth Token
    - `TWILIO_PHONE_NUMBER` - Your Twilio phone number
    - `OPENAI_API_KEY` - OpenAI API key
+   - `OPENAI_MODEL` - LLM model; must support the Responses API + function-calling. Recommended: `gpt-5.4-mini`.
    - `CR_PUBLIC_DOMAIN` - Public URL Twilio reaches this server at (e.g., `https://cr-<you>.ngrok.dev`). Used for webhook signature validation and to build the `wss://` URL spliced into the TwiML response.
 
 5. Start ngrok (this example binds to port 8001):
@@ -71,17 +72,17 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
 1. Twilio calls `POST /twiml` when a call arrives
 2. Server responds with TwiML connecting to WebSocket at `/ws`
 3. Voice audio transcribed and delivered to `conversationRelay.onPrompt((session, message) => ...)`
-4. OpenAI GPT-4 generates a streamed response, optionally emitting `tool_calls`
-5. For each tool call, `session.executeTool(name, args)` runs the tool and applies the appropriate side-effect — ships an `outgoingMessage` over the WebSocket for protocol tools, mutates session state for `set_listen_mode` / `set_silence_detection`
-6. Text tokens are streamed back via `session.sendText(...)` and spoken to the caller
-7. Terminal tools (`end_call`, `live_agent_handoff`) are **deferred** — the `end` frame waits for the next `session.sendText(token, true)` so the LLM's farewell reaches TTS before Twilio hangs up
+4. OpenAI's Responses API generates a streamed response, emitting text deltas and optional function-call events
+5. `response.function_call_arguments.done` events fire `session.executeTool(name, args)` inline — the tool runs and applies the appropriate side-effect: ships an `outgoingMessage` for protocol tools, mutates session state for `set_listen_mode` / `set_silence_detection`
+6. Text tokens are streamed back via `session.sendText(token, false)` and spoken to the caller
+7. At end of turn, `session.sendText('', true)` awaits any in-flight `executeTool` promises and then flushes any deferred terminal frame stashed by `end_call` / `live_agent_handoff` — so the LLM's farewell reaches TTS before Twilio hangs up
 8. If the caller goes quiet for 30s, CR auto-sends "Are you still there?"; another 30s of silence and the call is terminated with `reasonCode: 'unresponsive'`
 
 ## Architecture
 
 ```
 Phone Call → Twilio → POST /twiml → TwiML (connect to WS)
-                   → WS /ws → ConversationRelay ↔ OpenAI GPT-4
+                   → WS /ws → ConversationRelay ↔ OpenAI Responses API
                                   │
                                   ├─ cr.getToolRegistry().list()  → pass CR built-ins to OpenAI
                                   └─ session.executeTool(...)     → run tool + auto-ship protocol message
@@ -89,24 +90,47 @@ Phone Call → Twilio → POST /twiml → TwiML (connect to WS)
 
 ## Tool Flow
 
-The example uses the shared `ToolRegistry` on `ConversationRelay` to discover tools, and the per-session handle to dispatch them:
+The example uses the shared `ToolRegistry` on `ConversationRelay` to discover tools, and the per-session handle to dispatch them. `ConversationRelayTool.toOpenAIFormat()` returns the Chat Completions shape, which is flattened locally for the Responses API:
 
 ```typescript
-// 1. Discover available tools (built-ins + anything you register)
+// 1. Discover available tools (built-ins + anything you register), flattened
+//    for the Responses API.
 const tools = conversationRelay
   .getToolRegistry()
   .list()
-  .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+  .map(t => {
+    const oai = t.toOpenAIFormat() as {
+      type: 'function';
+      function: { name: string; description: string; parameters: Record<string, unknown> };
+    };
+    return {
+      type: 'function' as const,
+      name: oai.function.name,
+      description: oai.function.description,
+      parameters: oai.function.parameters,
+      strict: null,
+    };
+  });
 
-// 2. Hand them to OpenAI
-const stream = await openai.chat.completions.create({ model, messages, tools, stream: true });
+// 2. Hand them to OpenAI's Responses API
+const stream = await openai.responses.create({
+  model: OPENAI_MODEL,
+  input,
+  instructions: SYSTEM_INSTRUCTIONS,
+  tools,
+  stream: true,
+});
 
-// 3. Dispatch tool calls on the active session — protocol tools auto-ship
-//    their outgoingMessage; terminal 'end' frames are deferred until the
-//    next sendText(..., last: true).
-for (const call of toolCalls.values()) {
-  const args: unknown = JSON.parse(call.argumentsJson);
-  await session.executeTool(call.name, args);
+// 3. Dispatch inline on `response.function_call_arguments.done`. The Responses
+//    API guarantees arguments are a complete, valid JSON string at this event.
+//    Protocol tools auto-ship their outgoingMessage; terminal `end` frames are
+//    deferred until the next sendText(..., last: true) at end of turn.
+for await (const event of stream) {
+  if (state.interrupted) break;
+  if (event.type === 'response.function_call_arguments.done' && currentCall) {
+    const args: unknown = JSON.parse(currentCall.args);
+    void session.executeTool(currentCall.name, args);
+  }
 }
 ```
 
@@ -135,18 +159,18 @@ When the caller speaks over the agent's TTS, ConversationRelay sends an `interru
 - `utteranceUntilInterrupt` — what the caller actually *heard* before cutting in.
 - `durationUntilInterruptMs` — ms into the TTS turn when the cut-in happened.
 
-This example holds per-call state with an `AbortController`:
+This example holds per-call state with a plain boolean flag:
 
 ```typescript
 type CallState = {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
-  activeStream?: AbortController;
+  interrupted: boolean;
 };
 ```
 
 The `onInterrupt` handler does two things the framework cannot do for you:
 
-1. **Abort the in-flight OpenAI stream** via `state.activeStream?.abort()`. Without this, tokens keep streaming into TTS after the caller has already moved on.
+1. **Set `state.interrupted = true`**. The in-flight Responses API stream loop checks this flag every iteration and breaks cleanly — the OpenAI fetch keeps flowing until it naturally ends, but the app stops forwarding tokens to TTS immediately. No `AbortController`, no SDK-level cancellation, no `APIUserAbortError` noise.
 2. **Rewrite the last assistant turn** in `state.history` to `utteranceUntilInterrupt`. This is the critical step — if you skip it, the next LLM call will believe the assistant said text the caller never heard, and multi-turn accuracy drops quickly.
 
 See `src/index.ts` for the complete pattern.

@@ -96,6 +96,15 @@ export class ConversationRelaySession {
    */
   private pendingTerminalMessage: OutgoingMessage | null = null;
 
+  /**
+   * `executeTool` promises still resolving. `sendText(token, last=true)`
+   * awaits this set before emitting the terminal frame, so tools kicked off
+   * during the stream have a chance to stash their `pendingTerminalMessage`
+   * before the flush point. Enforces tools-before-terminal ordering without
+   * requiring the caller to do it manually.
+   */
+  private readonly inFlightToolCalls: Set<Promise<unknown>> = new Set();
+
   constructor(opts: ConversationRelaySessionOptions) {
     this.ws = opts.ws;
     this.logger = opts.logger;
@@ -233,12 +242,29 @@ export class ConversationRelaySession {
   }
 
   /**
-   * Send a text token to Twilio TTS. When `last` is true and a terminal
-   * frame is stashed (from a prior `executeTool`), flush the terminal
-   * *after* the text. Listen-mode suppression still applies to the text
-   * frame; the terminal frame (`end`) is never suppressed and always fires.
+   * Send a text token to Twilio TTS.
+   *
+   * When `last` is `true` (turn end), this awaits any in-flight `executeTool`
+   * promises *before* emitting the text frame — tools that stash a terminal
+   * `pendingTerminalMessage` (e.g. `end_call`, `live_agent_handoff`) get a
+   * chance to land their stash in time for the post-text flush. This
+   * enforces the tool-dispatch-before-terminal-flush ordering for callers,
+   * even if they fired `sendText('', true)` and `executeTool(...)` racily.
+   *
+   * When `last` is `false` (mid-stream token), no await is performed —
+   * per-token calls stay cheap.
+   *
+   * After the text frame is sent, a stashed terminal frame is flushed.
+   * Listen-mode suppression applies to the text frame only; the terminal
+   * frame is never suppressed and always fires.
    */
-  public sendText(token: string, last = true): void {
+  public async sendText(token: string, last = true): Promise<void> {
+    if (last && this.inFlightToolCalls.size > 0) {
+      // Promise.allSettled — a failing tool shouldn't block the turn-end text.
+      // Individual failures are already logged inside executeTool.
+      await Promise.allSettled([...this.inFlightToolCalls]);
+    }
+
     this.sendResponse({ type: 'text', token, last });
 
     if (last && this.pendingTerminalMessage) {
@@ -294,6 +320,10 @@ export class ConversationRelaySession {
    *     handler (on enable, also resets the timer). No-op for sessions
    *     without a silence handler.
    *
+   * The returned promise is tracked in `inFlightToolCalls` until it settles,
+   * so `sendText(..., last: true)` can await it before emitting the terminal
+   * text frame. This enforces tool-dispatch-before-terminal-flush ordering.
+   *
    * @throws if the tool is not registered or produces an invalid
    *   `outgoingMessage`.
    */
@@ -303,13 +333,27 @@ export class ConversationRelaySession {
       throw new Error(`Unknown tool: ${name}`);
     }
 
-    const result = await tool.implementation(args);
+    const promise = (async (): Promise<unknown> => {
+      const result = await tool.implementation(args);
+      this.applyOutgoingMessageConvention(name, result);
+      this.applyListenModeConvention(result);
+      this.applySilenceConvention(result);
+      return result;
+    })();
 
-    this.applyOutgoingMessageConvention(name, result);
-    this.applyListenModeConvention(result);
-    this.applySilenceConvention(result);
-
-    return result;
+    this.inFlightToolCalls.add(promise);
+    // Auto-clean on settle. The tracker chain is a second promise we
+    // deliberately don't await; swallow any rejection here so it doesn't
+    // surface as an unhandled rejection (the caller still sees the original
+    // rejection on the awaited `promise`).
+    promise
+      .finally(() => {
+        this.inFlightToolCalls.delete(promise);
+      })
+      .catch(() => {
+        /* swallowed — caller sees rejection via the returned promise */
+      });
+    return promise;
   }
 
   private applyOutgoingMessageConvention(name: string, result: unknown): void {
@@ -415,7 +459,10 @@ export class ConversationRelaySession {
         thresholdSeconds,
         reminders,
         onReminder: (reminder: string): void => {
-          this.sendText(reminder, true);
+          // Fire-and-forget: the SilenceHandler callback is sync, and there
+          // are no in-flight tools in this path (reminder fires on silence,
+          // i.e. no active LLM stream).
+          void this.sendText(reminder, true);
         },
         onTerminate: (): void => {
           this.endCall({

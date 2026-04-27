@@ -330,7 +330,6 @@ export class ConversationRelayChannel implements Channel {
     return session;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   public async sendResponse(
     conversationId: ConversationId,
     message: string,
@@ -339,7 +338,7 @@ export class ConversationRelayChannel implements Channel {
     try {
       const session = this.requireSession(conversationId);
       const last = metadata?.last === undefined ? true : (metadata.last as boolean);
-      session.sendText(message, last);
+      await session.sendText(message, last);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,

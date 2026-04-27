@@ -4981,6 +4981,14 @@ declare class ConversationRelaySession {
      * today's race produces mid-sentence cutoffs.
      */
     private pendingTerminalMessage;
+    /**
+     * `executeTool` promises still resolving. `sendText(token, last=true)`
+     * awaits this set before emitting the terminal frame, so tools kicked off
+     * during the stream have a chance to stash their `pendingTerminalMessage`
+     * before the flush point. Enforces tools-before-terminal ordering without
+     * requiring the caller to do it manually.
+     */
+    private readonly inFlightToolCalls;
     constructor(opts: ConversationRelaySessionOptions);
     isListenMode(): boolean;
     getSuppressedMessageCount(): number;
@@ -5007,12 +5015,23 @@ declare class ConversationRelaySession {
      */
     sendResponse(message: OutgoingMessage): void;
     /**
-     * Send a text token to Twilio TTS. When `last` is true and a terminal
-     * frame is stashed (from a prior `executeTool`), flush the terminal
-     * *after* the text. Listen-mode suppression still applies to the text
-     * frame; the terminal frame (`end`) is never suppressed and always fires.
+     * Send a text token to Twilio TTS.
+     *
+     * When `last` is `true` (turn end), this awaits any in-flight `executeTool`
+     * promises *before* emitting the text frame — tools that stash a terminal
+     * `pendingTerminalMessage` (e.g. `end_call`, `live_agent_handoff`) get a
+     * chance to land their stash in time for the post-text flush. This
+     * enforces the tool-dispatch-before-terminal-flush ordering for callers,
+     * even if they fired `sendText('', true)` and `executeTool(...)` racily.
+     *
+     * When `last` is `false` (mid-stream token), no await is performed —
+     * per-token calls stay cheap.
+     *
+     * After the text frame is sent, a stashed terminal frame is flushed.
+     * Listen-mode suppression applies to the text frame only; the terminal
+     * frame is never suppressed and always fires.
      */
-    sendText(token: string, last?: boolean): void;
+    sendText(token: string, last?: boolean): Promise<void>;
     sendDigits(digits: string): void;
     sendPlay(source: string, options?: {
         loop?: number;
@@ -5039,6 +5058,10 @@ declare class ConversationRelaySession {
      *   - `silenceEnabled: boolean`: applied against the per-session silence
      *     handler (on enable, also resets the timer). No-op for sessions
      *     without a silence handler.
+     *
+     * The returned promise is tracked in `inFlightToolCalls` until it settles,
+     * so `sendText(..., last: true)` can await it before emitting the terminal
+     * text frame. This enforces tool-dispatch-before-terminal-flush ordering.
      *
      * @throws if the tool is not registered or produces an invalid
      *   `outgoingMessage`.
@@ -5587,15 +5610,18 @@ interface MemoryRetrievalParams {
     session_limit?: number;
 }
 /**
- * Create memory retrieval tool
+ * Create memory retrieval tool.
+ *
+ * `profileId` is required — `MemoryClient.retrieveMemories` targets a specific
+ * profile (URL shape: `/v1/Stores/{storeId}/Profiles/{profileId}/Recall`).
+ * There is no "session memory" API that omits it.
  */
-declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId, profileId?: ProfileId): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
+declare function createMemoryRetrievalTool(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId, profileId: ProfileId): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 /**
  * Create factory function for memory tools
  */
 declare function createMemoryTools(memoryClient: MemoryClient, memoryStoreId: MemoryStoreId): {
     forProfile: (profileId: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-    forSession: (profileId?: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 };
 
 /**
