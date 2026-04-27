@@ -16,7 +16,18 @@ function buildUserAgent(): string {
 function summarizeResponseBody(body: unknown): unknown {
   if (body === null || body === undefined) return body;
   const MAX_LENGTH = 2048;
-  const serialized = typeof body === 'string' ? body : JSON.stringify(body);
+  let serialized: string;
+  if (typeof body === 'string') {
+    serialized = body;
+  } else {
+    // JSON.stringify throws on circular refs / BigInt. This runs in the
+    // error-logging path, so a throw here would mask the original axios error.
+    try {
+      serialized = JSON.stringify(body);
+    } catch {
+      return '[Unserializable response body]';
+    }
+  }
   if (serialized.length <= MAX_LENGTH) return body;
   return `${serialized.slice(0, MAX_LENGTH)}… [truncated ${serialized.length - MAX_LENGTH} chars]`;
 }

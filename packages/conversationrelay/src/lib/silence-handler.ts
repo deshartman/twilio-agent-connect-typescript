@@ -126,6 +126,7 @@ export class SilenceHandler {
 
   private startTimer(): void {
     this.timer = setTimeout(() => {
+      this.timer = null;
       const index = this.reminderIndex;
       const reminder = this.config.reminders[index];
 
@@ -139,8 +140,13 @@ export class SilenceHandler {
 
       this.logger.info({ reminder_index: index }, 'Silence reminder');
       this.config.onReminder(reminder);
-      this.reminderIndex = index + 1;
-      this.startTimer();
+      // onReminder may have called setEnabled(false) / stop() / reset(). Only
+      // re-arm if we're still enabled AND no timer was scheduled during the
+      // callback (reset() would have restarted one itself).
+      if (this.enabled && this.timer === null) {
+        this.reminderIndex = index + 1;
+        this.startTimer();
+      }
     }, this.config.thresholdSeconds * 1000);
   }
 
