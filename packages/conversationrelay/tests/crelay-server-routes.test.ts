@@ -40,6 +40,7 @@ vi.mock('twilio', () => {
 });
 
 const TEST_AUTH_TOKEN = 'test_token_123';
+const TEST_PUBLIC_DOMAIN = 'test.example.com';
 
 // Helper — constructs a ConversationRelayServer with a fresh CR instance on port 0.
 const makeServer = (overrides: Partial<ConversationRelayServerConfig> = {}): ConversationRelayServer => {
@@ -47,6 +48,7 @@ const makeServer = (overrides: Partial<ConversationRelayServerConfig> = {}): Con
   const cr = new ConversationRelay(logger);
   return new ConversationRelayServer(cr, {
     authToken: TEST_AUTH_TOKEN,
+    publicDomain: TEST_PUBLIC_DOMAIN,
     port: 0,
     development: false,
     ...overrides,
@@ -189,7 +191,7 @@ describe('ConversationRelayServer: /twiml request handling', () => {
     expect(xml).toContain('value="PA_agent"');
   });
 
-  it('uses wss:// when X-Forwarded-Proto is https', async () => {
+  it('builds wss:// URL from publicDomain (ignores X-Forwarded-* headers)', async () => {
     server = makeServer();
     await server.start();
 
@@ -197,30 +199,31 @@ describe('ConversationRelayServer: /twiml request handling', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Forwarded-Proto': 'https',
+        // Spoofed headers must NOT influence URL construction.
+        'X-Forwarded-Proto': 'http',
+        'X-Forwarded-Host': 'evil.example.com',
       },
-      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA_proto_https',
+      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA_pubdomain',
     });
 
     const xml = await res.text();
-    expect(xml).toMatch(/url="wss:\/\//);
+    expect(xml).toContain(`url="wss://${TEST_PUBLIC_DOMAIN}/ws"`);
+    expect(xml).toContain(`action="https://${TEST_PUBLIC_DOMAIN}/conversation-relay-callback"`);
+    expect(xml).not.toContain('evil.example.com');
   });
 
-  it('uses ws:// when X-Forwarded-Proto is http', async () => {
-    server = makeServer();
+  it('normalises publicDomain supplied with a scheme prefix', async () => {
+    server = makeServer({ publicDomain: 'https://scheme.example.com/' });
     await server.start();
 
     const res = await fetch(`http://localhost:${getActualPort(server)}/twiml`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Forwarded-Proto': 'http',
-      },
-      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA_proto_http',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'From=%2B15551234567&To=%2B15559876543&CallSid=CA_scheme',
     });
 
     const xml = await res.text();
-    expect(xml).toMatch(/url="ws:\/\//);
+    expect(xml).toContain('url="wss://scheme.example.com/ws"');
   });
 
   it('preserves all server conversationRelayConfig attributes in TwiML', async () => {

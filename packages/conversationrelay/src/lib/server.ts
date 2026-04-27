@@ -16,7 +16,11 @@ import {
   type ConversationRelayCallbackPayload,
   type CustomParameters,
 } from '../types';
-import { registerSignatureValidation, validateWebSocketSignature } from './signature';
+import {
+  registerSignatureValidation,
+  validateWebSocketSignature,
+  normalizePublicDomain,
+} from './signature';
 
 /**
  * Server configuration for standalone ConversationRelay (without Maestro)
@@ -51,6 +55,22 @@ export interface ConversationRelayServerConfig {
    * of TACServer (see PR #69).
    */
   authToken: string;
+
+  /**
+   * Public domain this server is reachable at (without scheme, e.g.
+   * `cr-des.ngrok.dev` or `voice.example.com`). Used to build the WebSocket
+   * URL (`wss://{publicDomain}/ws`) and callback URL rendered into the TwiML
+   * `<ConversationRelay>` element, and to reconstruct the URL Twilio signed
+   * against for signature validation.
+   *
+   * Required because load balancers (AWS ALB, GCP LB) and reverse proxies
+   * (NGINX, Apache) routinely rewrite the `Host` header to internal backend
+   * addresses; the old `x-forwarded-*` fallback was unreliable.
+   *
+   * Accepts either a bare host or a full `https://...` URL — values are
+   * normalised via `normalizePublicDomain()`.
+   */
+  publicDomain: string;
 
   /**
    * Called on POST /twiml when an incoming call arrives. Return a record of
@@ -137,6 +157,7 @@ export class ConversationRelayServer {
       },
       development: config.development ?? false,
       authToken: config.authToken,
+      publicDomain: normalizePublicDomain(config.publicDomain),
       ...(config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {}),
       ...(config.onConversationRelayCallback
         ? { onConversationRelayCallback: config.onConversationRelayCallback }
@@ -224,10 +245,8 @@ export class ConversationRelayServer {
           const callSid = formData['CallSid'] || '';
           const toNumber = formData['To'] || '';
           const fromNumber = formData['From'] || '';
-          const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
-          const host = request.headers.host as string;
-          const websocketUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${this.config.webhookPaths.ws!}`;
-          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.callback!}`;
+          const websocketUrl = `wss://${this.config.publicDomain}${this.config.webhookPaths.ws!}`;
+          const callbackUrl = `https://${this.config.publicDomain}${this.config.webhookPaths.callback!}`;
 
           const customParams: CustomParameters = this.config.onIncomingCall
             ? await this.config.onIncomingCall({ toNumber, fromNumber, callSid })
