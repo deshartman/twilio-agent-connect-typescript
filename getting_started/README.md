@@ -88,7 +88,7 @@ ngrok http --url cr-des.ngrok.dev     8001   # stable voice URL
    - **URL**: `https://<voice-ngrok>/twiml`
    - **HTTP**: `POST`
 
-You don't configure `/ws` or `/conversation-relay-callback` anywhere — the TwiML returned from `/twiml` points them back at the same host, derived from the incoming request.
+You don't configure `/ws` or `/conversation-relay-callback` anywhere — `ConversationRelayServer` builds those URLs from `CR_PUBLIC_DOMAIN` and splices them into the `/twiml` response.
 
 **SMS / Maestro — Conversation Configuration webhook → `:8000` tunnel**
 

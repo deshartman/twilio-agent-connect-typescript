@@ -174,7 +174,10 @@ tac.onMessageReady(async msg => {
   return reply; // auto-sent via the originating channel's sendResponse
 });
 
-await new TACServer(tac, { port: 8000 }).start();
+await new TACServer(tac, {
+  port: 8000,
+  publicDomain: process.env.TAC_PUBLIC_DOMAIN!, // required
+}).start();
 ```
 
 Point Conversations Service webhooks at `https://<host>:8000/webhook`. See [getting_started/examples/chat/](getting_started/examples/chat/) for the complete browser + server setup.
@@ -197,9 +200,13 @@ tac.registerChannel(new SMSChannel(tac.getChannelDeps()));
 
 tac.onMessageReady(async msg => { /* your LLM loop — msg.channel === 'crelay' for active voice */ });
 
-const tacServer = new TACServer(tac, { port: 8000 });
+const tacServer = new TACServer(tac, {
+  port: 8000,
+  publicDomain: process.env.TAC_PUBLIC_DOMAIN!, // required
+});
 const crServer = new ConversationRelayServer(cr, {
   authToken: tac.getConfig().authToken,
+  publicDomain: process.env.CR_PUBLIC_DOMAIN!, // required
   port: 8001,
   onIncomingCall: (input) => crChannel.createConversationForCall(input),
   onConversationRelayCallback: (payload) =>
@@ -223,7 +230,10 @@ import { TACServer } from 'twilio-agent-connect';
 const app = Fastify({ logger: true, trustProxy: true });
 await app.register(cors, { origin: '*' });
 
-const server = new TACServer(tac, { fastifyInstance: app });
+const server = new TACServer(tac, {
+  fastifyInstance: app,
+  publicDomain: process.env.TAC_PUBLIC_DOMAIN!, // required
+});
 server.fastify.get('/health', async () => ({ status: 'ok' }));
 await server.start();
 ```
