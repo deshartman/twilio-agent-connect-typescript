@@ -7,7 +7,7 @@ import Fastify, {
 import formbody from '@fastify/formbody';
 import gracefulShutdown from 'fastify-graceful-shutdown';
 
-import { TAC, SMSChannel, ChatChannel, type Channel } from '@twilio/tac-core';
+import { TAC, SMSChannel, ChatChannel, VoiceChannel, type Channel } from '@twilio/tac-core';
 import { registerSignatureValidation, normalizePublicDomain } from '@twilio/tac-conversationrelay';
 
 /**
@@ -133,24 +133,24 @@ export class TACServer {
       },
     };
 
-    // Fan-out channels for /webhook: SMS + Chat. Passive `VoiceChannel` also
-    // consumes Maestro webhooks but must be supplied explicitly via
-    // `config.conversationChannels`. `ConversationRelayChannel` is driven by
+    // Fan-out channels for /webhook: SMS + Chat + passive Voice. All three
+    // consume Maestro webhooks. `ConversationRelayChannel` is driven by
     // `ConversationRelayServer` on a separate process/port — it doesn't
     // participate in TACServer routes.
     this.conversationChannels =
       config.conversationChannels ??
       (
-        [tac.getChannel<SMSChannel>('sms'), tac.getChannel<ChatChannel>('chat')] as (
-          | Channel
-          | undefined
-        )[]
+        [
+          tac.getChannel<SMSChannel>('sms'),
+          tac.getChannel<ChatChannel>('chat'),
+          tac.getChannel<VoiceChannel>('voice'),
+        ] as (Channel | undefined)[]
       ).filter((ch): ch is Channel => ch != null);
 
     if (this.conversationChannels.length === 0) {
       this.tac.logger.warn(
-        'TACServer: No conversation channels (SMS/Chat) configured. Messaging webhooks will not be registered. ' +
-          'Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat.'
+        'TACServer: No conversation channels (SMS/Chat/Voice) configured. Messaging webhooks will not be registered. ' +
+          'Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat/Voice.'
       );
     }
 
