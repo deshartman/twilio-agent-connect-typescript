@@ -123,15 +123,6 @@ describe('TACConfig', () => {
       );
     });
 
-    it('should include optional voicePublicDomain when set', () => {
-      stubRequiredEnvVars();
-      vi.stubEnv('VOICE_PUBLIC_DOMAIN', 'https://example.com');
-
-      const config = TACConfig.fromEnv();
-
-      expect(config.voicePublicDomain).toBe('https://example.com');
-    });
-
     it('should throw error when TWILIO_ACCOUNT_SID is missing', () => {
       stubRequiredEnvVars();
       vi.stubEnv('TWILIO_ACCOUNT_SID', undefined);
@@ -188,15 +179,14 @@ describe('TACConfig', () => {
 
     it('should throw error when no environment variables are set', () => {
       // Clear all env vars by stubbing empty values (properly restored by afterEach).
-      // Includes TWILIO_CONVERSATION_CONFIGURATION_ID / VOICE_PUBLIC_DOMAIN / TWILIO_REGION
-      // so the test doesn't depend on the runner's outer env.
+      // Includes TWILIO_CONVERSATION_CONFIGURATION_ID / TWILIO_REGION so the test
+      // doesn't depend on the runner's outer env.
       vi.stubEnv('TWILIO_ACCOUNT_SID', '');
       vi.stubEnv('TWILIO_AUTH_TOKEN', '');
       vi.stubEnv('TWILIO_API_KEY', '');
       vi.stubEnv('TWILIO_API_SECRET', '');
       vi.stubEnv('TWILIO_PHONE_NUMBER', '');
       vi.stubEnv('TWILIO_CONVERSATION_CONFIGURATION_ID', '');
-      vi.stubEnv('VOICE_PUBLIC_DOMAIN', '');
       vi.stubEnv('TWILIO_REGION', '');
 
       expect(() => {

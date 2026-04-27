@@ -23,7 +23,6 @@ export class TACConfig {
   public readonly phoneNumber: string;
   public readonly traitGroups?: string[];
   public readonly conversationConfigurationId: string;
-  public readonly voicePublicDomain?: string;
   public readonly cintelConfigurationId?: string;
   public readonly cintelObservationOperatorSid?: string;
   public readonly cintelSummaryOperatorSid?: string;
@@ -42,9 +41,6 @@ export class TACConfig {
     this.conversationConfigurationId = validatedConfig.conversationConfigurationId;
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;
-    }
-    if (validatedConfig.voicePublicDomain) {
-      this.voicePublicDomain = validatedConfig.voicePublicDomain;
     }
     if (validatedConfig.cintelConfigurationId) {
       this.cintelConfigurationId = validatedConfig.cintelConfigurationId;
@@ -71,7 +67,6 @@ export class TACConfig {
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-   * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
    *
    * @throws Error if required environment variables are not set or invalid
@@ -115,7 +110,6 @@ export class TACConfig {
       conversationConfigurationId:
         process.env[EnvironmentVariables.TWILIO_CONVERSATION_CONFIGURATION_ID]!,
       traitGroups: process.env[EnvironmentVariables.TRAIT_GROUPS]?.split(','),
-      voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],
       cintelObservationOperatorSid:
         process.env[EnvironmentVariables.TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID],
