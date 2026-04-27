@@ -478,7 +478,7 @@ export class ConversationRelayChannel implements Channel {
     if (!isConversationId(conversation.id)) {
       throw new Error(
         `Invalid conversation ID returned from Conversation Service: ${conversation.id}. ` +
-          'Expected format: conv_conversation_[0-9a-z]{26}.'
+          'Expected format: conv_conversation_[0-7][0-9a-z]{25}.'
       );
     }
 

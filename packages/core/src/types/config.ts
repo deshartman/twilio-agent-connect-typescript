@@ -18,7 +18,10 @@ export const TACConfigSchema = z.object({
   traitGroups: z.array(z.string()).optional(),
   conversationConfigurationId: z
     .string()
-    .regex(/^conv_configuration_[0-9a-z]{26}$/, 'Invalid Conversation Configuration ID format'),
+    .regex(
+      /^conv_configuration_[0-7][0-9a-z]{25}$/,
+      'Invalid Conversation Configuration ID format'
+    ),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
   cintelSummaryOperatorSid: z.string().optional(),

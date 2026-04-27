@@ -36,7 +36,7 @@ function extractProfileIds(operatorResult: OperatorResult, logger: Logger): Prof
             {
               invalid_profile_id: participant.profileId,
               operator_id: operatorResult.operator.id,
-              expected_format: 'mem_profile_[0-9a-z]{26}',
+              expected_format: 'mem_profile_[0-7][0-9a-z]{25}',
             },
             'Invalid profile ID format from Cintel operator, skipping participant'
           );
@@ -169,7 +169,7 @@ export class OperatorResultProcessor {
       return {
         success: false,
         skipped: false,
-        error: `Invalid conversationId format in Cintel webhook: ${event.conversationId}. Expected format: conv_conversation_[0-9a-z]{26}`,
+        error: `Invalid conversationId format in Cintel webhook: ${event.conversationId}. Expected format: conv_conversation_[0-7][0-9a-z]{25}`,
         createdCount: 0,
       };
     }
@@ -179,7 +179,7 @@ export class OperatorResultProcessor {
       return {
         success: false,
         skipped: false,
-        error: `Invalid memoryStoreId format in Cintel webhook: ${event.memoryStoreId}. Expected format: mem_store_[0-9a-z]{26}`,
+        error: `Invalid memoryStoreId format in Cintel webhook: ${event.memoryStoreId}. Expected format: mem_store_[0-7][0-9a-z]{25}`,
         createdCount: 0,
       };
     }

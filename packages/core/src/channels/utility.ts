@@ -437,7 +437,7 @@ export function extractConversationId(payload: unknown, logger: Logger): Convers
       {
         provided_id: conversationId,
         operation: 'extract_conversation_id',
-        expected_pattern: '^conv_conversation_[0-9a-z]{26}$',
+        expected_pattern: '^conv_conversation_[0-7][0-9a-z]{25}$',
       },
       'Invalid conversation ID format in webhook payload'
     );
@@ -549,7 +549,7 @@ export function extractProfileId(payload: unknown, logger: Logger): ProfileId | 
       {
         provided_id: profileId,
         operation: 'extract_profile_id',
-        expected_pattern: '^mem_profile_[0-9a-z]{26}$',
+        expected_pattern: '^mem_profile_[0-7][0-9a-z]{25}$',
         conversation_id: conversationId,
       },
       'Invalid profile ID format in webhook payload'

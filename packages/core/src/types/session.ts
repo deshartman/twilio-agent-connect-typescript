@@ -7,6 +7,7 @@
  */
 
 import type { ChannelType } from './config';
+import type { ConversationId } from './conversation';
 
 /**
  * Base session context for a TAC channel session.
@@ -20,7 +21,7 @@ export interface SessionContext {
   /**
    * Maestro ConversationId — canonical session key for this context.
    */
-  conversationId: string;
+  conversationId: ConversationId;
 
   /**
    * Channel type for this session

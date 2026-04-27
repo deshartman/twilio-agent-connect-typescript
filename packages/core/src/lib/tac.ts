@@ -125,7 +125,7 @@ export class TAC {
       if (!isMemoryStoreId(fetchedMemoryStoreId)) {
         throw new Error(
           `Invalid memoryStoreId from conversation configuration: ${fetchedMemoryStoreId}. ` +
-            'Expected format: mem_store_[0-9a-z]{26}.'
+            'Expected format: mem_store_[0-7][0-9a-z]{25}.'
         );
       }
       tac.memoryStoreId = fetchedMemoryStoreId;
@@ -517,7 +517,7 @@ export class TAC {
         if (!profileIdCandidate || !isProfileId(profileIdCandidate)) {
           throw new Error(
             `Invalid profile ID format from identity resolution API: ${profileIdCandidate}. ` +
-              'Expected format: mem_profile_[0-9a-z]{26}. ' +
+              'Expected format: mem_profile_[0-7][0-9a-z]{25}. ' +
               'This indicates a configuration issue with the identity resolution service.'
           );
         }

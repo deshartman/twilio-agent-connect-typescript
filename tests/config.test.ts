@@ -49,7 +49,7 @@ describe('TACConfig', () => {
     it('should reject legacy comms_service format', () => {
       const legacyConfig = {
         ...getTestConfigData(),
-        conversationConfigurationId: 'comms_service_01testcommsservice00000000',
+        conversationConfigurationId: 'comms_service_01testlegacyprefix0000000',
       };
 
       expect(() => {
