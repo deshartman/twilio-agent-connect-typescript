@@ -3176,6 +3176,7 @@ var ChatChannel = class {
 
 // packages/core/src/channels/voice.ts
 var VoiceChannel = class {
+  channelType = "voice";
   config;
   logger;
   conversationClient;
@@ -3205,9 +3206,6 @@ var VoiceChannel = class {
       processorConfig
     );
     this.logger.info("VoiceChannel initialized (passive Maestro webhooks)");
-  }
-  get channelType() {
-    return "voice";
   }
   // ===========================================================================
   // Unified Message Emission
@@ -3406,6 +3404,7 @@ var VoiceChannel = class {
 
 // packages/core/src/channels/crelay.ts
 var ConversationRelayChannel = class {
+  channelType = "crelay";
   config;
   logger;
   conversationClient;
@@ -3438,9 +3437,6 @@ var ConversationRelayChannel = class {
     });
     this.wireCRCallbacks();
     this.logger.info("ConversationRelayChannel initialized");
-  }
-  get channelType() {
-    return "crelay";
   }
   // ===========================================================================
   // CR Callback Wiring — the one place in core that names CR payload types
@@ -4394,10 +4390,6 @@ var ConversationRelaySession = class {
   /** Read-only access to the raw ws — for diagnostics / tests. */
   getWebSocket() {
     return this.ws;
-  }
-  /** @internal Used by the manager to detect non-Buffer frames in the raw listener. */
-  static isBuffer(data) {
-    return Buffer.isBuffer(data);
   }
   // ===========================================================================
   // Silence handler factory
@@ -5599,10 +5591,14 @@ var TACServer = class {
         ...config.webhookPaths
       }
     };
-    this.conversationChannels = config.conversationChannels ?? [tac.getChannel("sms"), tac.getChannel("chat")].filter((ch) => ch != null);
+    this.conversationChannels = config.conversationChannels ?? [
+      tac.getChannel("sms"),
+      tac.getChannel("chat"),
+      tac.getChannel("voice")
+    ].filter((ch) => ch != null);
     if (this.conversationChannels.length === 0) {
       this.tac.logger.warn(
-        "TACServer: No conversation channels (SMS/Chat) configured. Messaging webhooks will not be registered. Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat."
+        "TACServer: No conversation channels (SMS/Chat/Voice) configured. Messaging webhooks will not be registered. Register a channel with tac.registerChannel() before creating TACServer to enable SMS/Chat/Voice."
       );
     }
     if (config.fastifyInstance) {

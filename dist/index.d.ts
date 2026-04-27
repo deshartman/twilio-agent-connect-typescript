@@ -2,7 +2,7 @@ import { z } from 'zod';
 export { z } from 'zod';
 import pino from 'pino';
 import { AxiosInstance } from 'axios';
-import { WebSocket, RawData } from 'ws';
+import { WebSocket } from 'ws';
 import { FastifyServerOptions, FastifyInstance } from 'fastify';
 
 /**
@@ -3593,8 +3593,6 @@ declare class ConversationRelaySession {
     close(): void;
     /** Read-only access to the raw ws — for diagnostics / tests. */
     getWebSocket(): WebSocket;
-    /** @internal Used by the manager to detect non-Buffer frames in the raw listener. */
-    static isBuffer(data: RawData): data is Buffer;
     private buildSilenceHandler;
 }
 
@@ -5219,6 +5217,7 @@ interface VoiceChannelConfig {
     dedupCapacity?: number | undefined;
 }
 declare class VoiceChannel implements Channel {
+    readonly channelType: ChannelType;
     protected readonly config: TACConfig;
     protected readonly logger: Logger;
     protected readonly conversationClient: ConversationClient;
@@ -5232,7 +5231,6 @@ declare class VoiceChannel implements Channel {
         conversationClient: ConversationClient;
         memoryRetriever: MemoryRetriever;
     }, channelConfig?: VoiceChannelConfig);
-    get channelType(): ChannelType;
     private emitMessage;
     sendResponse(_conversationId: ConversationId, _message: string, _metadata?: Record<string, unknown>): Promise<void>;
     processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
@@ -5266,6 +5264,7 @@ interface ConversationRelayChannelConfig {
     conversationRelay: ConversationRelay;
 }
 declare class ConversationRelayChannel implements Channel {
+    readonly channelType: ChannelType;
     protected readonly config: TACConfig;
     protected readonly logger: Logger;
     protected readonly conversationClient: ConversationClient;
@@ -5283,7 +5282,6 @@ declare class ConversationRelayChannel implements Channel {
         conversationClient: ConversationClient;
         memoryRetriever: MemoryRetriever;
     }, channelConfig: ConversationRelayChannelConfig);
-    get channelType(): ChannelType;
     private wireCRCallbacks;
     private handleSetupFromRelay;
     private handlePromptFromRelay;
