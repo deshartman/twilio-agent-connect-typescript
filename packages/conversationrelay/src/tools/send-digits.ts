@@ -29,10 +29,13 @@ interface SendDigitsResult {
  *
  * @example
  * ```typescript
- * const result = await sendDigitsTool.implementation({
- *   digits: '1234w*#',
- * });
- * // Handle result.outgoingMessage via CRelayChannel.handleToolResult()
+ * // Preferred: execute via a ConversationRelaySession — the session
+ * // auto-ships the returned outgoingMessage over the WebSocket.
+ * await session.executeTool('send_digits', { digits: '1234w*#' });
+ *
+ * // Or invoke the tool directly and send the frame yourself:
+ * const result = await sendDigitsTool.implementation({ digits: '1234w*#' });
+ * session.sendDigits(result.outgoingMessage.digits);
  * ```
  */
 export const sendDigitsTool = defineTool<SendDigitsParams, SendDigitsResult>(

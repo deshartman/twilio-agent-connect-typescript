@@ -32,12 +32,16 @@ interface PlayMediaResult {
  *
  * @example
  * ```typescript
- * const result = await playMediaTool.implementation({
+ * // Preferred: execute via a ConversationRelaySession — the session
+ * // auto-ships the returned outgoingMessage over the WebSocket.
+ * await session.executeTool('play_media', {
  *   source: 'https://example.com/audio.mp3',
  *   loop: 1,
  *   interruptible: true,
  * });
- * // Handle result.outgoingMessage via CRelayChannel.handleToolResult()
+ *
+ * // Or send the play frame directly:
+ * session.sendPlay('https://example.com/audio.mp3', { loop: 1, interruptible: true });
  * ```
  */
 export const playMediaTool = defineTool<PlayMediaParams, PlayMediaResult>(
