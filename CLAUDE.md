@@ -174,7 +174,7 @@ Turn-by-turn traffic (`onPrompt` / `onInterrupt` / `onDtmf` / `onInfo`) does **n
 
 ### TACServer (`packages/server/src/lib/server.ts`)
 
-Maestro-only webhook server. Defaults: `host: '0.0.0.0'`, `port: 3000`, `webhookPaths: { messaging: '/webhook' }`, `development: false`.
+Maestro-only webhook server. Defaults: `host: '0.0.0.0'`, `port: 8000`, `webhookPaths: { messaging: '/webhook' }`, `development: false`.
 
 Route registration:
 

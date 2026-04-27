@@ -244,7 +244,7 @@ new ConversationRelayServer(conversationRelay: ConversationRelay, config: Conver
 
 **Config options:**
 - `host` — default `'0.0.0.0'`
-- `port` — default `3000`
+- `port` — default `8001`
 - `webhookPaths` — override any of `twiml`, `ws`, `callback`, `webhook`
 - `conversationRelayConfig` — TwiML attributes (welcomeGreeting, ttsProvider, voice, transcriptionProvider, etc.)
 - `development` — enable pino-pretty logging

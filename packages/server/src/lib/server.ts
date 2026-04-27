@@ -49,7 +49,7 @@ export interface TACServerConfig {
   /** Server host (default: 0.0.0.0) */
   host?: string;
 
-  /** Server port (default: 3000) */
+  /** Server port (default: 8000) */
   port?: number;
 
   /** Custom webhook paths */
@@ -78,7 +78,7 @@ export interface TACServerConfig {
  */
 const DEFAULT_CONFIG = {
   host: '0.0.0.0',
-  port: 3000,
+  port: 8000,
   webhookPaths: {
     messaging: '/webhook',
   },

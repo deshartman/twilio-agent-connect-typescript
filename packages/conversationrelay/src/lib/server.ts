@@ -32,7 +32,7 @@ export interface ConversationRelayServerConfig {
   /** Server host (default: 0.0.0.0) */
   host?: string;
 
-  /** Server port (default: 3000) */
+  /** Server port (default: 8001) */
   port?: number;
 
   /** Custom webhook paths */
@@ -145,7 +145,7 @@ export class ConversationRelayServer {
 
     this.config = {
       host: config.host ?? '0.0.0.0',
-      port: config.port ?? 3000,
+      port: config.port ?? 8001,
       webhookPaths: {
         twiml: config.webhookPaths?.twiml ?? '/twiml',
         ws: config.webhookPaths?.ws ?? '/ws',
