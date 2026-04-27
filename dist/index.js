@@ -743,7 +743,16 @@ function buildUserAgent() {
 function summarizeResponseBody(body) {
   if (body === null || body === void 0) return body;
   const MAX_LENGTH = 2048;
-  const serialized = typeof body === "string" ? body : JSON.stringify(body);
+  let serialized;
+  if (typeof body === "string") {
+    serialized = body;
+  } else {
+    try {
+      serialized = JSON.stringify(body);
+    } catch {
+      return "[Unserializable response body]";
+    }
+  }
   if (serialized.length <= MAX_LENGTH) return body;
   return `${serialized.slice(0, MAX_LENGTH)}\u2026 [truncated ${serialized.length - MAX_LENGTH} chars]`;
 }
@@ -3632,12 +3641,11 @@ var ConversationRelayChannel = class {
     }
     return session;
   }
-  // eslint-disable-next-line @typescript-eslint/require-await
   async sendResponse(conversationId, message, metadata) {
     try {
       const session = this.requireSession(conversationId);
       const last = metadata?.last === void 0 ? true : metadata.last;
-      session.sendText(message, last);
+      await session.sendText(message, last);
     } catch (error) {
       this.handleError(error instanceof Error ? error : new Error(String(error)), {
         conversationId,
@@ -3914,9 +3922,6 @@ function createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId) {
       description: "Retrieve memories for the current user"
     },
     async (params) => {
-      if (!profileId) {
-        throw new Error("No profile ID available for memory retrieval");
-      }
       const request = {
         query: params.query,
         start_date: params.start_date,
@@ -3934,11 +3939,7 @@ function createMemoryTools(memoryClient, memoryStoreId) {
     /**
      * Create memory tool for specific profile
      */
-    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
-    /**
-     * Create memory tool for current session
-     */
-    forSession: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId)
+    forProfile: (profileId) => createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId)
   };
 }
 
@@ -4213,6 +4214,7 @@ var SilenceHandler = class {
   // ===========================================================================
   startTimer() {
     this.timer = setTimeout(() => {
+      this.timer = null;
       const index = this.reminderIndex;
       const reminder = this.config.reminders[index];
       if (reminder === void 0) {
@@ -4223,8 +4225,10 @@ var SilenceHandler = class {
       }
       this.logger.info({ reminder_index: index }, "Silence reminder");
       this.config.onReminder(reminder);
-      this.reminderIndex = index + 1;
-      this.startTimer();
+      if (this.enabled && this.timer === null) {
+        this.reminderIndex = index + 1;
+        this.startTimer();
+      }
     }, this.config.thresholdSeconds * 1e3);
   }
   clearTimer() {
@@ -4462,6 +4466,14 @@ var ConversationRelaySession = class {
    * today's race produces mid-sentence cutoffs.
    */
   pendingTerminalMessage = null;
+  /**
+   * `executeTool` promises still resolving. `sendText(token, last=true)`
+   * awaits this set before emitting the terminal frame, so tools kicked off
+   * during the stream have a chance to stash their `pendingTerminalMessage`
+   * before the flush point. Enforces tools-before-terminal ordering without
+   * requiring the caller to do it manually.
+   */
+  inFlightToolCalls = /* @__PURE__ */ new Set();
   constructor(opts) {
     this.ws = opts.ws;
     this.logger = opts.logger;
@@ -4581,12 +4593,26 @@ var ConversationRelaySession = class {
     this.logger.debug({ call_sid: this.callSid, message_type: message.type }, "Sent CR message");
   }
   /**
-   * Send a text token to Twilio TTS. When `last` is true and a terminal
-   * frame is stashed (from a prior `executeTool`), flush the terminal
-   * *after* the text. Listen-mode suppression still applies to the text
-   * frame; the terminal frame (`end`) is never suppressed and always fires.
+   * Send a text token to Twilio TTS.
+   *
+   * When `last` is `true` (turn end), this awaits any in-flight `executeTool`
+   * promises *before* emitting the text frame — tools that stash a terminal
+   * `pendingTerminalMessage` (e.g. `end_call`, `live_agent_handoff`) get a
+   * chance to land their stash in time for the post-text flush. This
+   * enforces the tool-dispatch-before-terminal-flush ordering for callers,
+   * even if they fired `sendText('', true)` and `executeTool(...)` racily.
+   *
+   * When `last` is `false` (mid-stream token), no await is performed —
+   * per-token calls stay cheap.
+   *
+   * After the text frame is sent, a stashed terminal frame is flushed.
+   * Listen-mode suppression applies to the text frame only; the terminal
+   * frame is never suppressed and always fires.
    */
-  sendText(token, last = true) {
+  async sendText(token, last = true) {
+    if (last && this.inFlightToolCalls.size > 0) {
+      await Promise.allSettled([...this.inFlightToolCalls]);
+    }
     this.sendResponse({ type: "text", token, last });
     if (last && this.pendingTerminalMessage) {
       const terminal = this.pendingTerminalMessage;
@@ -4632,6 +4658,10 @@ var ConversationRelaySession = class {
    *     handler (on enable, also resets the timer). No-op for sessions
    *     without a silence handler.
    *
+   * The returned promise is tracked in `inFlightToolCalls` until it settles,
+   * so `sendText(..., last: true)` can await it before emitting the terminal
+   * text frame. This enforces tool-dispatch-before-terminal-flush ordering.
+   *
    * @throws if the tool is not registered or produces an invalid
    *   `outgoingMessage`.
    */
@@ -4640,11 +4670,19 @@ var ConversationRelaySession = class {
     if (!tool) {
       throw new Error(`Unknown tool: ${name}`);
     }
-    const result = await tool.implementation(args);
-    this.applyOutgoingMessageConvention(name, result);
-    this.applyListenModeConvention(result);
-    this.applySilenceConvention(result);
-    return result;
+    const promise = (async () => {
+      const result = await tool.implementation(args);
+      this.applyOutgoingMessageConvention(name, result);
+      this.applyListenModeConvention(result);
+      this.applySilenceConvention(result);
+      return result;
+    })();
+    this.inFlightToolCalls.add(promise);
+    promise.finally(() => {
+      this.inFlightToolCalls.delete(promise);
+    }).catch(() => {
+    });
+    return promise;
   }
   applyOutgoingMessageConvention(name, result) {
     if (result === null || typeof result !== "object" || !("outgoingMessage" in result) || result.outgoingMessage === void 0) {
@@ -4721,7 +4759,7 @@ var ConversationRelaySession = class {
         thresholdSeconds,
         reminders,
         onReminder: (reminder) => {
-          this.sendText(reminder, true);
+          void this.sendText(reminder, true);
         },
         onTerminate: () => {
           this.endCall({

@@ -217,8 +217,6 @@ async function handleVoiceMessage(
       }
       accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
     }
-    // Final empty token signals completion to TTS
-    await crChannel.sendResponse(convId, '', { last: true });
   } catch (err) {
     // OpenAI SDK throws AbortError when the signal fires — that's the
     // interruption path and is a clean exit, not a failure.
@@ -228,8 +226,14 @@ async function handleVoiceMessage(
 
   conversationMessages[convIdStr]?.push({ role: 'assistant', content: fullResponse });
 
-  // CR protocol tools are auto-shipped via the WebSocket by executeTool.
-  await dispatchVoiceToolCalls(convId, toolCalls);
+  // Kick off tool dispatch (auto-shipped via the WebSocket by executeTool).
+  // Terminal `end` frames stash in the session; the terminal sendResponse
+  // below awaits in-flight executeTool promises and flushes them in order.
+  void dispatchVoiceToolCalls(convId, toolCalls);
+
+  // Final empty token: signals completion to TTS, awaits in-flight tool
+  // calls, then flushes any deferred terminal frame they stashed.
+  await crChannel.sendResponse(convId, '', { last: true });
 }
 
 async function handleSmsMessage(

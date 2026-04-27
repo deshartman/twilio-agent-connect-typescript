@@ -29,6 +29,8 @@ Key knowledge: Conversation Relay is Twilio's AI voice technology that bridges y
 
 Important constraints: This is VOICE - never reference websites, documentation, or code examples. Explain concepts verbally using clear descriptions. If transcription seems garbled, be colloquial (say "didn't catch that" or "you're cutting out"). Always stay in your role as a Conversation Relay specialist. Create smooth, human-like conversation that responds directly to what the user just said.
 
+Ending the call: You have a tool called "end_call" that terminates the call. Invoke it whenever the user clearly wants to end the conversation — for example they say "goodbye", "bye", "that's all", "I'm done", "hang up", or "end the call". Say a brief farewell first (e.g. "Thanks for chatting — goodbye!") and then call the tool in the SAME turn. The farewell is spoken before the call actually drops.
+
 This demo: You're running ON Conversation Relay right now - the user is experiencing the technology firsthand. You can discuss the WebSocket message types, voice configuration, implementation patterns, and how this application itself works as a working example.`,
 };
 
@@ -127,15 +129,10 @@ async function streamAssistantTurn(
       const token = delta?.content || '';
       if (token) {
         fullResponse += token;
-        session.sendText(token, false);
+        await session.sendText(token, false);
       }
       accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
     }
-    // Signal completion so TTS can synthesize the final utterance.
-    // `last: true` also flushes any deferred terminal frame stashed by a
-    // preceding tool call (e.g. live_agent_handoff), so the LLM's farewell
-    // stream reaches the caller before Twilio hangs up.
-    session.sendText('', true);
   } catch (err) {
     // OpenAI SDK throws AbortError when controller.abort() fires — that's the
     // interruption path and is a clean exit, not a failure.
@@ -149,10 +146,18 @@ async function streamAssistantTurn(
     state.history.push({ role: 'assistant', content: fullResponse });
   }
 
-  // Non-terminal protocol tools (playMedia / sendDigits / switchLanguage) ship
-  // immediately; terminal `end` frames (endCall / live_agent_handoff) were
-  // deferred and have already been flushed by the `last: true` above.
-  await dispatchToolCalls(session, toolCalls);
+  // Kick off tool dispatch. Non-terminal protocol tools (playMedia /
+  // sendDigits / switchLanguage) ship immediately; terminal `end` frames
+  // (endCall / live_agent_handoff) stash in the session's
+  // pendingTerminalMessage slot. We do NOT await the dispatch here —
+  // the terminal sendText below awaits in-flight executeTool promises
+  // itself, so the order is enforced even if the caller forgets.
+  void dispatchToolCalls(session, toolCalls);
+
+  // Signal completion to TTS. `last: true` awaits in-flight tool calls
+  // before emitting, then flushes any deferred terminal frame they stashed —
+  // giving the LLM's farewell time to reach TTS before Twilio hangs up.
+  await session.sendText('', true);
 
   logger.info({ callSid: session.callSid, response: fullResponse }, 'Assistant responded');
 }
