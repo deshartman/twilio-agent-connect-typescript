@@ -3068,9 +3068,1161 @@ interface Channel {
 }
 
 /**
- * Logger type used throughout the ConversationRelay package.
+ * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
+ *
+ * These are TAC's own structured parameters for bridging ConversationRelay calls
+ * to Maestro Conversations. NOT generic CR parameters (those live in the CR package).
+ */
+declare const TACCustomParametersSchema: z.ZodObject<{
+    conversation_id: z.ZodOptional<z.ZodString>;
+    profile_id: z.ZodOptional<z.ZodString>;
+    customer_participant_id: z.ZodOptional<z.ZodString>;
+    ai_agent_participant_id: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    profile_id?: string | undefined;
+    conversation_id?: string | undefined;
+    customer_participant_id?: string | undefined;
+    ai_agent_participant_id?: string | undefined;
+}, {
+    profile_id?: string | undefined;
+    conversation_id?: string | undefined;
+    customer_participant_id?: string | undefined;
+    ai_agent_participant_id?: string | undefined;
+}>;
+type TACCustomParameters = z.infer<typeof TACCustomParametersSchema>;
+
+/**
+ * Conversation Intelligence Types
+ *
+ * These types represent the webhook payloads and configuration for
+ * processing Conversation Intelligence operator results.
+ */
+/**
+ * Participant in operator execution (e.g., CUSTOMER, AGENT)
+ */
+declare const CintelParticipantSchema: z.ZodObject<{
+    type: z.ZodString;
+    profileId: z.ZodOptional<z.ZodString>;
+    mediaParticipantId: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: string;
+    profileId?: string | undefined;
+    mediaParticipantId?: string | undefined;
+}, {
+    type: string;
+    profileId?: string | undefined;
+    mediaParticipantId?: string | undefined;
+}>;
+type CintelParticipant = z.infer<typeof CintelParticipantSchema>;
+/**
+ * Execution details for an operator result
+ */
+declare const ExecutionDetailsSchema: z.ZodObject<{
+    participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        type: z.ZodString;
+        profileId: z.ZodOptional<z.ZodString>;
+        mediaParticipantId: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        type: string;
+        profileId?: string | undefined;
+        mediaParticipantId?: string | undefined;
+    }, {
+        type: string;
+        profileId?: string | undefined;
+        mediaParticipantId?: string | undefined;
+    }>, "many">>;
+}, "strip", z.ZodTypeAny, {
+    participants?: {
+        type: string;
+        profileId?: string | undefined;
+        mediaParticipantId?: string | undefined;
+    }[] | undefined;
+}, {
+    participants?: {
+        type: string;
+        profileId?: string | undefined;
+        mediaParticipantId?: string | undefined;
+    }[] | undefined;
+}>;
+type ExecutionDetails = z.infer<typeof ExecutionDetailsSchema>;
+/**
+ * Operator metadata
+ */
+declare const OperatorSchema: z.ZodObject<{
+    id: z.ZodString;
+    name: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    name?: string | undefined;
+}, {
+    id: string;
+    name?: string | undefined;
+}>;
+type Operator = z.infer<typeof OperatorSchema>;
+/**
+ * Individual operator result from Conversation Intelligence
+ */
+declare const OperatorResultSchema: z.ZodObject<{
+    id: z.ZodString;
+    operator: z.ZodObject<{
+        id: z.ZodString;
+        name: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        id: string;
+        name?: string | undefined;
+    }, {
+        id: string;
+        name?: string | undefined;
+    }>;
+    outputFormat: z.ZodString;
+    result: z.ZodUnknown;
+    dateCreated: z.ZodString;
+    referenceIds: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
+    executionDetails: z.ZodOptional<z.ZodObject<{
+        participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            type: z.ZodString;
+            profileId: z.ZodOptional<z.ZodString>;
+            mediaParticipantId: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }, {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        participants?: {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }[] | undefined;
+    }, {
+        participants?: {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }[] | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    operator: {
+        id: string;
+        name?: string | undefined;
+    };
+    outputFormat: string;
+    dateCreated: string;
+    referenceIds: string[];
+    result?: unknown;
+    executionDetails?: {
+        participants?: {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}, {
+    id: string;
+    operator: {
+        id: string;
+        name?: string | undefined;
+    };
+    outputFormat: string;
+    dateCreated: string;
+    result?: unknown;
+    referenceIds?: string[] | undefined;
+    executionDetails?: {
+        participants?: {
+            type: string;
+            profileId?: string | undefined;
+            mediaParticipantId?: string | undefined;
+        }[] | undefined;
+    } | undefined;
+}>;
+type OperatorResult = z.infer<typeof OperatorResultSchema>;
+/**
+ * Intelligence configuration metadata
+ */
+declare const IntelligenceConfigurationSchema: z.ZodObject<{
+    id: z.ZodString;
+    friendlyName: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    friendlyName?: string | undefined;
+}, {
+    id: string;
+    friendlyName?: string | undefined;
+}>;
+type IntelligenceConfiguration = z.infer<typeof IntelligenceConfigurationSchema>;
+/**
+ * Full webhook payload for operator result events
+ */
+declare const OperatorResultEventSchema: z.ZodObject<{
+    accountId: z.ZodString;
+    conversationId: z.ZodString;
+    memoryStoreId: z.ZodOptional<z.ZodString>;
+    intelligenceConfiguration: z.ZodObject<{
+        id: z.ZodString;
+        friendlyName: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        id: string;
+        friendlyName?: string | undefined;
+    }, {
+        id: string;
+        friendlyName?: string | undefined;
+    }>;
+    operatorResults: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        operator: z.ZodObject<{
+            id: z.ZodString;
+            name: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            id: string;
+            name?: string | undefined;
+        }, {
+            id: string;
+            name?: string | undefined;
+        }>;
+        outputFormat: z.ZodString;
+        result: z.ZodUnknown;
+        dateCreated: z.ZodString;
+        referenceIds: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
+        executionDetails: z.ZodOptional<z.ZodObject<{
+            participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                type: z.ZodString;
+                profileId: z.ZodOptional<z.ZodString>;
+                mediaParticipantId: z.ZodOptional<z.ZodString>;
+            }, "strip", z.ZodTypeAny, {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }, {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }>, "many">>;
+        }, "strip", z.ZodTypeAny, {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        }, {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        id: string;
+        operator: {
+            id: string;
+            name?: string | undefined;
+        };
+        outputFormat: string;
+        dateCreated: string;
+        referenceIds: string[];
+        result?: unknown;
+        executionDetails?: {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }, {
+        id: string;
+        operator: {
+            id: string;
+            name?: string | undefined;
+        };
+        outputFormat: string;
+        dateCreated: string;
+        result?: unknown;
+        referenceIds?: string[] | undefined;
+        executionDetails?: {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }>, "many">;
+}, "strip", z.ZodTypeAny, {
+    conversationId: string;
+    accountId: string;
+    intelligenceConfiguration: {
+        id: string;
+        friendlyName?: string | undefined;
+    };
+    operatorResults: {
+        id: string;
+        operator: {
+            id: string;
+            name?: string | undefined;
+        };
+        outputFormat: string;
+        dateCreated: string;
+        referenceIds: string[];
+        result?: unknown;
+        executionDetails?: {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }[];
+    memoryStoreId?: string | undefined;
+}, {
+    conversationId: string;
+    accountId: string;
+    intelligenceConfiguration: {
+        id: string;
+        friendlyName?: string | undefined;
+    };
+    operatorResults: {
+        id: string;
+        operator: {
+            id: string;
+            name?: string | undefined;
+        };
+        outputFormat: string;
+        dateCreated: string;
+        result?: unknown;
+        referenceIds?: string[] | undefined;
+        executionDetails?: {
+            participants?: {
+                type: string;
+                profileId?: string | undefined;
+                mediaParticipantId?: string | undefined;
+            }[] | undefined;
+        } | undefined;
+    }[];
+    memoryStoreId?: string | undefined;
+}>;
+type OperatorResultEvent = z.infer<typeof OperatorResultEventSchema>;
+/**
+ * Result of processing an operator result event
+ */
+declare const OperatorProcessingResultSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    eventType: z.ZodOptional<z.ZodString>;
+    skipped: z.ZodDefault<z.ZodBoolean>;
+    skipReason: z.ZodOptional<z.ZodString>;
+    error: z.ZodOptional<z.ZodString>;
+    createdCount: z.ZodDefault<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    success: boolean;
+    skipped: boolean;
+    createdCount: number;
+    error?: string | undefined;
+    eventType?: string | undefined;
+    skipReason?: string | undefined;
+}, {
+    success: boolean;
+    error?: string | undefined;
+    eventType?: string | undefined;
+    skipped?: boolean | undefined;
+    skipReason?: string | undefined;
+    createdCount?: number | undefined;
+}>;
+type OperatorProcessingResult = z.infer<typeof OperatorProcessingResultSchema>;
+/**
+ * Conversation Intelligence configuration for TAC
+ */
+declare const ConversationIntelligenceConfigSchema: z.ZodObject<{
+    configurationId: z.ZodString;
+    observationOperatorSid: z.ZodOptional<z.ZodString>;
+    summaryOperatorSid: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    configurationId: string;
+    observationOperatorSid?: string | undefined;
+    summaryOperatorSid?: string | undefined;
+}, {
+    configurationId: string;
+    observationOperatorSid?: string | undefined;
+    summaryOperatorSid?: string | undefined;
+}>;
+type ConversationIntelligenceConfig = z.infer<typeof ConversationIntelligenceConfigSchema>;
+/**
+ * Summary item for batch creation
+ */
+declare const ConversationSummaryItemSchema: z.ZodObject<{
+    content: z.ZodString;
+    conversationId: z.ZodString;
+    occurredAt: z.ZodString;
+    source: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    content: string;
+    occurredAt: string;
+    conversationId: string;
+    source?: string | undefined;
+}, {
+    content: string;
+    occurredAt: string;
+    conversationId: string;
+    source?: string | undefined;
+}>;
+type ConversationSummaryItem = z.infer<typeof ConversationSummaryItemSchema>;
+
+/**
+ * Branded types for Knowledge IDs
+ */
+type KnowledgeBaseId = string & {
+    readonly _brand: 'KnowledgeBaseId';
+};
+type KnowledgeId = string & {
+    readonly _brand: 'KnowledgeId';
+};
+/**
+ * Type guard for KnowledgeBaseId
+ */
+declare function isKnowledgeBaseId(value: string): value is KnowledgeBaseId;
+/**
+ * Type guard for KnowledgeId
+ */
+declare function isKnowledgeId(value: string): value is KnowledgeId;
+/**
+ * Knowledge base status enum
+ */
+declare const KnowledgeBaseStatusSchema: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
+type KnowledgeBaseStatus = z.infer<typeof KnowledgeBaseStatusSchema>;
+/**
+ * Knowledge base metadata (from GET endpoint)
+ */
+declare const KnowledgeBaseSchema: z.ZodObject<{
+    id: z.ZodString;
+    displayName: z.ZodString;
+    description: z.ZodOptional<z.ZodString>;
+    status: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+    version: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    displayName: string;
+    version: number;
+    description?: string | undefined;
+}, {
+    status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    displayName: string;
+    version: number;
+    description?: string | undefined;
+}>;
+type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
+/**
+ * Search result chunk (from POST search endpoint)
+ *
+ * Combines base KnowledgeChunk data with semantic similarity scoring for search results.
+ * The Knowledge API returns up to 20 chunks per search, ranked by relevance.
+ *
+ * @remarks
+ * **SCHEMA VERIFIED**: Matches official Knowledge API v2 OpenAPI specification.
+ *
+ * @property content - The chunk content (max 65,536 characters / ~64KB)
+ * @property createdAt - ISO 8601 date-time when the chunk was created
+ * @property score - Semantic similarity score (0-1, higher = more relevant). **Always returned by API** - changed from optional to required to match actual API behavior.
+ * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
+ *
+ * @see /docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json
+ */
+declare const KnowledgeChunkResultSchema: z.ZodObject<{
+    content: z.ZodString;
+    knowledgeId: z.ZodString;
+    createdAt: z.ZodString;
+    score: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    content: string;
+    createdAt: string;
+    knowledgeId: string;
+    score: number;
+}, {
+    content: string;
+    createdAt: string;
+    knowledgeId: string;
+    score: number;
+}>;
+type KnowledgeChunkResult = Omit<z.infer<typeof KnowledgeChunkResultSchema>, 'knowledgeId'> & {
+    knowledgeId: KnowledgeId;
+};
+/**
+ * Search response wrapper
+ */
+declare const KnowledgeSearchResponseSchema: z.ZodObject<{
+    chunks: z.ZodArray<z.ZodObject<{
+        content: z.ZodString;
+        knowledgeId: z.ZodString;
+        createdAt: z.ZodString;
+        score: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        content: string;
+        createdAt: string;
+        knowledgeId: string;
+        score: number;
+    }, {
+        content: string;
+        createdAt: string;
+        knowledgeId: string;
+        score: number;
+    }>, "many">;
+}, "strip", z.ZodTypeAny, {
+    chunks: {
+        content: string;
+        createdAt: string;
+        knowledgeId: string;
+        score: number;
+    }[];
+}, {
+    chunks: {
+        content: string;
+        createdAt: string;
+        knowledgeId: string;
+        score: number;
+    }[];
+}>;
+type KnowledgeSearchResponse = z.infer<typeof KnowledgeSearchResponseSchema>;
+
+/**
+ * TAC Configuration class with Python-like static factory methods
+ *
+ * Example usage:
+ * ```typescript
+ * // Load from environment variables
+ * const config = TACConfig.fromEnv();
+ *
+ * // Or create manually
+ * const config = new TACConfig({
+ *   accountSid: 'ACxxxx',
+ *   // ...
+ * });
+ * ```
+ */
+declare class TACConfig {
+    readonly accountSid: string;
+    readonly authToken: string;
+    readonly apiKey: string;
+    readonly apiSecret: string;
+    readonly phoneNumber: string;
+    readonly traitGroups?: string[];
+    readonly conversationConfigurationId: string;
+    readonly cintelConfigurationId?: string;
+    readonly cintelObservationOperatorSid?: string;
+    readonly cintelSummaryOperatorSid?: string;
+    /** Optional Twilio region subdomain for API routing (e.g. transforms base URLs to `https://{product}.{region}.twilio.com`) */
+    readonly region?: string;
+    constructor(data: TACConfigData);
+    /**
+     * Create TACConfig from environment variables.
+     *
+     * Loads configuration from the following environment variables:
+     * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
+     * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
+     * - TWILIO_API_KEY: Twilio API Key (required)
+     * - TWILIO_API_SECRET: Twilio API Secret (required)
+     * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
+     * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
+     * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
+     * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
+     *
+     * @throws Error if required environment variables are not set or invalid
+     *
+     * @example
+     * ```typescript
+     * // Ensure env vars are set before calling (e.g. via dotenv, Docker, CI, etc.)
+     * const config = TACConfig.fromEnv();
+     *
+     * // Use in TAC initialization
+     * const tac = await TAC.create({ config });
+     * ```
+     */
+    static fromEnv(): TACConfig;
+    /**
+     * Get basic auth credentials for Twilio APIs
+     */
+    getBasicAuthCredentials(): {
+        username: string;
+        password: string;
+    };
+}
+
+/**
+ * Logger type that can be either Pino logger or Fastify's logger
  */
 type Logger$1 = pino.Logger;
+/**
+ * Create a Pino logger with configured settings
+ *
+ * @param options - Logger configuration options
+ * @returns Configured Pino logger
+ */
+declare function createLogger(options?: {
+    level?: string;
+    pretty?: boolean;
+    name?: string;
+}): Logger$1;
+
+/**
+ * Base HTTP client for Twilio API services
+ *
+ * Features:
+ * - Automatic Basic Auth using Twilio API credentials
+ * - User-Agent header injection
+ * - 30-second request timeout
+ * - HTTP redirect following (up to 5 redirects) with auth preservation
+ * - Automatic retry (up to 3 retries / 4 total attempts with exponential backoff)
+ * - Error logging for failed requests
+ * - Automatic JSON serialization/deserialization
+ */
+declare abstract class BaseClient {
+    protected readonly baseUrl: string;
+    protected readonly logger: Logger$1;
+    protected readonly axiosInstance: AxiosInstance;
+    constructor(baseUrl: string, config: TACConfig, logger?: Logger$1);
+    /**
+     * Make an HTTP request with automatic header injection and error handling
+     *
+     * @param url - The URL path (relative to baseURL)
+     * @param method - HTTP method (GET, POST, etc.)
+     * @param data - Optional request body (will be automatically serialized to JSON)
+     * @param params - Optional query string parameters
+     * @returns Promise resolving to the response data (already parsed from JSON)
+     * @throws Error on timeout, HTTP errors, or network failures
+     */
+    protected makeRequest<TResponse = unknown>(url: string, method: string, data?: unknown, params?: Record<string, string>): Promise<TResponse>;
+}
+
+/**
+ * Memory client for interacting with Twilio Memory Service
+ */
+declare class MemoryClient extends BaseClient {
+    constructor(config: TACConfig, logger?: Logger$1);
+    /**
+     * Retrieve memories for a specific profile
+     *
+     * @param serviceSid - The memory service SID
+     * @param profileId - The profile ID to retrieve memories for
+     * @param request - Optional request parameters for filtering results
+     * @returns Promise containing memory retrieval response
+     */
+    retrieveMemories(serviceSid: MemoryStoreId, profileId: ProfileId, request?: Partial<MemoryRetrievalRequest>): Promise<MemoryRetrievalResponse>;
+    /**
+     * Find profiles that contain a specific identifier value
+     *
+     * @param serviceSid - The memory service SID
+     * @param idType - Identifier type (e.g., 'phone', 'email')
+     * @param value - Raw value captured for the identifier
+     * @returns Promise containing profile lookup response with normalized value and matching profile IDs
+     */
+    lookupProfile(serviceSid: MemoryStoreId, idType: string, value: string): Promise<ProfileLookupResponse>;
+    /**
+     * Fetch profile information with traits
+     *
+     * @param serviceSid - The memory service SID
+     * @param profileId - The profile ID to fetch
+     * @param traitGroups - Optional list of trait group names to include
+     * @returns Promise containing profile response with ID, created timestamp, and traits
+     */
+    getProfile(serviceSid: MemoryStoreId, profileId: ProfileId, traitGroups?: string[]): Promise<ProfileResponse>;
+    /**
+     * Create an observation for a profile
+     *
+     * @param serviceSid - The memory service SID
+     * @param profileId - The profile ID to create the observation for
+     * @param content - The observation content
+     * @param source - Source of the observation (default: 'conversation-intelligence')
+     * @param conversationIds - Optional array of conversation IDs associated with this observation
+     * @param occurredAt - Optional timestamp when the observation occurred
+     * @returns Promise containing the created observation
+     */
+    createObservation(serviceSid: MemoryStoreId, profileId: ProfileId, content: string, source?: string, conversationIds?: ConversationId[], occurredAt?: string): Promise<CreateObservationResponse>;
+    /**
+     * Create conversation summaries for a profile
+     *
+     * @param serviceSid - The memory service SID
+     * @param profileId - The profile ID to create summaries for
+     * @param summaries - Array of summary items to create
+     * @returns Promise containing a success message for the created conversation summaries
+     */
+    createConversationSummaries(serviceSid: MemoryStoreId, profileId: ProfileId, summaries: Array<{
+        content: string;
+        conversationId: ConversationId;
+        occurredAt: string;
+        source?: string;
+    }>): Promise<CreateConversationSummariesResponse>;
+}
+
+/**
+ * Conversation client for interacting with Twilio Conversations Service
+ */
+declare class ConversationClient extends BaseClient {
+    private readonly conversationConfigurationId;
+    constructor(config: TACConfig, logger?: Logger$1);
+    /**
+     * Create an action on a conversation via the Conversation Orchestrator Actions API.
+     *
+     * Currently supports SEND_MESSAGE actions. Returns 202 Accepted; the action is
+     * processed asynchronously and delivered via COMMUNICATION_CREATED webhook.
+     *
+     * @param conversationId - The conversation ID
+     * @param request - The action request ({type, payload})
+     * @returns Promise containing the ActionResponse
+     */
+    createAction(conversationId: ConversationId, request: SendMessageActionRequest): Promise<ActionResponse>;
+    /**
+     * List communications for a conversation
+     *
+     * @param conversationId - The conversation ID
+     * @returns Promise containing array of communications
+     */
+    listCommunications(conversationId: ConversationId): Promise<Communication[]>;
+    /**
+     * Create a new conversation
+     *
+     * @param name - Optional conversation name
+     * @returns Promise containing conversation response
+     */
+    createConversation(name?: string): Promise<ConversationResponse>;
+    /**
+     * Add a participant to a conversation
+     *
+     * @param conversationId - The conversation ID
+     * @param addresses - Array of participant addresses
+     * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
+     * @returns Promise containing participant response
+     */
+    addParticipant(conversationId: ConversationId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
+    /**
+     * Add a participant to a conversation, or fetch existing if already added
+     *
+     * This method handles the race condition where Maestro capture rules
+     * and TAC both try to add participants simultaneously. It checks first,
+     * then adds if missing, and catches 409 Conflict to re-fetch what Maestro added.
+     *
+     * @param conversationId - The conversation ID
+     * @param addresses - Array of participant addresses
+     * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
+     * @returns Promise containing participant response
+     */
+    addOrFetchParticipant(conversationId: ConversationId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
+    /**
+     * List participants in a conversation
+     *
+     * @param conversationId - The conversation ID
+     * @returns Promise containing array of participants
+     */
+    listParticipants(conversationId: ConversationId): Promise<ConversationParticipant[]>;
+    /**
+     * List conversations with optional filters
+     *
+     * @param filters - Optional filters (channelId, status)
+     * @returns Promise containing array of conversations
+     */
+    listConversations(filters?: {
+        channelId?: string;
+        status?: string[];
+    }): Promise<ConversationResponse[]>;
+    /**
+     * Update conversation status
+     *
+     * @param conversationId - The conversation ID
+     * @param status - New status (ACTIVE, INACTIVE, CLOSED)
+     * @returns Promise containing updated conversation
+     */
+    updateConversation(conversationId: ConversationId, status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'): Promise<ConversationResponse>;
+    /**
+     * Retrieve the details for a single configuration
+     *
+     * @param configurationId - The configuration ID to retrieve
+     * @returns Promise containing configuration details
+     */
+    getConfiguration(configurationId: string): Promise<ConversationConfiguration>;
+}
+
+/**
+ * Knowledge client for interacting with Twilio Knowledge Service
+ */
+declare class KnowledgeClient extends BaseClient {
+    constructor(config: TACConfig, logger?: Logger$1);
+    /**
+     * Get knowledge base metadata
+     *
+     * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
+     * @returns Promise containing knowledge base metadata
+     */
+    getKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Promise<KnowledgeBase>;
+    /**
+     * Search knowledge base for relevant content
+     *
+     * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
+     * @param query - Search query (max 2048 characters)
+     * @param topK - Maximum number of results to return (default: 5, max: 20)
+     * @param knowledgeIds - Optional list of knowledge IDs to filter results
+     * @returns Promise containing array of search result chunks
+     */
+    searchKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, query: string, topK?: number, knowledgeIds?: KnowledgeId[]): Promise<KnowledgeChunkResult[]>;
+}
+
+interface TACOptions {
+    config?: TACConfig | TACConfigData;
+    logger?: Logger$1;
+}
+/**
+ * Callback function signatures for TAC events
+ */
+type MessageReadyCallback = (message: ChannelMessage) => Promise<string | null | void> | string | null | void;
+type ErrorCallback$1 = (params: {
+    error: Error;
+    context?: Record<string, unknown> | undefined;
+}) => void;
+type HandoffCallback = (params: {
+    /** Conversation identifier */
+    conversationId: ConversationId;
+    profileId: ProfileId | undefined;
+    reason: string;
+    session: ConversationSession;
+}) => Promise<void> | void;
+type ConversationEndedCallback = (params: {
+    session: ConversationSession;
+}) => Promise<void> | void;
+/**
+ * Main Twilio Agent Connect class
+ *
+ * Central orchestrator that manages configuration, channels, callbacks,
+ * and coordinates between memory, conversations, and LLM integrations.
+ */
+declare class TAC {
+    private static readonly FACTORY_TOKEN;
+    private readonly config;
+    readonly logger: Logger$1;
+    private memoryClient;
+    private knowledgeClient;
+    private readonly conversationClient;
+    private readonly channels;
+    private cintelProcessor?;
+    private memoryStoreId;
+    /**
+     * Cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init.
+     * ChatChannel forwards this as `channelSettings.chatService` on outbound
+     * SEND_MESSAGE actions.
+     *
+     * Until the server-side fix ships, CHAT sends fail with
+     *   "chatService attribute is required for CHAT channel"
+     * unless we pass it on channelSettings.chatService.
+     *
+     * TODO(conv-orch): Drop this field plus ActionChannelSettings.chatService
+     * and ChatChannel's chatServiceSid plumbing once the Actions API resolves
+     * the V1 Chat service SID server-side.
+     */
+    conversationsV1ServiceSid?: string;
+    private messageReadyCallback?;
+    private handoffCallback?;
+    private conversationEndedCallback?;
+    private errorCallback?;
+    private constructor();
+    static create(options?: TACOptions): Promise<TAC>;
+    /**
+     * Register a channel with the framework
+     */
+    registerChannel(channel: Channel): void;
+    /**
+     * Set up event listeners for a channel.
+     *
+     * All channels emit three unified events:
+     * - 'message': ChannelMessage (user or system messages)
+     * - 'conversationEnded': { session: ConversationSession }
+     * - 'error': { error: Error; context?: Record<string, unknown> }
+     */
+    private setupChannelEventListeners;
+    /**
+     * Handle unified message from channels — pure pass-through to developer callback
+     */
+    private handleMessage;
+    /**
+     * Register callback for when messages are ready to be processed.
+     * Return a string to auto-send, or null/void for manual handling.
+     */
+    onMessageReady(callback: MessageReadyCallback): void;
+    /**
+     * Register callback for channel errors
+     */
+    onError(callback: ErrorCallback$1): void;
+    /**
+     * Register callback for human handoff
+     */
+    onHandoff(callback: HandoffCallback): void;
+    /**
+     * Register callback for when a conversation ends.
+     *
+     * The callback is triggered by channels when a conversation is closed
+     * (e.g., SMS conversation status changed to CLOSED, or voice WebSocket
+     * disconnected). The callback receives the full ConversationSession before
+     * it is cleaned up.
+     */
+    onConversationEnded(callback: ConversationEndedCallback): void;
+    /**
+     * Trigger handoff callback
+     */
+    triggerHandoff(conversationId: ConversationId, reason: string): Promise<void>;
+    /**
+     * Get channel by conversation ID
+     */
+    private getChannelByConversationId;
+    /**
+     * Get registered channel by type
+     */
+    getChannel<T extends Channel>(channelType: ChannelType): T | undefined;
+    /**
+     * Get configuration
+     */
+    getConfig(): TACConfig;
+    /**
+     * Get memory client for advanced memory operations
+     */
+    getMemoryClient(): MemoryClient;
+    /**
+     * Get knowledge client for knowledge base operations
+     */
+    getKnowledgeClient(): KnowledgeClient;
+    /**
+     * Get conversation client for advanced conversation operations
+     */
+    getConversationClient(): ConversationClient;
+    /**
+     * Create a MemoryRetriever function for channel dependency injection.
+     */
+    createMemoryRetriever(): MemoryRetriever;
+    /**
+     * Get channel dependencies for creating channels (VoiceChannel, ConversationRelayChannel,
+     * SMSChannel, ChatChannel). Returns all dependencies needed to construct a channel.
+     */
+    getChannelDeps(): {
+        config: TACConfig;
+        logger: Logger$1;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever;
+    };
+    /**
+     * Check if Conversation Intelligence processing is enabled
+     *
+     * @returns true if CI processor is initialized, false otherwise
+     */
+    isCintelEnabled(): boolean;
+    /**
+     * Process a Conversation Intelligence operator result webhook event
+     *
+     * @param payload - The raw webhook payload from CI
+     * @returns Promise containing the processing result
+     * @throws Error if CI processor is not initialized
+     */
+    processCintelEvent(payload: unknown): Promise<OperatorProcessingResult>;
+    /**
+     * Retrieve memories from Memory API with automatic fallback to Conversations API
+     *
+     * @param session - Conversation session context
+     * @param query - Optional semantic search query
+     * @returns Promise containing TACMemoryResponse wrapper providing unified access to memory data.
+     *
+     * Attempts to retrieve from Memory API first:
+     * - observations, summaries, and communications available
+     * - communications include author name and type
+     *
+     * Falls back to Conversations API on error:
+     * - observations and summaries are empty arrays
+     * - communications have basic fields only (no author name/type)
+     */
+    retrieveMemory(session: ConversationSession, query?: string): Promise<TACMemoryResponse>;
+    /**
+     * Fetch profile information with traits
+     *
+     * @param profileId - Profile ID to fetch
+     * @returns Promise containing profile response or undefined if not available
+     */
+    fetchProfile(profileId: ProfileId): Promise<ProfileResponse | undefined>;
+    /**
+     * Shutdown TAC and cleanup resources
+     */
+    shutdown(): void;
+}
+
+interface SMSChannelConfig {
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+    dedupCapacity?: number | undefined;
+}
+/**
+ * SMS Channel implementation for Twilio Conversations Service.
+ *
+ * Handles SMS conversations through Conversation Orchestrator webhooks.
+ * Composes ConversationsWebhookProcessor + ConversationSessionStore from
+ * `./utility.ts` instead of inheriting from a base class.
+ */
+declare class SMSChannel implements Channel {
+    readonly channelType: ChannelType;
+    private readonly config;
+    private readonly logger;
+    private readonly conversationClient;
+    private readonly memoryRetriever;
+    private readonly callbacks;
+    private readonly tools;
+    private readonly webhookProcessor;
+    private readonly sessionStore;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger$1;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever;
+    }, channelConfig?: SMSChannelConfig);
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    isConversationActive(conversationId: ConversationId): boolean;
+    on(event: string, callback: (...args: any[]) => void): void;
+    shutdown(): void;
+    listTools(): ChannelTool[];
+    registerTool(tool: ChannelTool): void;
+    executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    /**
+     * Process an SMS webhook event from Twilio Conversation Orchestrator.
+     * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
+     */
+    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
+    /**
+     * Send SMS response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
+     */
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    private isOwnMessage;
+    private handleError;
+    private handleConversationCreated;
+    private handleParticipantAdded;
+    private handleCommunicationCreated;
+    private handleConversationUpdated;
+}
+
+interface ChatChannelConfig {
+    /** Chat agent identity string (defaults to 'ai-assistant') */
+    agentAddress?: string | undefined;
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+    dedupCapacity?: number | undefined;
+    /**
+     * Conversations V1 service SID, forwarded as `channelSettings.chatService` on
+     * outbound SEND_MESSAGE actions. Read from `tac.conversationsV1ServiceSid`.
+     *
+     * TODO(conv-orch): Drop this option once the Actions API resolves the V1 Chat
+     * service SID server-side.
+     */
+    conversationsV1ServiceSid?: string | undefined;
+}
+/**
+ * Chat Channel implementation for Twilio Conversations Service.
+ *
+ * Handles web chat conversations through Conversation Orchestrator webhooks.
+ * Uses identity-based addressing (`agentAddress`) rather than phone numbers.
+ * Composes ConversationsWebhookProcessor + ConversationSessionStore from
+ * `./utility.ts` instead of inheriting from a base class.
+ */
+declare class ChatChannel implements Channel {
+    readonly channelType: ChannelType;
+    private readonly logger;
+    private readonly conversationClient;
+    private readonly memoryRetriever;
+    private readonly agentAddress;
+    /**
+     * TODO(conv-orch): Drop once Actions API resolves V1 Chat service SID server-side.
+     */
+    private readonly conversationsV1ServiceSid;
+    private readonly callbacks;
+    private readonly tools;
+    private readonly webhookProcessor;
+    private readonly sessionStore;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger$1;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever;
+    }, channelConfig?: ChatChannelConfig);
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    isConversationActive(conversationId: ConversationId): boolean;
+    on(event: string, callback: (...args: any[]) => void): void;
+    shutdown(): void;
+    listTools(): ChannelTool[];
+    registerTool(tool: ChannelTool): void;
+    executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    /**
+     * Process a Chat webhook event from Twilio Conversation Orchestrator.
+     * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
+     */
+    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
+    /**
+     * Send chat response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
+     */
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    private isOwnMessage;
+    private handleError;
+    private handleConversationCreated;
+    private handleParticipantAdded;
+    private handleCommunicationCreated;
+    private handleConversationUpdated;
+}
+
+/**
+ * VoiceChannel — passive Maestro voice channel.
+ *
+ * Consumes voice-channel Conversation Orchestrator (Maestro) webhooks and
+ * emits unified `ChannelMessage`s like SMS/Chat. Use for BYO-CR flows,
+ * inbound-analysis pipelines, or any voice path where this service
+ * does not own the CR WebSocket.
+ *
+ * Outbound voice is **not supported** here — Maestro's Actions API rejects
+ * `channel: 'VOICE'`. For active voice (agent speaks over a CR WS), use
+ * `ConversationRelayChannel` in `./crelay.ts`.
+ *
+ * Zero dependency on `@twilio/tac-conversationrelay` — that boundary is
+ * owned exclusively by `ConversationRelayChannel`.
+ */
+
+interface VoiceChannelConfig {
+    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
+    dedupCapacity?: number | undefined;
+}
+declare class VoiceChannel implements Channel {
+    readonly channelType: ChannelType;
+    protected readonly config: TACConfig;
+    protected readonly logger: Logger$1;
+    protected readonly conversationClient: ConversationClient;
+    protected readonly callbacks: ChannelEvents;
+    private readonly memoryRetriever;
+    private readonly sessionStore;
+    private readonly webhookProcessor;
+    constructor(deps: {
+        config: TACConfig;
+        logger: Logger$1;
+        conversationClient: ConversationClient;
+        memoryRetriever: MemoryRetriever;
+    }, channelConfig?: VoiceChannelConfig);
+    private emitMessage;
+    sendResponse(_conversationId: ConversationId, _message: string, _metadata?: Record<string, unknown>): Promise<void>;
+    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
+    private handleVoiceConversationCreated;
+    private handleVoiceParticipantAdded;
+    private handleVoiceCommunicationCreated;
+    private handleVoiceConversationUpdated;
+    on(event: string, callback: (...args: any[]) => void): void;
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    isConversationActive(conversationId: ConversationId): boolean;
+    shutdown(): void;
+    protected handleError(error: Error, context?: Record<string, unknown>): void;
+}
+
+/**
+ * Logger type used throughout the ConversationRelay package.
+ */
+type Logger = pino.Logger;
 
 /**
  * SilenceHandler — Progressive reminder system for silent callers (per-session).
@@ -3132,7 +4284,7 @@ declare class SilenceHandler {
     private enabled;
     private readonly config;
     private readonly logger;
-    constructor(config: SilenceHandlerConfig, logger: Logger$1);
+    constructor(config: SilenceHandlerConfig, logger: Logger);
     /**
      * Reset the silence timer. Call on any signal of life from the caller
      * (prompt, interrupt, DTMF). Also used to start the timer for the first
@@ -3805,7 +4957,7 @@ interface ConversationRelaySessionOptions {
     ws: WebSocket;
     setup: SetupMessage;
     toolRegistry: ToolRegistry;
-    logger: Logger$1;
+    logger: Logger;
     silenceTemplate?: SilenceConfig | undefined;
     callbacks: SessionCallbacks;
 }
@@ -3948,21 +5100,21 @@ type InterruptCallback = (session: ConversationRelaySession, data: InterruptMess
 type DtmfCallback = (session: ConversationRelaySession, data: DtmfMessage) => void;
 type InfoCallback = (session: ConversationRelaySession, data: InfoMessage) => void;
 type SessionEndedCallback = (session: ConversationRelaySession) => void;
-type ErrorCallback$1 = (session: ConversationRelaySession, error: Error) => void;
+type ErrorCallback = (session: ConversationRelaySession, error: Error) => void;
 declare class ConversationRelay {
     private readonly logger;
     private readonly sessions;
     private readonly toolRegistry;
     private readonly silenceTemplate;
     private readonly callbacks;
-    constructor(logger?: Logger$1, config?: ConversationRelayConstructorConfig);
+    constructor(logger?: Logger, config?: ConversationRelayConstructorConfig);
     onSessionStarted(callback: SessionStartedCallback): void;
     onPrompt(callback: PromptCallback): void;
     onInterrupt(callback: InterruptCallback): void;
     onDtmf(callback: DtmfCallback): void;
     onInfo(callback: InfoCallback): void;
     onSessionEnded(callback: SessionEndedCallback): void;
-    onError(callback: ErrorCallback$1): void;
+    onError(callback: ErrorCallback): void;
     /**
      * The shared tool registry. `ConversationRelayChannel` forwards `listTools()`
      * to this; standalone apps can read/register tools here before wiring the
@@ -4111,1158 +5263,6 @@ declare class ConversationRelayServer {
 }
 
 /**
- * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
- *
- * These are TAC's own structured parameters for bridging ConversationRelay calls
- * to Maestro Conversations. NOT generic CR parameters (those live in the CR package).
- */
-declare const TACCustomParametersSchema: z.ZodObject<{
-    conversation_id: z.ZodOptional<z.ZodString>;
-    profile_id: z.ZodOptional<z.ZodString>;
-    customer_participant_id: z.ZodOptional<z.ZodString>;
-    ai_agent_participant_id: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    profile_id?: string | undefined;
-    conversation_id?: string | undefined;
-    customer_participant_id?: string | undefined;
-    ai_agent_participant_id?: string | undefined;
-}, {
-    profile_id?: string | undefined;
-    conversation_id?: string | undefined;
-    customer_participant_id?: string | undefined;
-    ai_agent_participant_id?: string | undefined;
-}>;
-type TACCustomParameters = z.infer<typeof TACCustomParametersSchema>;
-
-/**
- * Conversation Intelligence Types
- *
- * These types represent the webhook payloads and configuration for
- * processing Conversation Intelligence operator results.
- */
-/**
- * Participant in operator execution (e.g., CUSTOMER, AGENT)
- */
-declare const CintelParticipantSchema: z.ZodObject<{
-    type: z.ZodString;
-    profileId: z.ZodOptional<z.ZodString>;
-    mediaParticipantId: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: string;
-    profileId?: string | undefined;
-    mediaParticipantId?: string | undefined;
-}, {
-    type: string;
-    profileId?: string | undefined;
-    mediaParticipantId?: string | undefined;
-}>;
-type CintelParticipant = z.infer<typeof CintelParticipantSchema>;
-/**
- * Execution details for an operator result
- */
-declare const ExecutionDetailsSchema: z.ZodObject<{
-    participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
-        type: z.ZodString;
-        profileId: z.ZodOptional<z.ZodString>;
-        mediaParticipantId: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        type: string;
-        profileId?: string | undefined;
-        mediaParticipantId?: string | undefined;
-    }, {
-        type: string;
-        profileId?: string | undefined;
-        mediaParticipantId?: string | undefined;
-    }>, "many">>;
-}, "strip", z.ZodTypeAny, {
-    participants?: {
-        type: string;
-        profileId?: string | undefined;
-        mediaParticipantId?: string | undefined;
-    }[] | undefined;
-}, {
-    participants?: {
-        type: string;
-        profileId?: string | undefined;
-        mediaParticipantId?: string | undefined;
-    }[] | undefined;
-}>;
-type ExecutionDetails = z.infer<typeof ExecutionDetailsSchema>;
-/**
- * Operator metadata
- */
-declare const OperatorSchema: z.ZodObject<{
-    id: z.ZodString;
-    name: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    name?: string | undefined;
-}, {
-    id: string;
-    name?: string | undefined;
-}>;
-type Operator = z.infer<typeof OperatorSchema>;
-/**
- * Individual operator result from Conversation Intelligence
- */
-declare const OperatorResultSchema: z.ZodObject<{
-    id: z.ZodString;
-    operator: z.ZodObject<{
-        id: z.ZodString;
-        name: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        id: string;
-        name?: string | undefined;
-    }, {
-        id: string;
-        name?: string | undefined;
-    }>;
-    outputFormat: z.ZodString;
-    result: z.ZodUnknown;
-    dateCreated: z.ZodString;
-    referenceIds: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
-    executionDetails: z.ZodOptional<z.ZodObject<{
-        participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            type: z.ZodString;
-            profileId: z.ZodOptional<z.ZodString>;
-            mediaParticipantId: z.ZodOptional<z.ZodString>;
-        }, "strip", z.ZodTypeAny, {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }, {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }>, "many">>;
-    }, "strip", z.ZodTypeAny, {
-        participants?: {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }[] | undefined;
-    }, {
-        participants?: {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }[] | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    operator: {
-        id: string;
-        name?: string | undefined;
-    };
-    outputFormat: string;
-    dateCreated: string;
-    referenceIds: string[];
-    result?: unknown;
-    executionDetails?: {
-        participants?: {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}, {
-    id: string;
-    operator: {
-        id: string;
-        name?: string | undefined;
-    };
-    outputFormat: string;
-    dateCreated: string;
-    result?: unknown;
-    referenceIds?: string[] | undefined;
-    executionDetails?: {
-        participants?: {
-            type: string;
-            profileId?: string | undefined;
-            mediaParticipantId?: string | undefined;
-        }[] | undefined;
-    } | undefined;
-}>;
-type OperatorResult = z.infer<typeof OperatorResultSchema>;
-/**
- * Intelligence configuration metadata
- */
-declare const IntelligenceConfigurationSchema: z.ZodObject<{
-    id: z.ZodString;
-    friendlyName: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    id: string;
-    friendlyName?: string | undefined;
-}, {
-    id: string;
-    friendlyName?: string | undefined;
-}>;
-type IntelligenceConfiguration = z.infer<typeof IntelligenceConfigurationSchema>;
-/**
- * Full webhook payload for operator result events
- */
-declare const OperatorResultEventSchema: z.ZodObject<{
-    accountId: z.ZodString;
-    conversationId: z.ZodString;
-    memoryStoreId: z.ZodOptional<z.ZodString>;
-    intelligenceConfiguration: z.ZodObject<{
-        id: z.ZodString;
-        friendlyName: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        id: string;
-        friendlyName?: string | undefined;
-    }, {
-        id: string;
-        friendlyName?: string | undefined;
-    }>;
-    operatorResults: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
-        operator: z.ZodObject<{
-            id: z.ZodString;
-            name: z.ZodOptional<z.ZodString>;
-        }, "strip", z.ZodTypeAny, {
-            id: string;
-            name?: string | undefined;
-        }, {
-            id: string;
-            name?: string | undefined;
-        }>;
-        outputFormat: z.ZodString;
-        result: z.ZodUnknown;
-        dateCreated: z.ZodString;
-        referenceIds: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
-        executionDetails: z.ZodOptional<z.ZodObject<{
-            participants: z.ZodOptional<z.ZodArray<z.ZodObject<{
-                type: z.ZodString;
-                profileId: z.ZodOptional<z.ZodString>;
-                mediaParticipantId: z.ZodOptional<z.ZodString>;
-            }, "strip", z.ZodTypeAny, {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }, {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }>, "many">>;
-        }, "strip", z.ZodTypeAny, {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        }, {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        id: string;
-        operator: {
-            id: string;
-            name?: string | undefined;
-        };
-        outputFormat: string;
-        dateCreated: string;
-        referenceIds: string[];
-        result?: unknown;
-        executionDetails?: {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }, {
-        id: string;
-        operator: {
-            id: string;
-            name?: string | undefined;
-        };
-        outputFormat: string;
-        dateCreated: string;
-        result?: unknown;
-        referenceIds?: string[] | undefined;
-        executionDetails?: {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    conversationId: string;
-    accountId: string;
-    intelligenceConfiguration: {
-        id: string;
-        friendlyName?: string | undefined;
-    };
-    operatorResults: {
-        id: string;
-        operator: {
-            id: string;
-            name?: string | undefined;
-        };
-        outputFormat: string;
-        dateCreated: string;
-        referenceIds: string[];
-        result?: unknown;
-        executionDetails?: {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }[];
-    memoryStoreId?: string | undefined;
-}, {
-    conversationId: string;
-    accountId: string;
-    intelligenceConfiguration: {
-        id: string;
-        friendlyName?: string | undefined;
-    };
-    operatorResults: {
-        id: string;
-        operator: {
-            id: string;
-            name?: string | undefined;
-        };
-        outputFormat: string;
-        dateCreated: string;
-        result?: unknown;
-        referenceIds?: string[] | undefined;
-        executionDetails?: {
-            participants?: {
-                type: string;
-                profileId?: string | undefined;
-                mediaParticipantId?: string | undefined;
-            }[] | undefined;
-        } | undefined;
-    }[];
-    memoryStoreId?: string | undefined;
-}>;
-type OperatorResultEvent = z.infer<typeof OperatorResultEventSchema>;
-/**
- * Result of processing an operator result event
- */
-declare const OperatorProcessingResultSchema: z.ZodObject<{
-    success: z.ZodBoolean;
-    eventType: z.ZodOptional<z.ZodString>;
-    skipped: z.ZodDefault<z.ZodBoolean>;
-    skipReason: z.ZodOptional<z.ZodString>;
-    error: z.ZodOptional<z.ZodString>;
-    createdCount: z.ZodDefault<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    success: boolean;
-    skipped: boolean;
-    createdCount: number;
-    error?: string | undefined;
-    eventType?: string | undefined;
-    skipReason?: string | undefined;
-}, {
-    success: boolean;
-    error?: string | undefined;
-    eventType?: string | undefined;
-    skipped?: boolean | undefined;
-    skipReason?: string | undefined;
-    createdCount?: number | undefined;
-}>;
-type OperatorProcessingResult = z.infer<typeof OperatorProcessingResultSchema>;
-/**
- * Conversation Intelligence configuration for TAC
- */
-declare const ConversationIntelligenceConfigSchema: z.ZodObject<{
-    configurationId: z.ZodString;
-    observationOperatorSid: z.ZodOptional<z.ZodString>;
-    summaryOperatorSid: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    configurationId: string;
-    observationOperatorSid?: string | undefined;
-    summaryOperatorSid?: string | undefined;
-}, {
-    configurationId: string;
-    observationOperatorSid?: string | undefined;
-    summaryOperatorSid?: string | undefined;
-}>;
-type ConversationIntelligenceConfig = z.infer<typeof ConversationIntelligenceConfigSchema>;
-/**
- * Summary item for batch creation
- */
-declare const ConversationSummaryItemSchema: z.ZodObject<{
-    content: z.ZodString;
-    conversationId: z.ZodString;
-    occurredAt: z.ZodString;
-    source: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    content: string;
-    occurredAt: string;
-    conversationId: string;
-    source?: string | undefined;
-}, {
-    content: string;
-    occurredAt: string;
-    conversationId: string;
-    source?: string | undefined;
-}>;
-type ConversationSummaryItem = z.infer<typeof ConversationSummaryItemSchema>;
-
-/**
- * Branded types for Knowledge IDs
- */
-type KnowledgeBaseId = string & {
-    readonly _brand: 'KnowledgeBaseId';
-};
-type KnowledgeId = string & {
-    readonly _brand: 'KnowledgeId';
-};
-/**
- * Type guard for KnowledgeBaseId
- */
-declare function isKnowledgeBaseId(value: string): value is KnowledgeBaseId;
-/**
- * Type guard for KnowledgeId
- */
-declare function isKnowledgeId(value: string): value is KnowledgeId;
-/**
- * Knowledge base status enum
- */
-declare const KnowledgeBaseStatusSchema: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
-type KnowledgeBaseStatus = z.infer<typeof KnowledgeBaseStatusSchema>;
-/**
- * Knowledge base metadata (from GET endpoint)
- */
-declare const KnowledgeBaseSchema: z.ZodObject<{
-    id: z.ZodString;
-    displayName: z.ZodString;
-    description: z.ZodOptional<z.ZodString>;
-    status: z.ZodEnum<["QUEUED", "PROVISIONING", "ACTIVE", "FAILED", "DELETING"]>;
-    createdAt: z.ZodString;
-    updatedAt: z.ZodString;
-    version: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    displayName: string;
-    version: number;
-    description?: string | undefined;
-}, {
-    status: "FAILED" | "QUEUED" | "PROVISIONING" | "ACTIVE" | "DELETING";
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    displayName: string;
-    version: number;
-    description?: string | undefined;
-}>;
-type KnowledgeBase = z.infer<typeof KnowledgeBaseSchema>;
-/**
- * Search result chunk (from POST search endpoint)
- *
- * Combines base KnowledgeChunk data with semantic similarity scoring for search results.
- * The Knowledge API returns up to 20 chunks per search, ranked by relevance.
- *
- * @remarks
- * **SCHEMA VERIFIED**: Matches official Knowledge API v2 OpenAPI specification.
- *
- * @property content - The chunk content (max 65,536 characters / ~64KB)
- * @property createdAt - ISO 8601 date-time when the chunk was created
- * @property score - Semantic similarity score (0-1, higher = more relevant). **Always returned by API** - changed from optional to required to match actual API behavior.
- * @property knowledgeId - Unique identifier of the knowledge source (TTID format)
- *
- * @see /docs/oai-specs/internal-oai/spec/json/twilio_knowledge_v2.json
- */
-declare const KnowledgeChunkResultSchema: z.ZodObject<{
-    content: z.ZodString;
-    knowledgeId: z.ZodString;
-    createdAt: z.ZodString;
-    score: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    content: string;
-    createdAt: string;
-    knowledgeId: string;
-    score: number;
-}, {
-    content: string;
-    createdAt: string;
-    knowledgeId: string;
-    score: number;
-}>;
-type KnowledgeChunkResult = Omit<z.infer<typeof KnowledgeChunkResultSchema>, 'knowledgeId'> & {
-    knowledgeId: KnowledgeId;
-};
-/**
- * Search response wrapper
- */
-declare const KnowledgeSearchResponseSchema: z.ZodObject<{
-    chunks: z.ZodArray<z.ZodObject<{
-        content: z.ZodString;
-        knowledgeId: z.ZodString;
-        createdAt: z.ZodString;
-        score: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        content: string;
-        createdAt: string;
-        knowledgeId: string;
-        score: number;
-    }, {
-        content: string;
-        createdAt: string;
-        knowledgeId: string;
-        score: number;
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    chunks: {
-        content: string;
-        createdAt: string;
-        knowledgeId: string;
-        score: number;
-    }[];
-}, {
-    chunks: {
-        content: string;
-        createdAt: string;
-        knowledgeId: string;
-        score: number;
-    }[];
-}>;
-type KnowledgeSearchResponse = z.infer<typeof KnowledgeSearchResponseSchema>;
-
-/**
- * TAC Configuration class with Python-like static factory methods
- *
- * Example usage:
- * ```typescript
- * // Load from environment variables
- * const config = TACConfig.fromEnv();
- *
- * // Or create manually
- * const config = new TACConfig({
- *   accountSid: 'ACxxxx',
- *   // ...
- * });
- * ```
- */
-declare class TACConfig {
-    readonly accountSid: string;
-    readonly authToken: string;
-    readonly apiKey: string;
-    readonly apiSecret: string;
-    readonly phoneNumber: string;
-    readonly traitGroups?: string[];
-    readonly conversationConfigurationId: string;
-    readonly cintelConfigurationId?: string;
-    readonly cintelObservationOperatorSid?: string;
-    readonly cintelSummaryOperatorSid?: string;
-    /** Optional Twilio region subdomain for API routing (e.g. transforms base URLs to `https://{product}.{region}.twilio.com`) */
-    readonly region?: string;
-    constructor(data: TACConfigData);
-    /**
-     * Create TACConfig from environment variables.
-     *
-     * Loads configuration from the following environment variables:
-     * - TWILIO_ACCOUNT_SID: Twilio Account SID (required)
-     * - TWILIO_AUTH_TOKEN: Twilio Auth Token (required)
-     * - TWILIO_API_KEY: Twilio API Key (required)
-     * - TWILIO_API_SECRET: Twilio API Secret (required)
-     * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
-     * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
-     * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-     * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
-     *
-     * @throws Error if required environment variables are not set or invalid
-     *
-     * @example
-     * ```typescript
-     * // Ensure env vars are set before calling (e.g. via dotenv, Docker, CI, etc.)
-     * const config = TACConfig.fromEnv();
-     *
-     * // Use in TAC initialization
-     * const tac = await TAC.create({ config });
-     * ```
-     */
-    static fromEnv(): TACConfig;
-    /**
-     * Get basic auth credentials for Twilio APIs
-     */
-    getBasicAuthCredentials(): {
-        username: string;
-        password: string;
-    };
-}
-
-/**
- * Logger type that can be either Pino logger or Fastify's logger
- */
-type Logger = pino.Logger;
-/**
- * Create a Pino logger with configured settings
- *
- * @param options - Logger configuration options
- * @returns Configured Pino logger
- */
-declare function createLogger(options?: {
-    level?: string;
-    pretty?: boolean;
-    name?: string;
-}): Logger;
-
-/**
- * Base HTTP client for Twilio API services
- *
- * Features:
- * - Automatic Basic Auth using Twilio API credentials
- * - User-Agent header injection
- * - 30-second request timeout
- * - HTTP redirect following (up to 5 redirects) with auth preservation
- * - Automatic retry (up to 3 retries / 4 total attempts with exponential backoff)
- * - Error logging for failed requests
- * - Automatic JSON serialization/deserialization
- */
-declare abstract class BaseClient {
-    protected readonly baseUrl: string;
-    protected readonly logger: Logger;
-    protected readonly axiosInstance: AxiosInstance;
-    constructor(baseUrl: string, config: TACConfig, logger?: Logger);
-    /**
-     * Make an HTTP request with automatic header injection and error handling
-     *
-     * @param url - The URL path (relative to baseURL)
-     * @param method - HTTP method (GET, POST, etc.)
-     * @param data - Optional request body (will be automatically serialized to JSON)
-     * @param params - Optional query string parameters
-     * @returns Promise resolving to the response data (already parsed from JSON)
-     * @throws Error on timeout, HTTP errors, or network failures
-     */
-    protected makeRequest<TResponse = unknown>(url: string, method: string, data?: unknown, params?: Record<string, string>): Promise<TResponse>;
-}
-
-/**
- * Memory client for interacting with Twilio Memory Service
- */
-declare class MemoryClient extends BaseClient {
-    constructor(config: TACConfig, logger?: Logger);
-    /**
-     * Retrieve memories for a specific profile
-     *
-     * @param serviceSid - The memory service SID
-     * @param profileId - The profile ID to retrieve memories for
-     * @param request - Optional request parameters for filtering results
-     * @returns Promise containing memory retrieval response
-     */
-    retrieveMemories(serviceSid: MemoryStoreId, profileId: ProfileId, request?: Partial<MemoryRetrievalRequest>): Promise<MemoryRetrievalResponse>;
-    /**
-     * Find profiles that contain a specific identifier value
-     *
-     * @param serviceSid - The memory service SID
-     * @param idType - Identifier type (e.g., 'phone', 'email')
-     * @param value - Raw value captured for the identifier
-     * @returns Promise containing profile lookup response with normalized value and matching profile IDs
-     */
-    lookupProfile(serviceSid: MemoryStoreId, idType: string, value: string): Promise<ProfileLookupResponse>;
-    /**
-     * Fetch profile information with traits
-     *
-     * @param serviceSid - The memory service SID
-     * @param profileId - The profile ID to fetch
-     * @param traitGroups - Optional list of trait group names to include
-     * @returns Promise containing profile response with ID, created timestamp, and traits
-     */
-    getProfile(serviceSid: MemoryStoreId, profileId: ProfileId, traitGroups?: string[]): Promise<ProfileResponse>;
-    /**
-     * Create an observation for a profile
-     *
-     * @param serviceSid - The memory service SID
-     * @param profileId - The profile ID to create the observation for
-     * @param content - The observation content
-     * @param source - Source of the observation (default: 'conversation-intelligence')
-     * @param conversationIds - Optional array of conversation IDs associated with this observation
-     * @param occurredAt - Optional timestamp when the observation occurred
-     * @returns Promise containing the created observation
-     */
-    createObservation(serviceSid: MemoryStoreId, profileId: ProfileId, content: string, source?: string, conversationIds?: ConversationId[], occurredAt?: string): Promise<CreateObservationResponse>;
-    /**
-     * Create conversation summaries for a profile
-     *
-     * @param serviceSid - The memory service SID
-     * @param profileId - The profile ID to create summaries for
-     * @param summaries - Array of summary items to create
-     * @returns Promise containing a success message for the created conversation summaries
-     */
-    createConversationSummaries(serviceSid: MemoryStoreId, profileId: ProfileId, summaries: Array<{
-        content: string;
-        conversationId: ConversationId;
-        occurredAt: string;
-        source?: string;
-    }>): Promise<CreateConversationSummariesResponse>;
-}
-
-/**
- * Conversation client for interacting with Twilio Conversations Service
- */
-declare class ConversationClient extends BaseClient {
-    private readonly conversationConfigurationId;
-    constructor(config: TACConfig, logger?: Logger);
-    /**
-     * Create an action on a conversation via the Conversation Orchestrator Actions API.
-     *
-     * Currently supports SEND_MESSAGE actions. Returns 202 Accepted; the action is
-     * processed asynchronously and delivered via COMMUNICATION_CREATED webhook.
-     *
-     * @param conversationId - The conversation ID
-     * @param request - The action request ({type, payload})
-     * @returns Promise containing the ActionResponse
-     */
-    createAction(conversationId: ConversationId, request: SendMessageActionRequest): Promise<ActionResponse>;
-    /**
-     * List communications for a conversation
-     *
-     * @param conversationId - The conversation ID
-     * @returns Promise containing array of communications
-     */
-    listCommunications(conversationId: ConversationId): Promise<Communication[]>;
-    /**
-     * Create a new conversation
-     *
-     * @param name - Optional conversation name
-     * @returns Promise containing conversation response
-     */
-    createConversation(name?: string): Promise<ConversationResponse>;
-    /**
-     * Add a participant to a conversation
-     *
-     * @param conversationId - The conversation ID
-     * @param addresses - Array of participant addresses
-     * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
-     * @returns Promise containing participant response
-     */
-    addParticipant(conversationId: ConversationId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
-    /**
-     * Add a participant to a conversation, or fetch existing if already added
-     *
-     * This method handles the race condition where Maestro capture rules
-     * and TAC both try to add participants simultaneously. It checks first,
-     * then adds if missing, and catches 409 Conflict to re-fetch what Maestro added.
-     *
-     * @param conversationId - The conversation ID
-     * @param addresses - Array of participant addresses
-     * @param participantType - Type of participant (CUSTOMER, AI_AGENT, HUMAN_AGENT)
-     * @returns Promise containing participant response
-     */
-    addOrFetchParticipant(conversationId: ConversationId, addresses: ConversationAddress[], participantType: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT'): Promise<ConversationParticipant>;
-    /**
-     * List participants in a conversation
-     *
-     * @param conversationId - The conversation ID
-     * @returns Promise containing array of participants
-     */
-    listParticipants(conversationId: ConversationId): Promise<ConversationParticipant[]>;
-    /**
-     * List conversations with optional filters
-     *
-     * @param filters - Optional filters (channelId, status)
-     * @returns Promise containing array of conversations
-     */
-    listConversations(filters?: {
-        channelId?: string;
-        status?: string[];
-    }): Promise<ConversationResponse[]>;
-    /**
-     * Update conversation status
-     *
-     * @param conversationId - The conversation ID
-     * @param status - New status (ACTIVE, INACTIVE, CLOSED)
-     * @returns Promise containing updated conversation
-     */
-    updateConversation(conversationId: ConversationId, status: 'ACTIVE' | 'INACTIVE' | 'CLOSED'): Promise<ConversationResponse>;
-    /**
-     * Retrieve the details for a single configuration
-     *
-     * @param configurationId - The configuration ID to retrieve
-     * @returns Promise containing configuration details
-     */
-    getConfiguration(configurationId: string): Promise<ConversationConfiguration>;
-}
-
-/**
- * Knowledge client for interacting with Twilio Knowledge Service
- */
-declare class KnowledgeClient extends BaseClient {
-    constructor(config: TACConfig, logger?: Logger);
-    /**
-     * Get knowledge base metadata
-     *
-     * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
-     * @returns Promise containing knowledge base metadata
-     */
-    getKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Promise<KnowledgeBase>;
-    /**
-     * Search knowledge base for relevant content
-     *
-     * @param knowledgeBaseId - The knowledge base ID (format: know_knowledgebase_*)
-     * @param query - Search query (max 2048 characters)
-     * @param topK - Maximum number of results to return (default: 5, max: 20)
-     * @param knowledgeIds - Optional list of knowledge IDs to filter results
-     * @returns Promise containing array of search result chunks
-     */
-    searchKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, query: string, topK?: number, knowledgeIds?: KnowledgeId[]): Promise<KnowledgeChunkResult[]>;
-}
-
-interface TACOptions {
-    config?: TACConfig | TACConfigData;
-    logger?: Logger;
-}
-/**
- * Callback function signatures for TAC events
- */
-type MessageReadyCallback = (message: ChannelMessage) => Promise<string | null | void> | string | null | void;
-type ErrorCallback = (params: {
-    error: Error;
-    context?: Record<string, unknown> | undefined;
-}) => void;
-type HandoffCallback = (params: {
-    /** Conversation identifier */
-    conversationId: ConversationId;
-    profileId: ProfileId | undefined;
-    reason: string;
-    session: ConversationSession;
-}) => Promise<void> | void;
-type ConversationEndedCallback = (params: {
-    session: ConversationSession;
-}) => Promise<void> | void;
-/**
- * Main Twilio Agent Connect class
- *
- * Central orchestrator that manages configuration, channels, callbacks,
- * and coordinates between memory, conversations, and LLM integrations.
- */
-declare class TAC {
-    private static readonly FACTORY_TOKEN;
-    private readonly config;
-    readonly logger: Logger;
-    private memoryClient;
-    private knowledgeClient;
-    private readonly conversationClient;
-    private readonly channels;
-    private cintelProcessor?;
-    private memoryStoreId;
-    /**
-     * Cached from `conversationConfig.conversationsV1Bridge?.serviceId` at init.
-     * ChatChannel forwards this as `channelSettings.chatService` on outbound
-     * SEND_MESSAGE actions.
-     *
-     * Until the server-side fix ships, CHAT sends fail with
-     *   "chatService attribute is required for CHAT channel"
-     * unless we pass it on channelSettings.chatService.
-     *
-     * TODO(conv-orch): Drop this field plus ActionChannelSettings.chatService
-     * and ChatChannel's chatServiceSid plumbing once the Actions API resolves
-     * the V1 Chat service SID server-side.
-     */
-    conversationsV1ServiceSid?: string;
-    private messageReadyCallback?;
-    private handoffCallback?;
-    private conversationEndedCallback?;
-    private errorCallback?;
-    private constructor();
-    static create(options?: TACOptions): Promise<TAC>;
-    /**
-     * Register a channel with the framework
-     */
-    registerChannel(channel: Channel): void;
-    /**
-     * Set up event listeners for a channel.
-     *
-     * All channels emit three unified events:
-     * - 'message': ChannelMessage (user or system messages)
-     * - 'conversationEnded': { session: ConversationSession }
-     * - 'error': { error: Error; context?: Record<string, unknown> }
-     */
-    private setupChannelEventListeners;
-    /**
-     * Handle unified message from channels — pure pass-through to developer callback
-     */
-    private handleMessage;
-    /**
-     * Register callback for when messages are ready to be processed.
-     * Return a string to auto-send, or null/void for manual handling.
-     */
-    onMessageReady(callback: MessageReadyCallback): void;
-    /**
-     * Register callback for channel errors
-     */
-    onError(callback: ErrorCallback): void;
-    /**
-     * Register callback for human handoff
-     */
-    onHandoff(callback: HandoffCallback): void;
-    /**
-     * Register callback for when a conversation ends.
-     *
-     * The callback is triggered by channels when a conversation is closed
-     * (e.g., SMS conversation status changed to CLOSED, or voice WebSocket
-     * disconnected). The callback receives the full ConversationSession before
-     * it is cleaned up.
-     */
-    onConversationEnded(callback: ConversationEndedCallback): void;
-    /**
-     * Trigger handoff callback
-     */
-    triggerHandoff(conversationId: ConversationId, reason: string): Promise<void>;
-    /**
-     * Get channel by conversation ID
-     */
-    private getChannelByConversationId;
-    /**
-     * Get registered channel by type
-     */
-    getChannel<T extends Channel>(channelType: ChannelType): T | undefined;
-    /**
-     * Get configuration
-     */
-    getConfig(): TACConfig;
-    /**
-     * Get memory client for advanced memory operations
-     */
-    getMemoryClient(): MemoryClient;
-    /**
-     * Get knowledge client for knowledge base operations
-     */
-    getKnowledgeClient(): KnowledgeClient;
-    /**
-     * Get conversation client for advanced conversation operations
-     */
-    getConversationClient(): ConversationClient;
-    /**
-     * Create a MemoryRetriever function for channel dependency injection.
-     */
-    createMemoryRetriever(): MemoryRetriever;
-    /**
-     * Get channel dependencies for creating channels (VoiceChannel, ConversationRelayChannel,
-     * SMSChannel, ChatChannel). Returns all dependencies needed to construct a channel.
-     */
-    getChannelDeps(): {
-        config: TACConfig;
-        logger: Logger;
-        conversationClient: ConversationClient;
-        memoryRetriever: MemoryRetriever;
-    };
-    /**
-     * Check if Conversation Intelligence processing is enabled
-     *
-     * @returns true if CI processor is initialized, false otherwise
-     */
-    isCintelEnabled(): boolean;
-    /**
-     * Process a Conversation Intelligence operator result webhook event
-     *
-     * @param payload - The raw webhook payload from CI
-     * @returns Promise containing the processing result
-     * @throws Error if CI processor is not initialized
-     */
-    processCintelEvent(payload: unknown): Promise<OperatorProcessingResult>;
-    /**
-     * Retrieve memories from Memory API with automatic fallback to Conversations API
-     *
-     * @param session - Conversation session context
-     * @param query - Optional semantic search query
-     * @returns Promise containing TACMemoryResponse wrapper providing unified access to memory data.
-     *
-     * Attempts to retrieve from Memory API first:
-     * - observations, summaries, and communications available
-     * - communications include author name and type
-     *
-     * Falls back to Conversations API on error:
-     * - observations and summaries are empty arrays
-     * - communications have basic fields only (no author name/type)
-     */
-    retrieveMemory(session: ConversationSession, query?: string): Promise<TACMemoryResponse>;
-    /**
-     * Fetch profile information with traits
-     *
-     * @param profileId - Profile ID to fetch
-     * @returns Promise containing profile response or undefined if not available
-     */
-    fetchProfile(profileId: ProfileId): Promise<ProfileResponse | undefined>;
-    /**
-     * Shutdown TAC and cleanup resources
-     */
-    shutdown(): void;
-}
-
-interface SMSChannelConfig {
-    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
-    dedupCapacity?: number | undefined;
-}
-/**
- * SMS Channel implementation for Twilio Conversations Service.
- *
- * Handles SMS conversations through Conversation Orchestrator webhooks.
- * Composes ConversationsWebhookProcessor + ConversationSessionStore from
- * `./utility.ts` instead of inheriting from a base class.
- */
-declare class SMSChannel implements Channel {
-    readonly channelType: ChannelType;
-    private readonly config;
-    private readonly logger;
-    private readonly conversationClient;
-    private readonly memoryRetriever;
-    private readonly callbacks;
-    private readonly tools;
-    private readonly webhookProcessor;
-    private readonly sessionStore;
-    constructor(deps: {
-        config: TACConfig;
-        logger: Logger;
-        conversationClient: ConversationClient;
-        memoryRetriever: MemoryRetriever;
-    }, channelConfig?: SMSChannelConfig);
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    isConversationActive(conversationId: ConversationId): boolean;
-    on(event: string, callback: (...args: any[]) => void): void;
-    shutdown(): void;
-    listTools(): ChannelTool[];
-    registerTool(tool: ChannelTool): void;
-    executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
-    /**
-     * Process an SMS webhook event from Twilio Conversation Orchestrator.
-     * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
-     */
-    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
-    /**
-     * Send SMS response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
-     */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    private isOwnMessage;
-    private handleError;
-    private handleConversationCreated;
-    private handleParticipantAdded;
-    private handleCommunicationCreated;
-    private handleConversationUpdated;
-}
-
-interface ChatChannelConfig {
-    /** Chat agent identity string (defaults to 'ai-assistant') */
-    agentAddress?: string | undefined;
-    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
-    dedupCapacity?: number | undefined;
-    /**
-     * Conversations V1 service SID, forwarded as `channelSettings.chatService` on
-     * outbound SEND_MESSAGE actions. Read from `tac.conversationsV1ServiceSid`.
-     *
-     * TODO(conv-orch): Drop this option once the Actions API resolves the V1 Chat
-     * service SID server-side.
-     */
-    conversationsV1ServiceSid?: string | undefined;
-}
-/**
- * Chat Channel implementation for Twilio Conversations Service.
- *
- * Handles web chat conversations through Conversation Orchestrator webhooks.
- * Uses identity-based addressing (`agentAddress`) rather than phone numbers.
- * Composes ConversationsWebhookProcessor + ConversationSessionStore from
- * `./utility.ts` instead of inheriting from a base class.
- */
-declare class ChatChannel implements Channel {
-    readonly channelType: ChannelType;
-    private readonly logger;
-    private readonly conversationClient;
-    private readonly memoryRetriever;
-    private readonly agentAddress;
-    /**
-     * TODO(conv-orch): Drop once Actions API resolves V1 Chat service SID server-side.
-     */
-    private readonly conversationsV1ServiceSid;
-    private readonly callbacks;
-    private readonly tools;
-    private readonly webhookProcessor;
-    private readonly sessionStore;
-    constructor(deps: {
-        config: TACConfig;
-        logger: Logger;
-        conversationClient: ConversationClient;
-        memoryRetriever: MemoryRetriever;
-    }, channelConfig?: ChatChannelConfig);
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    isConversationActive(conversationId: ConversationId): boolean;
-    on(event: string, callback: (...args: any[]) => void): void;
-    shutdown(): void;
-    listTools(): ChannelTool[];
-    registerTool(tool: ChannelTool): void;
-    executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
-    /**
-     * Process a Chat webhook event from Twilio Conversation Orchestrator.
-     * Delegates dedup + routing to the composed ConversationsWebhookProcessor.
-     */
-    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
-    /**
-     * Send chat response via the Conversation Orchestrator Actions API (SEND_MESSAGE).
-     */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    private isOwnMessage;
-    private handleError;
-    private handleConversationCreated;
-    private handleParticipantAdded;
-    private handleCommunicationCreated;
-    private handleConversationUpdated;
-}
-
-/**
- * VoiceChannel — passive Maestro voice channel.
- *
- * Consumes voice-channel Conversation Orchestrator (Maestro) webhooks and
- * emits unified `ChannelMessage`s like SMS/Chat. Use for BYO-CR flows,
- * inbound-analysis pipelines, or any voice path where this service
- * does not own the CR WebSocket.
- *
- * Outbound voice is **not supported** here — Maestro's Actions API rejects
- * `channel: 'VOICE'`. For active voice (agent speaks over a CR WS), use
- * `ConversationRelayChannel` in `./crelay.ts`.
- *
- * Zero dependency on `@twilio/tac-conversationrelay` — that boundary is
- * owned exclusively by `ConversationRelayChannel`.
- */
-
-interface VoiceChannelConfig {
-    /** Maximum number of idempotency tokens to track for deduplication (default: 10,000) */
-    dedupCapacity?: number | undefined;
-}
-declare class VoiceChannel implements Channel {
-    readonly channelType: ChannelType;
-    protected readonly config: TACConfig;
-    protected readonly logger: Logger;
-    protected readonly conversationClient: ConversationClient;
-    protected readonly callbacks: ChannelEvents;
-    private readonly memoryRetriever;
-    private readonly sessionStore;
-    private readonly webhookProcessor;
-    constructor(deps: {
-        config: TACConfig;
-        logger: Logger;
-        conversationClient: ConversationClient;
-        memoryRetriever: MemoryRetriever;
-    }, channelConfig?: VoiceChannelConfig);
-    private emitMessage;
-    sendResponse(_conversationId: ConversationId, _message: string, _metadata?: Record<string, unknown>): Promise<void>;
-    processWebhook(payload: unknown, idempotencyToken?: string): Promise<void>;
-    private handleVoiceConversationCreated;
-    private handleVoiceParticipantAdded;
-    private handleVoiceCommunicationCreated;
-    private handleVoiceConversationUpdated;
-    on(event: string, callback: (...args: any[]) => void): void;
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    isConversationActive(conversationId: ConversationId): boolean;
-    shutdown(): void;
-    protected handleError(error: Error, context?: Record<string, unknown>): void;
-}
-
-/**
  * ConversationRelayChannel — CR + Maestro active-voice channel.
  *
  * Bridges the `@twilio/tac-conversationrelay` WebSocket protocol to Maestro
@@ -5283,7 +5283,7 @@ interface ConversationRelayChannelConfig {
 declare class ConversationRelayChannel implements Channel {
     readonly channelType: ChannelType;
     protected readonly config: TACConfig;
-    protected readonly logger: Logger;
+    protected readonly logger: Logger$1;
     protected readonly conversationClient: ConversationClient;
     protected readonly callbacks: ChannelEvents;
     private readonly conversationRelay;
@@ -5295,7 +5295,7 @@ declare class ConversationRelayChannel implements Channel {
     private readonly sessionStore;
     constructor(deps: {
         config: TACConfig;
-        logger: Logger;
+        logger: Logger$1;
         conversationClient: ConversationClient;
         memoryRetriever: MemoryRetriever;
     }, channelConfig: ConversationRelayChannelConfig);
@@ -5423,7 +5423,7 @@ declare class ConversationSessionStore {
     private readonly channelType;
     private readonly callbacks;
     constructor(deps: {
-        logger: Logger;
+        logger: Logger$1;
         channelType: ChannelType;
         callbacks: SessionStoreCallbacks;
     });
@@ -5479,7 +5479,7 @@ declare class ConversationsWebhookProcessor {
     private readonly processedTokens;
     private readonly maxTrackedTokens;
     constructor(deps: {
-        logger: Logger;
+        logger: Logger$1;
     }, config?: WebhookProcessorConfig);
     /**
      * Process a Maestro Conversations webhook payload, routing recognized event
@@ -5509,7 +5509,7 @@ declare class ConversationsWebhookProcessor {
  *      re-match. Returns undefined if still not found, letting callers
  *      decide how to surface the failure.
  */
-declare function ensureAgentParticipant(client: ConversationClient, logger: Logger, conversationId: ConversationId, existingParticipants: ConversationParticipant[], agentAddress: ConversationAddress): Promise<ConversationParticipant | undefined>;
+declare function ensureAgentParticipant(client: ConversationClient, logger: Logger$1, conversationId: ConversationId, existingParticipants: ConversationParticipant[], agentAddress: ConversationAddress): Promise<ConversationParticipant | undefined>;
 
 /**
  * Processor for Conversation Intelligence operator result webhooks
@@ -5521,7 +5521,7 @@ declare class OperatorResultProcessor {
     private readonly memoryClient;
     private readonly config;
     private readonly logger;
-    constructor(memoryClient: MemoryClient, config: ConversationIntelligenceConfig, logger?: Logger);
+    constructor(memoryClient: MemoryClient, config: ConversationIntelligenceConfig, logger?: Logger$1);
     /**
      * Process an operator result event webhook payload
      *
@@ -5829,4 +5829,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelTool, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, type ConversationRelayChannelConfig, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema$1 as JSONSchema, JSONSchemaSchema$1 as JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction$1 as ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelTool, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, type ConversationRelayChannelConfig, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback$1 as ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema$1 as JSONSchema, JSONSchemaSchema$1 as JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger$1 as Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction$1 as ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
