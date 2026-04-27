@@ -21,7 +21,6 @@ declare const TACConfigSchema: z.ZodObject<{
     phoneNumber: z.ZodString;
     traitGroups: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
     conversationConfigurationId: z.ZodString;
-    voicePublicDomain: z.ZodOptional<z.ZodString>;
     cintelConfigurationId: z.ZodOptional<z.ZodString>;
     cintelObservationOperatorSid: z.ZodOptional<z.ZodString>;
     cintelSummaryOperatorSid: z.ZodOptional<z.ZodString>;
@@ -34,7 +33,6 @@ declare const TACConfigSchema: z.ZodObject<{
     phoneNumber: string;
     conversationConfigurationId: string;
     traitGroups?: string[] | undefined;
-    voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
@@ -47,7 +45,6 @@ declare const TACConfigSchema: z.ZodObject<{
     phoneNumber: string;
     conversationConfigurationId: string;
     traitGroups?: string[] | undefined;
-    voicePublicDomain?: string | undefined;
     cintelConfigurationId?: string | undefined;
     cintelObservationOperatorSid?: string | undefined;
     cintelSummaryOperatorSid?: string | undefined;
@@ -65,7 +62,6 @@ declare const EnvironmentVariables: {
     readonly TWILIO_PHONE_NUMBER: "TWILIO_PHONE_NUMBER";
     readonly TRAIT_GROUPS: "TRAIT_GROUPS";
     readonly TWILIO_CONVERSATION_CONFIGURATION_ID: "TWILIO_CONVERSATION_CONFIGURATION_ID";
-    readonly VOICE_PUBLIC_DOMAIN: "VOICE_PUBLIC_DOMAIN";
     readonly TWILIO_TAC_CI_CONFIGURATION_ID: "TWILIO_TAC_CI_CONFIGURATION_ID";
     readonly TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID";
     readonly TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID";
@@ -3732,6 +3728,21 @@ interface ConversationRelayServerConfig {
      */
     authToken: string;
     /**
+     * Public domain this server is reachable at (without scheme, e.g.
+     * `cr-des.ngrok.dev` or `voice.example.com`). Used to build the WebSocket
+     * URL (`wss://{publicDomain}/ws`) and callback URL rendered into the TwiML
+     * `<ConversationRelay>` element, and to reconstruct the URL Twilio signed
+     * against for signature validation.
+     *
+     * Required because load balancers (AWS ALB, GCP LB) and reverse proxies
+     * (NGINX, Apache) routinely rewrite the `Host` header to internal backend
+     * addresses; the old `x-forwarded-*` fallback was unreliable.
+     *
+     * Accepts either a bare host or a full `https://...` URL — values are
+     * normalised via `normalizePublicDomain()`.
+     */
+    publicDomain: string;
+    /**
      * Called on POST /twiml when an incoming call arrives. Return a record of
      * custom parameters that ConversationRelayServer will splice into the `<ConversationRelay>`
      * TwiML element (rendered by `conversationRelay.generateTwiML`).
@@ -4645,7 +4656,6 @@ declare class TACConfig {
     readonly phoneNumber: string;
     readonly traitGroups?: string[];
     readonly conversationConfigurationId: string;
-    readonly voicePublicDomain?: string;
     readonly cintelConfigurationId?: string;
     readonly cintelObservationOperatorSid?: string;
     readonly cintelSummaryOperatorSid?: string;
@@ -4663,7 +4673,6 @@ declare class TACConfig {
      * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
      * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
      * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-     * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
      * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
      *
      * @throws Error if required environment variables are not set or invalid
@@ -5745,6 +5754,19 @@ declare function createKnowledgeTools(knowledgeClient: KnowledgeClient): {
  * deployment story in the README.
  */
 interface TACServerConfig {
+    /**
+     * Public domain this server is reachable at (without scheme, e.g.
+     * `tac-des.ngrok.dev` or `api.example.com`). Used to reconstruct the URL
+     * Twilio signed webhooks against for signature validation.
+     *
+     * Required because load balancers (AWS ALB, GCP LB) and reverse proxies
+     * (NGINX, Apache) routinely rewrite the `Host` header to internal backend
+     * addresses; the old `x-forwarded-*` fallback was unreliable.
+     *
+     * Accepts either a bare host or a full `https://...` URL — values are
+     * normalised via `normalizePublicDomain()`.
+     */
+    publicDomain: string;
     /** Fastify server options (ignored if `fastifyInstance` is provided) */
     fastify?: FastifyServerOptions;
     /**
@@ -5807,7 +5829,7 @@ declare class TACServer {
     private readonly config;
     /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
     private readonly conversationChannels;
-    constructor(tac: TAC, config?: TACServerConfig);
+    constructor(tac: TAC, config: TACServerConfig);
     /**
      * Setup routes — Maestro webhook fan-out and optional Conversation
      * Intelligence webhook. Voice routes are served by ConversationRelayServer in the

@@ -21,7 +21,6 @@ var TACConfigSchema = z.object({
   phoneNumber: z.string().min(1, "Twilio Phone Number is required"),
   traitGroups: z.array(z.string()).optional(),
   conversationConfigurationId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format"),
-  voicePublicDomain: z.string().url().optional(),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
   cintelSummaryOperatorSid: z.string().optional(),
@@ -38,7 +37,6 @@ var EnvironmentVariables = {
   TWILIO_PHONE_NUMBER: "TWILIO_PHONE_NUMBER",
   TRAIT_GROUPS: "TRAIT_GROUPS",
   TWILIO_CONVERSATION_CONFIGURATION_ID: "TWILIO_CONVERSATION_CONFIGURATION_ID",
-  VOICE_PUBLIC_DOMAIN: "VOICE_PUBLIC_DOMAIN",
   TWILIO_TAC_CI_CONFIGURATION_ID: "TWILIO_TAC_CI_CONFIGURATION_ID",
   TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID: "TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID",
   TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: "TWILIO_TAC_CI_SUMMARY_OPERATOR_SID",
@@ -625,7 +623,6 @@ var TACConfig = class _TACConfig {
   phoneNumber;
   traitGroups;
   conversationConfigurationId;
-  voicePublicDomain;
   cintelConfigurationId;
   cintelObservationOperatorSid;
   cintelSummaryOperatorSid;
@@ -641,9 +638,6 @@ var TACConfig = class _TACConfig {
     this.conversationConfigurationId = validatedConfig.conversationConfigurationId;
     if (validatedConfig.traitGroups) {
       this.traitGroups = validatedConfig.traitGroups;
-    }
-    if (validatedConfig.voicePublicDomain) {
-      this.voicePublicDomain = validatedConfig.voicePublicDomain;
     }
     if (validatedConfig.cintelConfigurationId) {
       this.cintelConfigurationId = validatedConfig.cintelConfigurationId;
@@ -669,7 +663,6 @@ var TACConfig = class _TACConfig {
    * - TWILIO_PHONE_NUMBER: Twilio Phone Number (required)
    * - TWILIO_CONVERSATION_CONFIGURATION_ID: Twilio Conversation Configuration ID (required)
    * - TRAIT_GROUPS: Comma-separated trait group names (optional, for profile fetching)
-   * - VOICE_PUBLIC_DOMAIN: Public domain for voice webhooks (optional)
    * - TWILIO_REGION: Twilio region subdomain for API routing (optional, e.g. transforms base URLs to `https://{product}.{region}.twilio.com`)
    *
    * @throws Error if required environment variables are not set or invalid
@@ -708,7 +701,6 @@ var TACConfig = class _TACConfig {
       phoneNumber: process.env[EnvironmentVariables.TWILIO_PHONE_NUMBER],
       conversationConfigurationId: process.env[EnvironmentVariables.TWILIO_CONVERSATION_CONFIGURATION_ID],
       traitGroups: process.env[EnvironmentVariables.TRAIT_GROUPS]?.split(","),
-      voicePublicDomain: process.env[EnvironmentVariables.VOICE_PUBLIC_DOMAIN],
       cintelConfigurationId: process.env[EnvironmentVariables.TWILIO_TAC_CI_CONFIGURATION_ID],
       cintelObservationOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_OBSERVATION_OPERATOR_SID],
       cintelSummaryOperatorSid: process.env[EnvironmentVariables.TWILIO_TAC_CI_SUMMARY_OPERATOR_SID],
@@ -4974,7 +4966,7 @@ var ConversationRelay = class _ConversationRelay {
   }
 };
 function registerSignatureValidation(fastify, options) {
-  const { authToken, getWebhookUrl = getDefaultWebhookUrl, skipPaths = [] } = options;
+  const { authToken, publicDomain, skipPaths = [] } = options;
   fastify.addHook("preHandler", (request, reply, done) => {
     if (request.method === "GET") {
       done();
@@ -4985,7 +4977,7 @@ function registerSignatureValidation(fastify, options) {
       return;
     }
     const signature = request.headers["x-twilio-signature"];
-    const url = getWebhookUrl(request);
+    const url = `https://${publicDomain}${request.url}`;
     let isValid;
     if (request.url.includes("bodySHA256=")) {
       const body = request.rawBody ?? "";
@@ -5003,16 +4995,14 @@ function registerSignatureValidation(fastify, options) {
     done();
   });
 }
-function validateWebSocketSignature(request, authToken) {
+function validateWebSocketSignature(request, authToken, publicDomain) {
   const signature = request.headers["x-twilio-signature"];
-  const httpUrl = getDefaultWebhookUrl(request);
   let wsUrl;
   try {
-    wsUrl = new URL(httpUrl);
+    wsUrl = new URL(`wss://${publicDomain}${request.url}`);
   } catch {
     return false;
   }
-  wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
   const params = {};
   wsUrl.searchParams.forEach((value, key) => {
     params[key] = value;
@@ -5020,18 +5010,28 @@ function validateWebSocketSignature(request, authToken) {
   const urlForValidation = wsUrl.origin + wsUrl.pathname;
   return twilio.validateRequest(authToken, signature ?? "", urlForValidation, params);
 }
-function getDefaultWebhookUrl(request) {
-  const proto = getForwardedProto(request);
-  const host = getForwardedHost(request);
-  return `${proto}://${host}${request.url}`;
-}
-function getForwardedProto(request) {
-  const raw = request.headers["x-forwarded-proto"];
-  return raw?.split(",")[0]?.trim() || "https";
-}
-function getForwardedHost(request) {
-  const raw = request.headers["x-forwarded-host"] || request.headers.host;
-  return raw?.split(",")[0]?.trim() || "";
+function normalizePublicDomain(input) {
+  if (typeof input !== "string" || input.trim() === "") {
+    throw new Error("publicDomain is required (non-empty string)");
+  }
+  let value = input.trim();
+  if (value.startsWith("https://")) {
+    value = value.slice("https://".length);
+  } else if (value.startsWith("http://")) {
+    value = value.slice("http://".length);
+  }
+  while (value.endsWith("/")) {
+    value = value.slice(0, -1);
+  }
+  if (value === "") {
+    throw new Error(`publicDomain is invalid: "${input}" has no host component`);
+  }
+  if (value.includes("/") || value.includes("?") || value.includes("#")) {
+    throw new Error(
+      `publicDomain must be a bare host (optionally with port). Got "${input}" \u2014 remove any path, query, or fragment.`
+    );
+  }
+  return value;
 }
 
 // packages/conversationrelay/src/lib/server.ts
@@ -5055,6 +5055,7 @@ var ConversationRelayServer = class {
       },
       development: config.development ?? false,
       authToken: config.authToken,
+      publicDomain: normalizePublicDomain(config.publicDomain),
       ...config.onIncomingCall ? { onIncomingCall: config.onIncomingCall } : {},
       ...config.onConversationRelayCallback ? { onConversationRelayCallback: config.onConversationRelayCallback } : {}
     };
@@ -5075,7 +5076,8 @@ var ConversationRelayServer = class {
       await this.fastify.register(websocket);
       await this.fastify.register(gracefulShutdown);
       registerSignatureValidation(this.fastify, {
-        authToken: this.config.authToken
+        authToken: this.config.authToken,
+        publicDomain: this.config.publicDomain
       });
       await this.setupRoutes();
       this.fastify.gracefulShutdown((signal) => {
@@ -5116,10 +5118,8 @@ var ConversationRelayServer = class {
           const callSid = formData["CallSid"] || "";
           const toNumber = formData["To"] || "";
           const fromNumber = formData["From"] || "";
-          const protocol = request.headers["x-forwarded-proto"] || "http";
-          const host = request.headers.host;
-          const websocketUrl = `${protocol === "https" ? "wss" : "ws"}://${host}${this.config.webhookPaths.ws}`;
-          const callbackUrl = `${protocol}://${host}${this.config.webhookPaths.callback}`;
+          const websocketUrl = `wss://${this.config.publicDomain}${this.config.webhookPaths.ws}`;
+          const callbackUrl = `https://${this.config.publicDomain}${this.config.webhookPaths.callback}`;
           const customParams = this.config.onIncomingCall ? await this.config.onIncomingCall({ toNumber, fromNumber, callSid }) : { conversation_id: callSid };
           const twiml = this.conversationRelay.generateTwiML(
             { url: websocketUrl, ...this.config.conversationRelayConfig },
@@ -5140,7 +5140,11 @@ var ConversationRelayServer = class {
         this.config.webhookPaths.ws,
         { websocket: true },
         (socket, request) => {
-          const isValid = validateWebSocketSignature(request, this.config.authToken);
+          const isValid = validateWebSocketSignature(
+            request,
+            this.config.authToken,
+            this.config.publicDomain
+          );
           if (!isValid) {
             this.fastify.log.warn(
               {
@@ -5590,11 +5594,12 @@ var TACServer = class {
   config;
   /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
   conversationChannels;
-  constructor(tac, config = {}) {
+  constructor(tac, config) {
     this.tac = tac;
     this.config = {
       ...DEFAULT_CONFIG,
       ...config,
+      publicDomain: normalizePublicDomain(config.publicDomain),
       // Deep merge webhookPaths to preserve defaults while allowing overrides
       webhookPaths: {
         ...DEFAULT_CONFIG.webhookPaths,
@@ -5723,7 +5728,8 @@ var TACServer = class {
         }
       );
       registerSignatureValidation(this.fastify, {
-        authToken: this.tac.getConfig().authToken
+        authToken: this.tac.getConfig().authToken,
+        publicDomain: this.config.publicDomain
       });
       this.setupRoutes();
       this.fastify.gracefulShutdown((signal) => {
