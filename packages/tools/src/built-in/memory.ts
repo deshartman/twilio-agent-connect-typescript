@@ -21,12 +21,16 @@ interface MemoryRetrievalParams {
 }
 
 /**
- * Create memory retrieval tool
+ * Create memory retrieval tool.
+ *
+ * `profileId` is required — `MemoryClient.retrieveMemories` targets a specific
+ * profile (URL shape: `/v1/Stores/{storeId}/Profiles/{profileId}/Recall`).
+ * There is no "session memory" API that omits it.
  */
 export function createMemoryRetrievalTool(
   memoryClient: MemoryClient,
   memoryStoreId: MemoryStoreId,
-  profileId?: ProfileId
+  profileId: ProfileId
 ): TACTool<MemoryRetrievalParams, MemoryRetrievalResponse> {
   return defineTool(
     BuiltInTools.RETRIEVE_MEMORY,
@@ -63,10 +67,6 @@ export function createMemoryRetrievalTool(
       description: 'Retrieve memories for the current user',
     },
     async (params: MemoryRetrievalParams) => {
-      if (!profileId) {
-        throw new Error('No profile ID available for memory retrieval');
-      }
-
       const request: Partial<MemoryRetrievalRequest> = {
         query: params.query,
         start_date: params.start_date,
@@ -89,19 +89,12 @@ export function createMemoryTools(
   memoryStoreId: MemoryStoreId
 ): {
   forProfile: (profileId: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
-  forSession: (profileId?: ProfileId) => TACTool<MemoryRetrievalParams, MemoryRetrievalResponse>;
 } {
   return {
     /**
      * Create memory tool for specific profile
      */
     forProfile: (profileId: ProfileId) =>
-      createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
-
-    /**
-     * Create memory tool for current session
-     */
-    forSession: (profileId?: ProfileId) =>
       createMemoryRetrievalTool(memoryClient, memoryStoreId, profileId),
   };
 }
