@@ -18,10 +18,16 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// System message for OpenAI
-const SYSTEM_MESSAGE: OpenAI.Chat.ChatCompletionSystemMessageParam = {
-  role: 'system',
-  content: `You are a Twilio Conversation Relay specialist having a natural voice conversation with the user. You help users understand what Conversation Relay is, how it works, its capabilities, implementation patterns, and best practices. You explain technical concepts verbally and answer questions conversationally.
+// LLM model. Must be set in .env. Must support the Responses API and
+// function-calling. Recommended: gpt-5.4-mini.
+if (!process.env.OPENAI_MODEL) {
+  throw new Error('OPENAI_MODEL is required in .env (e.g. OPENAI_MODEL=gpt-5.4-mini)');
+}
+const OPENAI_MODEL: string = process.env.OPENAI_MODEL;
+
+// System instructions for the Responses API. Responses API takes this as
+// the `instructions` field rather than a leading system message in input.
+const INSTRUCTIONS = `You are a Twilio Conversation Relay specialist having a natural voice conversation with the user. You help users understand what Conversation Relay is, how it works, its capabilities, implementation patterns, and best practices. You explain technical concepts verbally and answer questions conversationally.
 
 Style: Be concise and get to the point quickly. Keep responses short - address one thing at a time. Speak like a human, use everyday language, add occasional filler words. Don't repeat what's in the transcript - rephrase if needed. Be conversational, not formal. Show enthusiasm about the technology while being honest about trade-offs. End with a question or suggested next step to keep the conversation moving.
 
@@ -29,10 +35,16 @@ Key knowledge: Conversation Relay is Twilio's AI voice technology that bridges y
 
 Important constraints: This is VOICE - never reference websites, documentation, or code examples. Explain concepts verbally using clear descriptions. If transcription seems garbled, be colloquial (say "didn't catch that" or "you're cutting out"). Always stay in your role as a Conversation Relay specialist. Create smooth, human-like conversation that responds directly to what the user just said.
 
-Ending the call: You have a tool called "end_call" that terminates the call. Invoke it whenever the user clearly wants to end the conversation — for example they say "goodbye", "bye", "that's all", "I'm done", "hang up", or "end the call". Say a brief farewell first (e.g. "Thanks for chatting — goodbye!") and then call the tool in the SAME turn. The farewell is spoken before the call actually drops.
+Ending the call: You have a tool called "end_call" that terminates the call. Invoke it when the user clearly wants to end the conversation — for example "goodbye", "bye", "that's all", "thanks", "I'm done", "hang up", or "end the call".
 
-This demo: You're running ON Conversation Relay right now - the user is experiencing the technology firsthand. You can discuss the WebSocket message types, voice configuration, implementation patterns, and how this application itself works as a working example.`,
-};
+CRITICAL ordering rules for end_call:
+1. ALWAYS emit a spoken farewell as assistant TEXT first — at least one full sentence like "Thanks for chatting, goodbye!" or "Happy to help — take care!"
+2. THEN call end_call as the final action of the same turn.
+3. NEVER call end_call without a farewell text. NEVER call end_call with farewell text placed inside the tool's "reason" argument — "reason" is for logging only and is NOT spoken to the user.
+
+If you skip the spoken farewell, the caller hears Twilio's default robotic fallback voice instead of yours, which is a broken experience.
+
+This demo: You're running ON Conversation Relay right now - the user is experiencing the technology firsthand. You can discuss the WebSocket message types, voice configuration, implementation patterns, and how this application itself works as a working example.`;
 
 // Initialize ConversationRelay voice handler.
 //
@@ -45,118 +57,160 @@ const conversationRelay = new ConversationRelay(logger, {
   silence: { thresholdSeconds: 30 },
 });
 
-// Per-call state: conversation history + handle to any in-flight OpenAI stream.
-// The AbortController is what lets us cancel the LLM mid-turn when the caller
-// interrupts — without it, tokens keep streaming into TTS after the user cuts in.
+// Per-call state: conversation history + interrupt flag.
+//
+// Simple-cr pattern: `onInterrupt` sets the flag true; the stream loop
+// checks it every iteration and breaks. No AbortController, no SDK
+// cancellation — the OpenAI fetch keeps flowing until it naturally ends,
+// we just stop forwarding events. Clean turn boundaries, no
+// APIUserAbortError noise in the logs.
 type CallState = {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
-  activeStream?: AbortController;
+  interrupted: boolean;
 };
 const calls = new Map<CallSid, CallState>();
 
 // Handle incoming voice messages
 conversationRelay.onSessionStarted((session, data) => {
   logger.info({ callSid: session.callSid, from: data.from, to: data.to }, 'Call started');
-  calls.set(session.callSid, { history: [] });
+  calls.set(session.callSid, { history: [], interrupted: false });
 });
 
-type ToolCallAccumulator = { id: string; name: string; argumentsJson: string };
-
-function accumulateToolCallFragments(
-  toolCalls: Map<number, ToolCallAccumulator>,
-  fragments: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall[]
-): void {
-  for (const tc of fragments) {
-    const existing = toolCalls.get(tc.index) ?? { id: '', name: '', argumentsJson: '' };
-    if (tc.id) existing.id = tc.id;
-    if (tc.function?.name) existing.name = tc.function.name;
-    if (tc.function?.arguments) existing.argumentsJson += tc.function.arguments;
-    toolCalls.set(tc.index, existing);
-  }
-}
-
-async function dispatchToolCalls(
-  session: ConversationRelaySession,
-  toolCalls: Map<number, ToolCallAccumulator>
-): Promise<void> {
-  for (const call of toolCalls.values()) {
-    if (!call.name) continue;
-    try {
-      const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
-      await session.executeTool(call.name, args);
-    } catch (error) {
-      logger.error(
-        { err: error, callSid: session.callSid, tool: call.name },
-        'Tool execution failed'
-      );
-    }
-  }
+// Adapt the CR tool registry (Chat Completions shape) to the Responses API
+// shape. Chat Completions nests name/description/parameters under a `function`
+// key; Responses API wants them flat at the top level. A toResponsesApiFormat()
+// method on ConversationRelayTool would be a clean follow-up.
+function crToolsForResponsesApi(): OpenAI.Responses.Tool[] {
+  return conversationRelay
+    .getToolRegistry()
+    .list()
+    .map(t => {
+      const oai = t.toOpenAIFormat() as {
+        type: 'function';
+        function: {
+          name: string;
+          description: string;
+          parameters: Record<string, unknown>;
+        };
+      };
+      return {
+        type: 'function' as const,
+        name: oai.function.name,
+        description: oai.function.description,
+        parameters: oai.function.parameters,
+        strict: null,
+      };
+    });
 }
 
 async function streamAssistantTurn(
   session: ConversationRelaySession,
   state: CallState
 ): Promise<void> {
-  // Cancel any previous in-flight stream for this call before starting a new one.
-  state.activeStream?.abort();
-  const controller = new AbortController();
-  state.activeStream = controller;
+  // Reset the interrupt flag at the top of every new turn. Any prior
+  // in-flight stream loop has already exited (the function returned); we're
+  // entering a fresh closure scope with its own local flag-watcher.
+  state.interrupted = false;
 
-  // Discover tools via the shared registry (built-ins + any user-registered).
-  const tools = conversationRelay
-    .getToolRegistry()
-    .list()
-    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+  const tools = crToolsForResponsesApi();
 
-  const stream = await openai.chat.completions.create(
-    {
-      model: 'gpt-4',
-      messages: [SYSTEM_MESSAGE, ...state.history],
-      ...(tools.length > 0 && { tools }),
-      stream: true,
-    },
-    { signal: controller.signal }
-  );
+  // Map history to Responses API input items. Each turn we pass the full
+  // conversation so far; the API is stateless w.r.t. prior responses unless
+  // `previous_response_id` is supplied (which we don't, to keep turn-by-turn
+  // control simple).
+  const input: OpenAI.Responses.ResponseInput = state.history.map(m => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const stream = await openai.responses.create({
+    model: OPENAI_MODEL,
+    input,
+    instructions: INSTRUCTIONS,
+    ...(tools.length > 0 && { tools }),
+    stream: true,
+  });
 
   let fullResponse = '';
-  const toolCalls = new Map<number, ToolCallAccumulator>();
+  type InFlightToolCall = { name: string; args: string };
+  let currentCall: InFlightToolCall | null = null;
 
-  try {
-    for await (const chunk of stream) {
-      // If the caller interrupted, stop pushing tokens to TTS immediately.
-      if (controller.signal.aborted) break;
-      const delta = chunk.choices[0]?.delta;
-      const token = delta?.content || '';
-      if (token) {
-        fullResponse += token;
-        await session.sendText(token, false);
+  for await (const event of stream) {
+    if (state.interrupted) break;
+
+    switch (event.type) {
+      case 'response.output_text.delta': {
+        const token = event.delta || '';
+        if (token) {
+          fullResponse += token;
+          await session.sendText(token, false);
+        }
+        break;
       }
-      accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
+      case 'response.output_item.added': {
+        // A new output item starts. For function calls, capture the name
+        // and any pre-populated arguments (the SDK sometimes delivers the
+        // full args here; otherwise deltas follow).
+        if (event.item?.type === 'function_call') {
+          currentCall = {
+            name: event.item.name || '',
+            args: event.item.arguments || '',
+          };
+        }
+        break;
+      }
+      case 'response.function_call_arguments.delta': {
+        if (currentCall) currentCall.args += event.delta || '';
+        break;
+      }
+      case 'response.function_call_arguments.done': {
+        // Arguments complete — the Responses API guarantees the `arguments`
+        // string is valid JSON at this point. Dispatch the tool fire-and-forget;
+        // session.sendText('', true) at the end of the turn will await any
+        // in-flight executeTool via its inFlightToolCalls guard, then flush
+        // any deferred terminal frame.
+        if (currentCall?.name) {
+          const toolName = currentCall.name;
+          const rawArgs = currentCall.args;
+          currentCall = null;
+
+          void (async (): Promise<void> => {
+            let parsed: unknown = {};
+            try {
+              parsed = rawArgs ? JSON.parse(rawArgs) : {};
+            } catch (err) {
+              logger.error(
+                { err, callSid: session.callSid, tool: toolName, rawArgs },
+                'Tool argument JSON parse failed — invoking with empty args'
+              );
+            }
+            try {
+              await session.executeTool(toolName, parsed);
+            } catch (err) {
+              logger.error(
+                { err, callSid: session.callSid, tool: toolName },
+                'Tool execution failed'
+              );
+            }
+          })();
+        }
+        break;
+      }
+      default:
+        // Ignore everything else: response.created, response.in_progress,
+        // response.completed, content_part_*, output_item.done, etc.
+        break;
     }
-  } catch (err) {
-    // OpenAI SDK throws AbortError when controller.abort() fires — that's the
-    // interruption path and is a clean exit, not a failure.
-    if ((err as { name?: string })?.name === 'AbortError') return;
-    throw err;
-  } finally {
-    if (state.activeStream === controller) delete state.activeStream;
   }
 
   if (fullResponse) {
     state.history.push({ role: 'assistant', content: fullResponse });
   }
 
-  // Kick off tool dispatch. Non-terminal protocol tools (playMedia /
-  // sendDigits / switchLanguage) ship immediately; terminal `end` frames
-  // (endCall / live_agent_handoff) stash in the session's
-  // pendingTerminalMessage slot. We do NOT await the dispatch here —
-  // the terminal sendText below awaits in-flight executeTool promises
-  // itself, so the order is enforced even if the caller forgets.
-  void dispatchToolCalls(session, toolCalls);
-
-  // Signal completion to TTS. `last: true` awaits in-flight tool calls
-  // before emitting, then flushes any deferred terminal frame they stashed —
-  // giving the LLM's farewell time to reach TTS before Twilio hangs up.
+  // Signal completion to TTS. `last: true` awaits any in-flight
+  // executeTool via the session's inFlightToolCalls guard, then flushes
+  // any deferred terminal frame a tool stashed (e.g. end_call). This is
+  // what gives the LLM's farewell time to reach TTS before Twilio hangs up.
   await session.sendText('', true);
 
   logger.info({ callSid: session.callSid, response: fullResponse }, 'Assistant responded');
@@ -170,19 +224,26 @@ conversationRelay.onPrompt((session, message, _data) => {
   state.history.push({ role: 'user', content: message });
 
   void streamAssistantTurn(session, state).catch((error: unknown) => {
-    logger.error({ err: error, callSid: session.callSid }, 'OpenAI error');
-    session.sendText('Sorry, I encountered an error. Please try again.', true);
+    // Log and suppress, simple-cr style. Do NOT attempt a recovery sendText —
+    // the error may be "WebSocket not open" from a stale turn hitting a
+    // closed session, and another sendText would re-throw and kill the
+    // process as an unhandled rejection. Next user prompt starts a fresh
+    // turn naturally.
+    logger.error({ err: error, callSid: session.callSid }, 'Stream error (suppressed)');
   });
 });
 
-// Interruption handling: the caller spoke over the agent's TTS. We must
-// (1) cancel the in-flight LLM stream, and (2) rewrite the last assistant
-// turn to what was actually heard — otherwise the next prompt will carry
-// text the caller never received, and multi-turn accuracy degrades fast.
+// Interruption handling: the caller spoke over the agent's TTS. Two things
+// happen here: (1) set the interrupted flag so the streamAssistantTurn loop
+// breaks on its next iteration (tokens stop flowing to TTS), and (2) rewrite
+// the last assistant turn in history to what was actually heard — otherwise
+// the next prompt will carry text the caller never received, and multi-turn
+// accuracy degrades fast.
 conversationRelay.onInterrupt((session, data) => {
   const state = calls.get(session.callSid);
   if (!state) return;
-  state.activeStream?.abort();
+
+  state.interrupted = true;
 
   const heard = data.utteranceUntilInterrupt;
   const last = state.history.at(-1);

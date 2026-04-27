@@ -45,10 +45,19 @@ tac.registerChannel(smsChannel);
 // Store conversation history per conversation
 const conversationMessages: Record<string, OpenAI.Chat.ChatCompletionMessageParam[]> = {};
 
-// Per-voice-conversation handle to the in-flight OpenAI stream. Used by the
-// interruption handler to cancel the LLM mid-turn when the caller speaks over
-// the agent's TTS — otherwise tokens keep streaming after they cut in.
-const voiceStreams = new Map<string, AbortController>();
+// Per-voice-conversation interrupt flag. Pattern borrowed from simple-cr:
+// onInterrupt sets it true; the in-flight Responses API stream loop checks
+// it each iteration and breaks. No AbortController — the OpenAI fetch keeps
+// flowing until it naturally ends, we just stop forwarding events. Clean
+// turn boundaries, no APIUserAbortError noise.
+const voiceInterrupted = new Map<string, boolean>();
+
+// LLM model. Must be set in .env. Must support the Responses API and
+// function-calling for the voice (crelay) path. Recommended: gpt-5.4-mini.
+if (!process.env.OPENAI_MODEL) {
+  throw new Error('OPENAI_MODEL is required in .env (e.g. OPENAI_MODEL=gpt-5.4-mini)');
+}
+const OPENAI_MODEL: string = process.env.OPENAI_MODEL;
 
 const SYSTEM_MESSAGE: OpenAI.Chat.ChatCompletionSystemMessageParam = {
   role: 'system',
@@ -59,6 +68,15 @@ Style: Be concise and get to the point quickly. Keep responses short - address o
 Key knowledge: The system brings voice, text messages, and email together by treating them all as just different inputs to a single, continuous conversation thread. Instead of keeping phone calls and text messages in separate silos, it converts every interaction into a standardized text format and places them on the exact same timeline. When a customer reaches out, the system automatically takes their phone number or email and checks the memory database to see if they are a known user. If they are, the new interaction is instantly linked to their persistent profile. Because the conversation is anchored to this customer memory rather than a temporary channel session, the context persists even if the customer switches channels over time. This allows for seamless channel switching, meaning if a customer is chatting via text and requests a call, the system can transition to voice while carrying over their exact identity and all the dialogue history. It also supports using multiple channels at the very same time. For example, you can send a text message with a verification code or an order receipt to a customer while you are actively speaking with them on a voice call, and the system seamlessly records everything in that same conversation history without breaking the connection.
 
 Important constraints: Adapt your communication style to the channel. On voice, never reference websites, documentation, or code examples - explain concepts verbally. On SMS, keep messages brief and scannable. Always stay in your role as a multi-channel conversation specialist. Respond directly to what the user just said.
+
+Ending the call (voice only): You have a tool called "end_call" that terminates the call. Invoke it when the user clearly wants to end the conversation — for example "goodbye", "bye", "that's all", "thanks", "I'm done", "hang up", or "end the call".
+
+CRITICAL ordering rules for end_call:
+1. ALWAYS emit a spoken farewell as assistant TEXT first — at least one full sentence like "Thanks for chatting, goodbye!" or "Happy to help — take care!"
+2. THEN call end_call as the final action of the same turn.
+3. NEVER call end_call without a farewell text. NEVER call end_call with farewell text placed inside the tool's "reason" argument — "reason" is for logging only and is NOT spoken to the user.
+
+If you skip the spoken farewell, the caller hears Twilio's default robotic fallback voice instead of yours, which is a broken experience. end_call applies to voice only — on SMS or chat, just acknowledge the goodbye and stop sending messages.
 
 This demo: You're running ON the multi-channel system right now - the user is experiencing the technology firsthand. They can call you, text you, or both simultaneously, and you maintain full context across all channels.`,
 };
@@ -149,87 +167,130 @@ function buildMemoryMessage(
   };
 }
 
-type ToolCallAccumulator = { id: string; name: string; argumentsJson: string };
-
-function accumulateToolCallFragments(
-  toolCalls: Map<number, ToolCallAccumulator>,
-  fragments: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall[]
-): void {
-  for (const tc of fragments) {
-    const existing = toolCalls.get(tc.index) ?? { id: '', name: '', argumentsJson: '' };
-    if (tc.id) existing.id = tc.id;
-    if (tc.function?.name) existing.name = tc.function.name;
-    if (tc.function?.arguments) existing.argumentsJson += tc.function.arguments;
-    toolCalls.set(tc.index, existing);
-  }
-}
-
-async function dispatchVoiceToolCalls(
-  convId: ConversationId,
-  toolCalls: Map<number, ToolCallAccumulator>
-): Promise<void> {
-  for (const call of toolCalls.values()) {
-    if (!call.name) continue;
-    try {
-      const args: unknown = call.argumentsJson ? JSON.parse(call.argumentsJson) : {};
-      await crChannel.executeTool(convId, call.name, args);
-    } catch (err) {
-      console.error(`Tool execution failed (${call.name}):`, err);
-    }
-  }
+// Adapt the CR tool registry (Chat Completions shape) to the Responses API
+// shape. Chat Completions nests name/description/parameters under a `function`
+// key; Responses API wants them flat at the top level.
+function crToolsForResponsesApi(): OpenAI.Responses.Tool[] {
+  return crChannel.listTools().map(t => {
+    const oai = t.toOpenAIFormat() as {
+      type: 'function';
+      function: {
+        name: string;
+        description: string;
+        parameters: Record<string, unknown>;
+      };
+    };
+    return {
+      type: 'function' as const,
+      name: oai.function.name,
+      description: oai.function.description,
+      parameters: oai.function.parameters,
+      strict: null,
+    };
+  });
 }
 
 async function handleVoiceMessage(
   convId: ConversationId,
   convIdStr: string,
-  messages: OpenAI.Chat.ChatCompletionMessageParam[],
-  signal: AbortSignal
+  messages: OpenAI.Chat.ChatCompletionMessageParam[]
 ): Promise<void> {
-  // Discover voice tools via the uniform Channel surface. Includes CR built-ins
-  // (playMedia, sendDigits, switchLanguage, endCall) plus any user-registered tools.
-  // toOpenAIFormat() returns Record<string, unknown>; cast for OpenAI's typed slot.
-  const tools = crChannel
-    .listTools()
-    .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+  // Reset the interrupt flag at the top of this turn. Any prior loop has
+  // already exited (its closure scope closed); this flag-watcher is fresh.
+  voiceInterrupted.set(convIdStr, false);
 
-  const stream = await openai.chat.completions.create(
-    {
-      model: 'gpt-5.4-mini',
-      messages,
-      ...(tools.length > 0 && { tools }),
-      stream: true,
-    },
-    { signal }
-  );
+  const tools = crToolsForResponsesApi();
+
+  // Split messages array into (instructions, input). Responses API takes
+  // system instructions as a top-level field; the input is just user +
+  // assistant turns. Any "system" messages the caller built into messages
+  // (SYSTEM_MESSAGE + optional memory context) are concatenated into
+  // instructions.
+  const systemParts: string[] = [];
+  const input: OpenAI.Responses.ResponseInput = [];
+  for (const m of messages) {
+    if (m.role === 'system') {
+      if (typeof m.content === 'string') systemParts.push(m.content);
+    } else if (m.role === 'user' || m.role === 'assistant') {
+      if (typeof m.content === 'string') {
+        input.push({ role: m.role, content: m.content });
+      }
+    }
+  }
+  const instructions = systemParts.join('\n\n');
+
+  const stream = await openai.responses.create({
+    model: OPENAI_MODEL,
+    input,
+    instructions,
+    ...(tools.length > 0 && { tools }),
+    stream: true,
+  });
 
   let fullResponse = '';
-  const toolCalls = new Map<number, ToolCallAccumulator>();
+  type InFlightToolCall = { name: string; args: string };
+  let currentCall: InFlightToolCall | null = null;
 
-  try {
-    for await (const chunk of stream) {
-      // If the caller interrupted, stop pushing tokens to TTS immediately.
-      if (signal.aborted) break;
-      const delta = chunk.choices[0]?.delta;
-      const token = delta?.content || '';
-      if (token) {
-        fullResponse += token;
-        await crChannel.sendResponse(convId, token, { last: false });
+  for await (const event of stream) {
+    if (voiceInterrupted.get(convIdStr)) break;
+
+    switch (event.type) {
+      case 'response.output_text.delta': {
+        const token = event.delta || '';
+        if (token) {
+          fullResponse += token;
+          await crChannel.sendResponse(convId, token, { last: false });
+        }
+        break;
       }
-      accumulateToolCallFragments(toolCalls, delta?.tool_calls ?? []);
+      case 'response.output_item.added': {
+        if (event.item?.type === 'function_call') {
+          currentCall = {
+            name: event.item.name || '',
+            args: event.item.arguments || '',
+          };
+        }
+        break;
+      }
+      case 'response.function_call_arguments.delta': {
+        if (currentCall) currentCall.args += event.delta || '';
+        break;
+      }
+      case 'response.function_call_arguments.done': {
+        if (currentCall?.name) {
+          const toolName = currentCall.name;
+          const rawArgs = currentCall.args;
+          currentCall = null;
+
+          // Fire-and-forget. The terminal sendResponse below awaits in-flight
+          // executeTool via the session's inFlightToolCalls guard, then
+          // flushes any deferred terminal frame the tool stashed.
+          void (async (): Promise<void> => {
+            let parsed: unknown = {};
+            try {
+              parsed = rawArgs ? JSON.parse(rawArgs) : {};
+            } catch (err) {
+              console.error(`Tool argument JSON parse failed (${toolName}):`, err, {
+                rawArgs,
+              });
+            }
+            try {
+              await crChannel.executeTool(convId, toolName, parsed);
+            } catch (err) {
+              console.error(`Tool execution failed (${toolName}):`, err);
+            }
+          })();
+        }
+        break;
+      }
+      default:
+        break;
     }
-  } catch (err) {
-    // OpenAI SDK throws AbortError when the signal fires — that's the
-    // interruption path and is a clean exit, not a failure.
-    if ((err as { name?: string })?.name === 'AbortError') return;
-    throw err;
   }
 
-  conversationMessages[convIdStr]?.push({ role: 'assistant', content: fullResponse });
-
-  // Kick off tool dispatch (auto-shipped via the WebSocket by executeTool).
-  // Terminal `end` frames stash in the session; the terminal sendResponse
-  // below awaits in-flight executeTool promises and flushes them in order.
-  void dispatchVoiceToolCalls(convId, toolCalls);
+  if (fullResponse) {
+    conversationMessages[convIdStr]?.push({ role: 'assistant', content: fullResponse });
+  }
 
   // Final empty token: signals completion to TTS, awaits in-flight tool
   // calls, then flushes any deferred terminal frame they stashed.
@@ -261,17 +322,17 @@ async function handleSmsMessage(
 tac.onMessageReady(async msg => {
   const convIdStr = msg.conversationId as string;
 
-  // Interruption: the caller spoke over the agent's TTS. Cancel the in-flight
-  // LLM stream and rewrite the last assistant turn to what was actually heard.
-  // Without the rewrite, the next prompt carries text the caller never received
-  // and multi-turn accuracy degrades fast.
+  // Interruption: the caller spoke over the agent's TTS. Set the interrupt
+  // flag so the in-flight Responses API stream loop breaks on its next
+  // iteration, and rewrite the last assistant turn to what was actually
+  // heard. Without the rewrite, the next prompt carries text the caller
+  // never received and multi-turn accuracy degrades fast.
   if (
     msg.channel === 'crelay' &&
     msg.messageType === 'system' &&
     (msg.metadata as { type?: string } | undefined)?.type === 'interrupt'
   ) {
-    voiceStreams.get(convIdStr)?.abort();
-    voiceStreams.delete(convIdStr);
+    voiceInterrupted.set(convIdStr, true);
 
     const heard = (msg.metadata as { utteranceUntilInterrupt?: string } | undefined)
       ?.utteranceUntilInterrupt;
@@ -311,14 +372,10 @@ tac.onMessageReady(async msg => {
     ];
 
     if (msg.channel === 'crelay') {
-      const controller = new AbortController();
-      voiceStreams.set(convIdStr, controller);
       try {
-        await handleVoiceMessage(convId, convIdStr, messages, controller.signal);
+        await handleVoiceMessage(convId, convIdStr, messages);
       } finally {
-        if (voiceStreams.get(convIdStr) === controller) {
-          voiceStreams.delete(convIdStr);
-        }
+        voiceInterrupted.delete(convIdStr);
       }
     } else if (msg.channel === 'sms') {
       await handleSmsMessage(convId, convIdStr, messages);

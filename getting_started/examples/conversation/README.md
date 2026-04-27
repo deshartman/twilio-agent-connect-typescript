@@ -5,7 +5,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 ## What This Example Does
 
 - **Multi-Channel Support**: Handles both SMS and active voice (via `ConversationRelayChannel`) in a single application
-- **OpenAI Integration**: Uses gpt-5.4-mini for intelligent, context-aware responses
+- **OpenAI Integration**: Voice path uses the Responses API (model chosen via `OPENAI_MODEL`). SMS path uses Chat Completions (non-streaming, no tools)
 - **Memory Integration**: Automatically retrieves user profiles and conversation history from Twilio Memory
 - **Profile Personalization**: Incorporates user profile traits into responses for personalized interactions
 - **Conversation History**: Maintains context across multiple message exchanges
@@ -15,7 +15,7 @@ This example demonstrates how to use Twilio Agent Connect (TAC) in conversation 
 
 1. **Node.js 22.13.0+** installed
 2. **Twilio Account** with a phone number
-3. **OpenAI API Key** for gpt-5.4-mini access
+3. **OpenAI API Key** + an `OPENAI_MODEL` that supports the Responses API and function-calling (recommended: `gpt-5.4-mini`)
 4. **ngrok** or similar tunneling tool for local development
 
 ## Setup
@@ -55,6 +55,7 @@ TWILIO_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
 TWILIO_CONVERSATION_CONFIGURATION_ID=conv_configuration_xxxxxxxxxxxxxxxxxxxxxxxxxx
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_MODEL=gpt-5.4-mini
 
 # Public URLs Twilio reaches each server at (full https:// form shown;
 # bare host also accepted — values are normalised). Required because load
@@ -174,30 +175,51 @@ The application maintains conversation history per conversation ID, allowing the
 
 Every channel implements the same tool surface — `listTools()`, `registerTool(tool)`, `executeTool(conversationId, name, args)` — so the LLM glue is the same shape regardless of channel. On `ConversationRelayChannel`, the built-in CR protocol tools are auto-registered, and `executeTool` auto-ships their `outgoingMessage` (play/sendDigits/language/end) over the CR WebSocket. Terminal `end` frames are deferred until the next `sendResponse(convId, token, { last: true })`, so the LLM's farewell reaches TTS before Twilio hangs up.
 
+The voice path uses OpenAI's Responses API, which emits typed events (including `response.function_call_arguments.done` with a guaranteed-valid JSON string for the args). `ConversationRelayTool.toOpenAIFormat()` returns the Chat Completions shape, so the example flattens it locally for the Responses API:
+
 ```typescript
-const tools = crChannel
-  .listTools()
-  .map(t => t.toOpenAIFormat() as unknown as OpenAI.Chat.ChatCompletionTool);
+const tools = crChannel.listTools().map(t => {
+  const oai = t.toOpenAIFormat() as {
+    type: 'function';
+    function: { name: string; description: string; parameters: Record<string, unknown> };
+  };
+  return {
+    type: 'function' as const,
+    name: oai.function.name,
+    description: oai.function.description,
+    parameters: oai.function.parameters,
+    strict: null,
+  };
+});
 
-const stream = await openai.chat.completions.create({ model, messages, tools, stream: true });
+const stream = await openai.responses.create({
+  model: OPENAI_MODEL,
+  input,
+  instructions,
+  tools,
+  stream: true,
+});
 
-for (const call of toolCalls.values()) {
-  // Protocol tools ship their outgoing frame automatically; non-protocol tools
-  // return their result for the next LLM turn to consume.
-  const args: unknown = JSON.parse(call.argumentsJson);
-  await crChannel.executeTool(convId, call.name, args);
+for await (const event of stream) {
+  if (voiceInterrupted.get(convIdStr)) break;
+  if (event.type === 'response.function_call_arguments.done' && currentCall) {
+    // Protocol tools ship their outgoing frame automatically; non-protocol tools
+    // return their result for the next LLM turn to consume.
+    const args: unknown = JSON.parse(currentCall.args);
+    void crChannel.executeTool(convId, currentCall.name, args);
+  }
 }
 ```
 
-SMS uses the same pattern — register a tool on `smsChannel`, it shows up in `smsChannel.listTools()`, and `smsChannel.executeTool(...)` invokes it. There's no special casing per channel in the LLM loop.
+SMS uses a simpler Chat Completions call (non-streaming, no tools) but the same channel-tool surface is available — register a tool on `smsChannel`, it shows up in `smsChannel.listTools()`, and `smsChannel.executeTool(...)` invokes it.
 
 ### Handling voice interruptions
 
 Interruptions arrive on the unified `onMessageReady` surface as `ChannelMessage` with `messageType: 'system'` and `metadata.type: 'interrupt'`. The message metadata includes `utteranceUntilInterrupt` (what the caller actually heard) and `durationUntilInterruptMs`.
 
-This example keeps a `Map<ConversationId, AbortController>` so the interruption handler can:
+This example keeps a `Map<string, boolean>` of per-conversation interrupt flags so the handler can:
 
-1. **Cancel the in-flight OpenAI stream** — `voiceStreams.get(convIdStr)?.abort()`. The `signal` is threaded into `openai.chat.completions.create` so TTS stops receiving tokens immediately.
+1. **Set `voiceInterrupted.set(convIdStr, true)`**. The in-flight Responses API stream loop checks this flag every iteration and breaks cleanly — the OpenAI fetch keeps flowing until it naturally ends, but the app stops forwarding tokens to TTS immediately. No `AbortController`, no SDK-level cancellation, no `APIUserAbortError` noise.
 2. **Rewrite the last assistant turn** in `conversationMessages[convIdStr]` to `utteranceUntilInterrupt`. This matters for multi-turn accuracy — without it the next prompt carries text the caller never heard, and the LLM starts referring to things it never actually said.
 
 Because the branch runs before the `messageType !== 'user'` guard, the interrupt is handled as context rather than triggering a new LLM turn. See `src/index.ts` for the complete handler.

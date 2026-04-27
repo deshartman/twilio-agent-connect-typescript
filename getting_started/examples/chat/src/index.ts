@@ -29,6 +29,13 @@ config({ path: '../.env' });
 
 const CHAT_IDENTITY = 'ai-agent';
 
+// LLM model. Must be set in .env. Must support the Responses API and
+// function-calling. Recommended: gpt-5.4-mini.
+if (!process.env.OPENAI_MODEL) {
+  throw new Error('OPENAI_MODEL is required in .env (e.g. OPENAI_MODEL=gpt-5.4-mini)');
+}
+const OPENAI_MODEL: string = process.env.OPENAI_MODEL;
+
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -106,7 +113,7 @@ tac.onMessageReady(async msg => {
 
     // Call OpenAI
     const response = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
+      model: OPENAI_MODEL,
       messages: conversationMessages[convId],
     });
 
