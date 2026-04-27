@@ -149,3 +149,52 @@ function getForwardedHost(request: FastifyRequest): string {
   const raw = (request.headers['x-forwarded-host'] as string | undefined) || request.headers.host;
   return raw?.split(',')[0]?.trim() || '';
 }
+
+/**
+ * Normalise a user-supplied public domain to a bare `host[:port]` string.
+ *
+ * Accepts forms like:
+ *   - `example.com`
+ *   - `https://example.com`
+ *   - `http://example.com/`
+ *   - `example.com:8001`
+ *
+ * Strips scheme, trailing slashes, and any path/query/fragment. Rejects empty
+ * or whitespace-only input, and anything containing a path, query, or fragment
+ * after the host (to catch mistakes like `https://example.com/webhook`).
+ *
+ * Used by `TACServer` and `ConversationRelayServer` constructors to validate
+ * their respective `publicDomain` config and by the signature helpers to build
+ * the URL Twilio signed against.
+ */
+export function normalizePublicDomain(input: string): string {
+  if (typeof input !== 'string' || input.trim() === '') {
+    throw new Error('publicDomain is required (non-empty string)');
+  }
+
+  let value = input.trim();
+
+  if (value.startsWith('https://')) {
+    value = value.slice('https://'.length);
+  } else if (value.startsWith('http://')) {
+    value = value.slice('http://'.length);
+  }
+
+  // Strip trailing slashes only — a path, query, or fragment is a user error.
+  while (value.endsWith('/')) {
+    value = value.slice(0, -1);
+  }
+
+  if (value === '') {
+    throw new Error(`publicDomain is invalid: "${input}" has no host component`);
+  }
+
+  if (value.includes('/') || value.includes('?') || value.includes('#')) {
+    throw new Error(
+      `publicDomain must be a bare host (optionally with port). ` +
+        `Got "${input}" — remove any path, query, or fragment.`
+    );
+  }
+
+  return value;
+}
