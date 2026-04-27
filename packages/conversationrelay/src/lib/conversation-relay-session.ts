@@ -12,7 +12,7 @@
  * the first `setup` frame; destroyed on WS close.
  */
 
-import { WebSocket, type RawData } from 'ws';
+import { WebSocket } from 'ws';
 
 import type { Logger } from './logger';
 import { SilenceHandler } from './silence-handler';
@@ -400,11 +400,6 @@ export class ConversationRelaySession {
   /** Read-only access to the raw ws — for diagnostics / tests. */
   public getWebSocket(): WebSocket {
     return this.ws;
-  }
-
-  /** @internal Used by the manager to detect non-Buffer frames in the raw listener. */
-  public static isBuffer(data: RawData): data is Buffer {
-    return Buffer.isBuffer(data);
   }
 
   // ===========================================================================
