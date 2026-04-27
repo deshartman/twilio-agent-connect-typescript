@@ -47,19 +47,17 @@ Demonstrates using the `@twilio/tac-conversationrelay` package standalone for vo
    - `TWILIO_AUTH_TOKEN` - Your Twilio Auth Token
    - `TWILIO_PHONE_NUMBER` - Your Twilio phone number
    - `OPENAI_API_KEY` - OpenAI API key
-   - `VOICE_PUBLIC_DOMAIN` - Your ngrok URL (e.g., `https://abc123.ngrok.app`)
-   - `PORT` - Server port (optional, defaults to 8000)
+   - `CR_PUBLIC_DOMAIN` - Public URL Twilio reaches this server at (e.g., `https://cr-<you>.ngrok.dev`). Used for webhook signature validation and to build the `wss://` URL spliced into the TwiML response.
 
-   
-5. Start ngrok:
+5. Start ngrok (this example binds to port 8001):
    ```bash
-   ngrok http 8000
+   ngrok http 8001
    ```
 
 6. Configure your Twilio phone number:
    - Go to [Twilio Console](https://console.twilio.com/)
    - Select your phone number
-   - Under **Voice Configuration**, set webhook to `https://your-ngrok-url.ngrok.io/twiml` (POST)
+   - Under **Voice Configuration**, set webhook to `<CR_PUBLIC_DOMAIN>/twiml` (POST) — e.g. `https://cr-<you>.ngrok.dev/twiml`
 
 7. Start the server:
    ```bash

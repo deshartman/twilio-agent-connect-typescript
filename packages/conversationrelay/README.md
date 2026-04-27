@@ -96,6 +96,7 @@ cr.onPrompt(async (session, message) => {
 
 await new ConversationRelayServer(cr, {
   authToken: process.env.TWILIO_AUTH_TOKEN!,
+  publicDomain: process.env.CR_PUBLIC_DOMAIN!, // required
   port: 8001,
 }).start();
 ```
@@ -248,6 +249,7 @@ new ConversationRelayServer(conversationRelay: ConversationRelay, config: Conver
 - `conversationRelayConfig` — TwiML attributes (welcomeGreeting, ttsProvider, voice, transcriptionProvider, etc.)
 - `development` — enable pino-pretty logging
 - `authToken` — **required**. Twilio auth token; signature validation is always on
+- `publicDomain` — **required**. Public URL Twilio reaches this server at. Accepts a full `https://...` URL (e.g. `https://cr-<you>.ngrok.dev`) or a bare host (e.g. `cr-<you>.ngrok.dev`) — values are normalised. Used for webhook signature validation and to build the `wss://` URL spliced into the TwiML response. Load balancers and reverse proxies rewrite the `Host` header to internal backend addresses, so an explicit value is required.
 - `onIncomingCall?` — optional. `(input) => Promise<CustomParameters>`. Splices returned record into `<ConversationRelay>` as `<Parameter>` elements. Omit for standalone (CR emits `{ conversation_id: callSid }`)
 - `onConversationRelayCallback?` — optional. `(payload) => Promise<{ status, content, contentType }>`. Called when Twilio POSTs the TwiML `action` URL (call-end and handoff). Omit for standalone (200 OK no-op)
 

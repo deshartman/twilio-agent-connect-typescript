@@ -99,7 +99,7 @@ You don't configure `/ws` or `/conversation-relay-callback` anywhere — the Twi
 
 Inbound SMS flows to Maestro first, then out to `/webhook` — you do **not** set a Messaging webhook on the phone number page.
 
-> `VOICE_PUBLIC_DOMAIN` in `.env.example` is legacy and not consumed by the current examples. The voice `/twiml` response derives its WebSocket URL from the request host, so whichever hostname Twilio hits `/twiml` on is the one `/ws` and `/conversation-relay-callback` will resolve to.
+> `TAC_PUBLIC_DOMAIN` and `CR_PUBLIC_DOMAIN` (the two `<subdomain>.ngrok.dev` hosts from the ngrok step) must be set in `.env` — both servers require them. `ConversationRelayServer` builds the `wss://` URL for `/ws` and the `https://` URL for `/conversation-relay-callback` directly from `CR_PUBLIC_DOMAIN` and splices them into the TwiML response; both servers also use their respective domain to validate `X-Twilio-Signature`.
 
 ## Environment Variables
 
@@ -119,9 +119,15 @@ See [`examples/.env.example`](examples/.env.example) for all available configura
 
 - `TWILIO_CONVERSATION_CONFIGURATION_ID`: Conversation Orchestrator configuration ID (format: `conv_configuration_*`). The memory store linked to this configuration is auto-fetched by `TAC.create()` — no separate `MEMORY_STORE_ID` env var is needed.
 
+### Public Domains (Required)
+
+- `TAC_PUBLIC_DOMAIN`: Public URL Twilio reaches `TACServer` at — used for Conversation Orchestrator webhook signature validation. Example: `https://tac-des.ngrok.dev`.
+- `CR_PUBLIC_DOMAIN`: Public URL Twilio reaches `ConversationRelayServer` at — used for signature validation and to build the `wss://` URL in the TwiML response. Example: `https://cr-des.ngrok.dev`.
+
+Accepts either a full `https://...` URL or a bare host (values are normalised). Required because load balancers and reverse proxies routinely rewrite `Host` headers to internal backend addresses, breaking header-based URL reconstruction. See the root [README's public-domain section](../README.md#public-domains-are-required) for the full rationale.
+
 ### Optional
 
-- `VOICE_PUBLIC_DOMAIN`: Legacy — not consumed by the current examples. `ConversationRelayServer` derives the voice host from the incoming `/twiml` request; set your ngrok URL on the Twilio phone number instead.
 - `TWILIO_REGION`: Twilio region subdomain for API routing
 - `OPENAI_API_KEY`: Your OpenAI API key (for OpenAI example)
 

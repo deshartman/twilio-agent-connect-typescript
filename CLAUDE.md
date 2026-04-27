@@ -143,6 +143,19 @@ Voice and Conversation Orchestrator (Maestro) webhooks run on separate Fastify s
 
 Twilio voice numbers point at `https://<host>:8001/twiml`. Conversations Service webhooks point at `https://<host>:8000/webhook`.
 
+### Public Domain Configuration (required on both servers)
+
+Both server configs require an explicit `publicDomain: string` — the bare host Twilio reaches the server at. `TACServer` uses it to reconstruct the URL Twilio signed webhooks against; `ConversationRelayServer` uses it for the same plus for the `wss://` URL spliced into TwiML. Values pass through `normalizePublicDomain()` (strips scheme + trailing slash, rejects paths/queries).
+
+Env-var convention in the examples:
+
+| Env var | Consumed by |
+|---|---|
+| `TAC_PUBLIC_DOMAIN` | `new TACServer(tac, { publicDomain: process.env.TAC_PUBLIC_DOMAIN! })` |
+| `CR_PUBLIC_DOMAIN`  | `new ConversationRelayServer(cr, { publicDomain: process.env.CR_PUBLIC_DOMAIN! })` |
+
+Not a field on `TACConfig` — server-specific concern, not a TAC-wide concern. Load balancers / reverse proxies routinely rewrite `Host` headers to internal backend addresses, so explicit config is the only deterministic option.
+
 ### ConversationRelayServer (`packages/conversationrelay/src/lib/server.ts`)
 
 Standalone voice server. Two optional callbacks let users bridge into `tac-core`'s `ConversationRelayChannel` without CR importing core:
@@ -172,10 +185,12 @@ Route registration:
 
 ### Signature Validation
 
-Always-on. Both servers validate `X-Twilio-Signature` via the shared helper in `@twilio/tac-conversationrelay/src/lib/signature.ts`:
+Always-on. Both servers validate `X-Twilio-Signature` via the shared helpers in `@twilio/tac-conversationrelay/src/lib/signature.ts`:
 
-- `registerSignatureValidation` — global `preHandler` hook for POST routes. Form-encoded bodies validate via parsed params; JSON bodies (`?bodySHA256=...`) via a raw-body content-type parser.
-- `validateWebSocketSignature` — inline check in the `/ws` handler (Fastify doesn't run `preHandler` on upgrades). Forces `wss://` because that's what Twilio signs against from the TwiML.
+- `registerSignatureValidation(fastify, { authToken, publicDomain })` — global `preHandler` hook for POST routes. Signs against `https://{publicDomain}{request.url}`. Form-encoded bodies validate via parsed params; JSON bodies (`?bodySHA256=...`) via a raw-body content-type parser.
+- `validateWebSocketSignature(request, authToken, publicDomain)` — inline check in the `/ws` handler (Fastify doesn't run `preHandler` on upgrades). Signs against `wss://{publicDomain}{request.url}` because that's what Twilio signs from the TwiML.
+
+Both helpers take `publicDomain` explicitly — no `x-forwarded-*` / `Host` header fallback, because those headers are routinely rewritten by load balancers and proxies.
 
 ## Pull Requests
 

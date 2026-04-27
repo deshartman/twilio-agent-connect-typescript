@@ -207,8 +207,8 @@ if (!process.env.TWILIO_AUTH_TOKEN) {
 }
 if (!process.env.CR_PUBLIC_DOMAIN) {
   throw new Error(
-    'CR_PUBLIC_DOMAIN is required — the public host Twilio reaches this server at ' +
-      '(e.g. cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
+    'CR_PUBLIC_DOMAIN is required — the public URL Twilio reaches this server at ' +
+      '(e.g. https://cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
       'WebSocket URL generation.'
   );
 }

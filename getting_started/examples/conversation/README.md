@@ -55,6 +55,13 @@ TWILIO_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
 TWILIO_CONVERSATION_CONFIGURATION_ID=conv_configuration_xxxxxxxxxxxxxxxxxxxxxxxxxx
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Public URLs Twilio reaches each server at (full https:// form shown;
+# bare host also accepted — values are normalised). Required because load
+# balancers and proxies rewrite the Host header, making header-based URL
+# reconstruction unreliable.
+TAC_PUBLIC_DOMAIN=https://tac-<you>.ngrok.dev
+CR_PUBLIC_DOMAIN=https://cr-<you>.ngrok.dev
 ```
 
 ### 3. Run the Servers

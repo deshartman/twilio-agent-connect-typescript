@@ -86,9 +86,22 @@ ngrok http 8001    # → ConversationRelayServer (voice)
 | Phone-number Voice webhook | Phone Numbers → Active numbers → your number → Voice Configuration | `https://<voice-ngrok>/twiml` (POST) |
 | Conversation Configuration webhook | Conversation Orchestrator → Conversation Configurations → Overview → Edit | `https://<maestro-ngrok>/webhook` (POST) |
 
-`/ws` and `/conversation-relay-callback` aren't configured separately — the voice server derives them from the `/twiml` request host. Inbound SMS routes through Maestro, not the Messaging webhook on the phone number page.
+`/ws` and `/conversation-relay-callback` aren't configured separately in the Twilio console — `ConversationRelayServer` builds those URLs from `publicDomain` (see below) and splices them into the `/twiml` response. Inbound SMS routes through Maestro, not the Messaging webhook on the phone number page.
 
 **Dev-loop tip.** With ephemeral tunnels you re-paste both URLs into the console on every ngrok restart. Reserved ngrok subdomains (`ngrok http --url <subdomain>.ngrok.dev <port>`) let you paste them once. See [`getting_started/examples/conversation/README.md`](getting_started/examples/conversation/README.md) for the end-to-end walkthrough.
+
+#### Public domains are required
+
+Both servers require an explicit `publicDomain` — the bare host Twilio reaches them at. This is used for webhook signature validation and, for CR, to build the `wss://` URL spliced into the TwiML. Two env vars because the servers are independent and commonly sit behind different tunnels / hostnames:
+
+| Env var | Consumed by |
+|---|---|
+| `TAC_PUBLIC_DOMAIN` | `new TACServer(tac, { publicDomain: ... })` |
+| `CR_PUBLIC_DOMAIN`  | `new ConversationRelayServer(cr, { publicDomain: ... })` |
+
+Why explicit: load balancers (AWS ALB, GCP LB) and default reverse-proxy configs (NGINX, Apache) rewrite the `Host` header to internal backend addresses, so reconstructing the URL from request headers is unreliable. Configuration-based URL construction is deterministic and resistant to header-spoofing.
+
+Accepts either a bare host or a full `https://...` URL (values are normalised).
 
 ```mermaid
 graph LR

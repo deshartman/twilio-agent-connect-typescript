@@ -338,15 +338,15 @@ tac.onMessageReady(async msg => {
 // call ends. Data flows as plain records — CR never learns about Maestro.
 if (!process.env.TAC_PUBLIC_DOMAIN) {
   throw new Error(
-    'TAC_PUBLIC_DOMAIN is required — the public host Twilio reaches TACServer at ' +
-      '(e.g. tac-<you>.ngrok.dev). Used for Conversation Orchestrator webhook ' +
+    'TAC_PUBLIC_DOMAIN is required — the public URL Twilio reaches TACServer at ' +
+      '(e.g. https://tac-<you>.ngrok.dev). Used for Conversation Orchestrator webhook ' +
       'signature validation.'
   );
 }
 if (!process.env.CR_PUBLIC_DOMAIN) {
   throw new Error(
-    'CR_PUBLIC_DOMAIN is required — the public host Twilio reaches ConversationRelayServer ' +
-      'at (e.g. cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
+    'CR_PUBLIC_DOMAIN is required — the public URL Twilio reaches ConversationRelayServer ' +
+      'at (e.g. https://cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
       'WebSocket URL generation.'
   );
 }
