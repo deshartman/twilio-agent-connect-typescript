@@ -46,9 +46,39 @@ npm run example:getting-started
 
 ### 3. Dependency Management
 
-#### Workspace Dependencies (`*`)
+#### Local Dependencies — today (`file:` protocol)
 
-Examples use `*` for TAC dependencies:
+Examples use the `file:` protocol to reference the root package during development. `npm install` creates a symlink in `node_modules/` pointing to the repository root, so examples always consume the local build:
+
+```json
+// getting_started/examples/conversation/package.json + chat/package.json
+{
+  "dependencies": {
+    "twilio-agent-connect": "file:../../.."
+  }
+}
+```
+
+The crelay example links directly to the CR package (since it doesn't need TAC):
+
+```json
+// getting_started/examples/crelay/package.json
+{
+  "dependencies": {
+    "@twilio/tac-conversationrelay": "file:../../../packages/conversationrelay"
+  }
+}
+```
+
+This means:
+- ✅ Examples always use your local build
+- ✅ No need to publish during development
+- ✅ Changes are reflected immediately after `npm run build`
+- ✅ Version bumps don't break examples
+
+#### Local Dependencies — after npm publish (`"*"` workspace pattern)
+
+Once the packages are published to npm, switch to the npm workspaces `*` pattern (or pinned versions):
 
 ```json
 {
@@ -59,11 +89,7 @@ Examples use `*` for TAC dependencies:
 }
 ```
 
-This means:
-- ✅ Examples always use your local workspace packages
-- ✅ No need to publish during development
-- ✅ Changes are reflected immediately after rebuild
-- ✅ Version bumps don't break examples
+The `*` resolves against the workspace declaration in the root `package.json`; workspace-local wins over the registry during development. This is the convention once the repo has `"workspaces": [...]` wired and packages are publishable. Keep the `file:` approach today because `twilio-agent-connect` is still a single published artifact (root `dist/`), not a set of per-package npm packages.
 
 #### External Dependencies
 
@@ -89,9 +115,6 @@ npm run build
 
 # Clean all build outputs
 npm run clean
-
-# Watch mode (rebuilds on changes)
-npm run dev
 
 # Type checking
 npm run typecheck
@@ -215,34 +238,42 @@ npm run example:chat             # Chat example
    npm run dev
    ```
 
-## How Workspace Dependencies Work
+## How Local Dependencies Work
 
-### The `*` Pattern
+### Today: `file:` protocol
 
-When you specify `"@twilio/tac-core": "*"` in an example:
+When an example specifies `"twilio-agent-connect": "file:../../.."`:
 
-1. **npm install** looks for `@twilio/tac-core` in the workspace
+1. **npm install** reads the `file:` path as a local link target
+2. **Creates a symlink** at `node_modules/twilio-agent-connect` → repository root
+3. **Your example** imports from the symlinked package, resolving to the root `dist/`
+
+### Future: `*` workspace pattern (once packages are published)
+
+When packages are npm-published and the repo declares `"workspaces": [...]`:
+
+1. **npm install** looks for `@twilio/tac-core` in the declared workspaces
 2. **Finds it** in `packages/core/`
-3. **Symlinks** the built package to `node_modules/@twilio/tac-core`
+3. **Symlinks** it to `node_modules/@twilio/tac-core` (workspace-local wins over registry)
 4. **Your example** imports from the local, built package
 
 ### Development Flow
 
 ```bash
-# 1. Make changes to packages/core/src/lib/tac.ts
+# 1. Make changes in packages/
 vim packages/core/src/lib/tac.ts
 
-# 2. Build packages (updates dist/)
+# 2. Build (updates dist/)
 npm run build
 
-# 3. Examples automatically use new build
-npm run example:getting-started  # Uses your changes!
+# 3. Examples automatically use the new build (via the symlink)
+npm run example:getting-started
 # or: npm run example:chat
 ```
 
 ### Why This Works
 
-- **Symlinks**: npm creates symlinks from `examples/*/node_modules/@twilio/*` → `packages/*/`
+- **Symlinks**: npm creates symlinks from `examples/*/node_modules/twilio-agent-connect` → repository root (today), or from `node_modules/@twilio/*` → `packages/*/` (once publishable)
 - **Built Code**: Examples import from `dist/` (built JavaScript)
 - **Type Safety**: TypeScript references ensure proper type checking
 - **Hot Reload**: Rebuild packages → restart examples → see changes
@@ -303,7 +334,7 @@ ls -la getting_started/examples/conversation/node_modules/@twilio/
 2. **Use TypeScript references for cross-package dependencies**
 3. **Keep examples simple and focused**
 4. **Document environment variables in .env.example**
-5. **Use `*` for workspace dependencies, semver for external**
+5. **Use `file:` for local dependencies today (`*` once the packages are npm-published), semver for external**
 6. **Run linting and formatting before commits**
 7. **Write tests for new features**
 
@@ -316,4 +347,4 @@ When ready to publish:
 3. **Run tests**: `npm test`
 4. **Publish**: `npm publish --workspaces`
 
-Examples will continue to work with published versions by changing `*` to actual version numbers.
+Examples will continue to work with published versions by changing `file:../../..` to actual version numbers (or `*` under a workspaces declaration).
