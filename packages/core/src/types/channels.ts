@@ -8,7 +8,25 @@
 import type { ConversationId, ConversationSession, ProfileId } from './conversation';
 import type { ChannelType } from './config';
 import type { TACMemoryResponse } from '../lib/tac-memory-response';
-import type { ConversationRelayTool } from '@twilio/tac-conversationrelay';
+import type { JSONSchema, ToolFunction } from './tools';
+
+/**
+ * Package-agnostic tool contract for channels.
+ *
+ * Lives in core so the `Channel` interface does not depend on any
+ * channel-specific package (e.g. `@twilio/tac-conversationrelay`).
+ * `ConversationRelayTool` and `TACTool` both structurally satisfy this —
+ * TypeScript duck-types them at the `Channel` boundary, and concrete
+ * channels keep their richer internal tool types.
+ */
+export interface ChannelTool {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: JSONSchema;
+  readonly implementation: ToolFunction;
+  toOpenAIFormat(): Record<string, unknown>;
+  toAnthropicFormat(): Record<string, unknown>;
+}
 
 /**
  * Unified message shape emitted by all channels via the 'message' event.
@@ -120,12 +138,12 @@ export interface Channel {
    * ConversationRelayChannel) implement tool dispatch. Passive VoiceChannel
    * has no outbound path and omits this.
    */
-  listTools?(): ConversationRelayTool[];
+  listTools?(): ChannelTool[];
 
   /**
    * Register an additional tool on this channel. Overwrites any tool with the same name.
    */
-  registerTool?(tool: ConversationRelayTool): void;
+  registerTool?(tool: ChannelTool): void;
 
   /**
    * Execute a registered tool by name.

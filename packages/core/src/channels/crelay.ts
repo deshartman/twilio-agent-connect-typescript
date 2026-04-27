@@ -27,6 +27,7 @@ import {
   type ConversationSession,
   type ProfileId,
   type ChannelMessage,
+  type ChannelTool,
   type MemoryRetriever,
   isConversationId,
   isProfileId,
@@ -369,12 +370,12 @@ export class ConversationRelayChannel implements Channel {
   // Tool Registry — forwards to the shared CR registry
   // ===========================================================================
 
-  public listTools(): ConversationRelayTool[] {
+  public listTools(): ChannelTool[] {
     return this.conversationRelay.getToolRegistry().list();
   }
 
-  public registerTool(tool: ConversationRelayTool): void {
-    this.conversationRelay.getToolRegistry().register(tool);
+  public registerTool(tool: ChannelTool): void {
+    this.conversationRelay.getToolRegistry().register(tool as ConversationRelayTool);
   }
 
   public async executeTool(

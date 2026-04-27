@@ -2757,6 +2757,317 @@ declare class TACMemoryResponse {
 }
 
 /**
+ * JSON Schema definition for tool parameters
+ */
+declare const JSONSchemaSchema$1: z.ZodObject<{
+    type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
+    properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+    required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    items: z.ZodOptional<z.ZodAny>;
+    enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
+    description: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}, {
+    type: "string" | "number" | "boolean" | "object" | "array";
+    description?: string | undefined;
+    properties?: Record<string, any> | undefined;
+    required?: string[] | undefined;
+    items?: any;
+    enum?: any[] | undefined;
+}>;
+type JSONSchema$1 = z.infer<typeof JSONSchemaSchema$1>;
+/**
+ * Tool function signature
+ */
+type ToolFunction$1<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
+/**
+ * OpenAI tool format
+ */
+declare const OpenAIToolSchema: z.ZodObject<{
+    type: z.ZodLiteral<"function">;
+    function: z.ZodObject<{
+        name: z.ZodString;
+        description: z.ZodString;
+        parameters: z.ZodObject<{
+            type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
+            properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
+            required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+            items: z.ZodOptional<z.ZodAny>;
+            enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
+            description: z.ZodOptional<z.ZodString>;
+        }, "strip", z.ZodTypeAny, {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        }, {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        }>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        description: string;
+        parameters: {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        };
+    }, {
+        name: string;
+        description: string;
+        parameters: {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        };
+    }>;
+}, "strip", z.ZodTypeAny, {
+    function: {
+        name: string;
+        description: string;
+        parameters: {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        };
+    };
+    type: "function";
+}, {
+    function: {
+        name: string;
+        description: string;
+        parameters: {
+            type: "string" | "number" | "boolean" | "object" | "array";
+            description?: string | undefined;
+            properties?: Record<string, any> | undefined;
+            required?: string[] | undefined;
+            items?: any;
+            enum?: any[] | undefined;
+        };
+    };
+    type: "function";
+}>;
+type OpenAITool = z.infer<typeof OpenAIToolSchema>;
+
+/**
+ * Tool execution context
+ */
+interface ToolContext {
+    conversationId?: ConversationId;
+    profileId?: ProfileId;
+    memoryStoreId?: MemoryStoreId;
+    channel?: string;
+    metadata?: Record<string, unknown>;
+}
+/**
+ * Tool execution result
+ */
+declare const ToolExecutionResultSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    data: z.ZodOptional<z.ZodAny>;
+    error: z.ZodOptional<z.ZodString>;
+    metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
+}, "strip", z.ZodTypeAny, {
+    success: boolean;
+    metadata?: Record<string, unknown> | undefined;
+    data?: any;
+    error?: string | undefined;
+}, {
+    success: boolean;
+    metadata?: Record<string, unknown> | undefined;
+    data?: any;
+    error?: string | undefined;
+}>;
+type ToolExecutionResult = z.infer<typeof ToolExecutionResultSchema>;
+/**
+ * Built-in tool types
+ */
+declare const BuiltInTools: {
+    readonly RETRIEVE_MEMORY: "retrieve_profile_memory";
+    readonly SEND_MESSAGE: "send_message";
+    readonly ESCALATE_TO_HUMAN: "escalate_to_human";
+    readonly SEARCH_KNOWLEDGE: "search_knowledge";
+};
+type BuiltInToolName = (typeof BuiltInTools)[keyof typeof BuiltInTools];
+
+/**
+ * Channel interface definitions
+ *
+ * Minimal contract that TAC requires from all channel implementations.
+ * Channels use composition instead of inheritance.
+ */
+
+/**
+ * Package-agnostic tool contract for channels.
+ *
+ * Lives in core so the `Channel` interface does not depend on any
+ * channel-specific package (e.g. `@twilio/tac-conversationrelay`).
+ * `ConversationRelayTool` and `TACTool` both structurally satisfy this —
+ * TypeScript duck-types them at the `Channel` boundary, and concrete
+ * channels keep their richer internal tool types.
+ */
+interface ChannelTool {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: JSONSchema$1;
+    readonly implementation: ToolFunction$1;
+    toOpenAIFormat(): Record<string, unknown>;
+    toAnthropicFormat(): Record<string, unknown>;
+}
+/**
+ * Unified message shape emitted by all channels via the 'message' event.
+ *
+ * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
+ * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
+ * - metadata.type identifies the source message type for programmatic handling
+ * - conversation bundle is only present in Conversation/Passive modes (Maestro)
+ */
+interface ChannelMessage {
+    conversationId: ConversationId;
+    messageType: 'user' | 'system';
+    message: string;
+    channel: ChannelType;
+    metadata?: Record<string, unknown> | undefined;
+    conversation?: {
+        profileId?: ProfileId | undefined;
+        memory?: TACMemoryResponse | undefined;
+        author: string;
+        serviceId?: string | undefined;
+        authorInfo?: {
+            address: string;
+        } | undefined;
+        startedAt: Date;
+    } | undefined;
+}
+/**
+ * Function that retrieves memory for a conversation session.
+ * Injected into Maestro channels (VoiceChannel, SMSChannel, ChatChannel)
+ * to decouple them from the TAC instance.
+ */
+type MemoryRetriever = (session: ConversationSession, query?: string) => Promise<TACMemoryResponse | undefined>;
+/**
+ * Base channel event callbacks
+ */
+interface ChannelEvents {
+    onMessage?: (message: ChannelMessage) => Promise<void> | void;
+    onConversationStarted?: (data: {
+        session: ConversationSession;
+    }) => void;
+    onConversationEnded?: (data: {
+        session: ConversationSession;
+    }) => Promise<void> | void;
+    onError?: (data: {
+        error: Error;
+        context?: Record<string, unknown>;
+    }) => void;
+}
+/**
+ * Base interface for all channel implementations
+ *
+ * Defines the minimal contract that TAC requires:
+ * - Send responses to users
+ * - Register event callbacks
+ * - Provide session lookup
+ * - Lifecycle management
+ */
+interface Channel {
+    /**
+     * Channel type identifier
+     */
+    readonly channelType: ChannelType;
+    /**
+     * Send a response message to the user
+     *
+     * @param conversationId - Conversation identifier
+     * @param message - The message text to send
+     * @param metadata - Optional metadata to include
+     */
+    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
+    /**
+     * Register event callback for TAC integration
+     *
+     * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
+     * @param callback - Event handler function
+     */
+    on(event: string, callback: (...args: any[]) => void): void;
+    /**
+     * Get conversation session by identifier
+     *
+     * @param conversationId - Conversation identifier
+     * @returns Session if active, undefined otherwise
+     */
+    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
+    /**
+     * Check if conversation is active
+     *
+     * @param conversationId - Conversation identifier
+     * @returns True if conversation is active
+     */
+    isConversationActive(conversationId: ConversationId): boolean;
+    /**
+     * Shutdown channel and cleanup resources
+     */
+    shutdown(): void;
+    /**
+     * List all tools registered on this channel (for LLM discovery).
+     * Optional — only channels with outbound capability (SMS, Chat,
+     * ConversationRelayChannel) implement tool dispatch. Passive VoiceChannel
+     * has no outbound path and omits this.
+     */
+    listTools?(): ChannelTool[];
+    /**
+     * Register an additional tool on this channel. Overwrites any tool with the same name.
+     */
+    registerTool?(tool: ChannelTool): void;
+    /**
+     * Execute a registered tool by name.
+     *
+     * ConversationRelayChannel auto-ships any `outgoingMessage` the tool produces
+     * via the CR WebSocket. Other channels simply invoke the tool's implementation.
+     *
+     * @param conversationId - Conversation identifier to scope the execution
+     * @param name - Registered tool name
+     * @param args - Arguments forwarded to the tool's implementation
+     * @returns The tool's result (to feed back to the LLM loop)
+     */
+    executeTool?(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
+    /**
+     * Process a Maestro Conversations Service webhook payload.
+     *
+     * Optional because some channels (e.g. `ConversationRelayChannel`) don't
+     * consume Maestro webhooks directly. The server fans out every incoming
+     * webhook to all registered channels via
+     * `channel.processWebhook?.(body, idempotencyToken)`; channels that don't
+     * implement it simply ignore the event.
+     *
+     * @param payload - Raw webhook body from Twilio
+     * @param idempotencyToken - Optional token from the `I-Twilio-Idempotency-Token` header
+     */
+    processWebhook?(payload: unknown, idempotencyToken?: string): Promise<void>;
+}
+
+/**
  * Logger type used throughout the ConversationRelay package.
  */
 type Logger$1 = pino.Logger;
@@ -2857,7 +3168,7 @@ declare class SilenceHandler {
  * dependency on @twilio/tac-tools. CR tools are only invoked by CR itself.
  */
 
-declare const JSONSchemaSchema$1: z.ZodObject<{
+declare const JSONSchemaSchema: z.ZodObject<{
     type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
     properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
     required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
@@ -2879,17 +3190,17 @@ declare const JSONSchemaSchema$1: z.ZodObject<{
     items?: any;
     enum?: any[] | undefined;
 }>;
-type JSONSchema$1 = z.infer<typeof JSONSchemaSchema$1>;
-type ToolFunction$1<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
+type JSONSchema = z.infer<typeof JSONSchemaSchema>;
+type ToolFunction<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
 /**
  * ConversationRelay tool with LLM-format conversion helpers.
  */
 declare class ConversationRelayTool<TParams = unknown, TResult = unknown> {
     readonly name: string;
     readonly description: string;
-    readonly parameters: JSONSchema$1;
-    readonly implementation: ToolFunction$1<TParams, TResult>;
-    constructor(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>);
+    readonly parameters: JSONSchema;
+    readonly implementation: ToolFunction<TParams, TResult>;
+    constructor(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>);
     toOpenAIFormat(): Record<string, unknown>;
     toAnthropicFormat(): Record<string, unknown>;
     toJSON(): string;
@@ -3800,145 +4111,6 @@ declare class ConversationRelayServer {
 }
 
 /**
- * Channel interface definitions
- *
- * Minimal contract that TAC requires from all channel implementations.
- * Channels use composition instead of inheritance.
- */
-
-/**
- * Unified message shape emitted by all channels via the 'message' event.
- *
- * - messageType 'user': generate a response (prompt, SMS text, voice webhook text)
- * - messageType 'system': add to LLM context but don't necessarily respond (setup, interrupt, dtmf)
- * - metadata.type identifies the source message type for programmatic handling
- * - conversation bundle is only present in Conversation/Passive modes (Maestro)
- */
-interface ChannelMessage {
-    conversationId: ConversationId;
-    messageType: 'user' | 'system';
-    message: string;
-    channel: ChannelType;
-    metadata?: Record<string, unknown> | undefined;
-    conversation?: {
-        profileId?: ProfileId | undefined;
-        memory?: TACMemoryResponse | undefined;
-        author: string;
-        serviceId?: string | undefined;
-        authorInfo?: {
-            address: string;
-        } | undefined;
-        startedAt: Date;
-    } | undefined;
-}
-/**
- * Function that retrieves memory for a conversation session.
- * Injected into Maestro channels (VoiceChannel, SMSChannel, ChatChannel)
- * to decouple them from the TAC instance.
- */
-type MemoryRetriever = (session: ConversationSession, query?: string) => Promise<TACMemoryResponse | undefined>;
-/**
- * Base channel event callbacks
- */
-interface ChannelEvents {
-    onMessage?: (message: ChannelMessage) => Promise<void> | void;
-    onConversationStarted?: (data: {
-        session: ConversationSession;
-    }) => void;
-    onConversationEnded?: (data: {
-        session: ConversationSession;
-    }) => Promise<void> | void;
-    onError?: (data: {
-        error: Error;
-        context?: Record<string, unknown>;
-    }) => void;
-}
-/**
- * Base interface for all channel implementations
- *
- * Defines the minimal contract that TAC requires:
- * - Send responses to users
- * - Register event callbacks
- * - Provide session lookup
- * - Lifecycle management
- */
-interface Channel {
-    /**
-     * Channel type identifier
-     */
-    readonly channelType: ChannelType;
-    /**
-     * Send a response message to the user
-     *
-     * @param conversationId - Conversation identifier
-     * @param message - The message text to send
-     * @param metadata - Optional metadata to include
-     */
-    sendResponse(conversationId: ConversationId, message: string, metadata?: Record<string, unknown>): Promise<void>;
-    /**
-     * Register event callback for TAC integration
-     *
-     * @param event - Event name (e.g., 'message', 'conversationStarted', 'conversationEnded', 'error')
-     * @param callback - Event handler function
-     */
-    on(event: string, callback: (...args: any[]) => void): void;
-    /**
-     * Get conversation session by identifier
-     *
-     * @param conversationId - Conversation identifier
-     * @returns Session if active, undefined otherwise
-     */
-    getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
-    /**
-     * Check if conversation is active
-     *
-     * @param conversationId - Conversation identifier
-     * @returns True if conversation is active
-     */
-    isConversationActive(conversationId: ConversationId): boolean;
-    /**
-     * Shutdown channel and cleanup resources
-     */
-    shutdown(): void;
-    /**
-     * List all tools registered on this channel (for LLM discovery).
-     * Optional — only channels with outbound capability (SMS, Chat,
-     * ConversationRelayChannel) implement tool dispatch. Passive VoiceChannel
-     * has no outbound path and omits this.
-     */
-    listTools?(): ConversationRelayTool[];
-    /**
-     * Register an additional tool on this channel. Overwrites any tool with the same name.
-     */
-    registerTool?(tool: ConversationRelayTool): void;
-    /**
-     * Execute a registered tool by name.
-     *
-     * ConversationRelayChannel auto-ships any `outgoingMessage` the tool produces
-     * via the CR WebSocket. Other channels simply invoke the tool's implementation.
-     *
-     * @param conversationId - Conversation identifier to scope the execution
-     * @param name - Registered tool name
-     * @param args - Arguments forwarded to the tool's implementation
-     * @returns The tool's result (to feed back to the LLM loop)
-     */
-    executeTool?(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
-    /**
-     * Process a Maestro Conversations Service webhook payload.
-     *
-     * Optional because some channels (e.g. `ConversationRelayChannel`) don't
-     * consume Maestro webhooks directly. The server fans out every incoming
-     * webhook to all registered channels via
-     * `channel.processWebhook?.(body, idempotencyToken)`; channels that don't
-     * implement it simply ignore the event.
-     *
-     * @param payload - Raw webhook body from Twilio
-     * @param idempotencyToken - Optional token from the `I-Twilio-Idempotency-Token` header
-     */
-    processWebhook?(payload: unknown, idempotencyToken?: string): Promise<void>;
-}
-
-/**
  * TAC Custom Parameters — Maestro-specific parameters for TwiML <Parameter> elements
  *
  * These are TAC's own structured parameters for bridging ConversationRelay calls
@@ -3961,161 +4133,6 @@ declare const TACCustomParametersSchema: z.ZodObject<{
     ai_agent_participant_id?: string | undefined;
 }>;
 type TACCustomParameters = z.infer<typeof TACCustomParametersSchema>;
-
-/**
- * JSON Schema definition for tool parameters
- */
-declare const JSONSchemaSchema: z.ZodObject<{
-    type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
-    properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
-    required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    items: z.ZodOptional<z.ZodAny>;
-    enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
-    description: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "string" | "number" | "boolean" | "object" | "array";
-    description?: string | undefined;
-    properties?: Record<string, any> | undefined;
-    required?: string[] | undefined;
-    items?: any;
-    enum?: any[] | undefined;
-}, {
-    type: "string" | "number" | "boolean" | "object" | "array";
-    description?: string | undefined;
-    properties?: Record<string, any> | undefined;
-    required?: string[] | undefined;
-    items?: any;
-    enum?: any[] | undefined;
-}>;
-type JSONSchema = z.infer<typeof JSONSchemaSchema>;
-/**
- * Tool function signature
- */
-type ToolFunction<TParams = unknown, TResult = unknown> = (params: TParams) => Promise<TResult> | TResult;
-/**
- * OpenAI tool format
- */
-declare const OpenAIToolSchema: z.ZodObject<{
-    type: z.ZodLiteral<"function">;
-    function: z.ZodObject<{
-        name: z.ZodString;
-        description: z.ZodString;
-        parameters: z.ZodObject<{
-            type: z.ZodEnum<["object", "string", "number", "boolean", "array"]>;
-            properties: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodAny>>;
-            required: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-            items: z.ZodOptional<z.ZodAny>;
-            enum: z.ZodOptional<z.ZodArray<z.ZodAny, "many">>;
-            description: z.ZodOptional<z.ZodString>;
-        }, "strip", z.ZodTypeAny, {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        }, {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        }>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        description: string;
-        parameters: {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        };
-    }, {
-        name: string;
-        description: string;
-        parameters: {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        };
-    }>;
-}, "strip", z.ZodTypeAny, {
-    function: {
-        name: string;
-        description: string;
-        parameters: {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        };
-    };
-    type: "function";
-}, {
-    function: {
-        name: string;
-        description: string;
-        parameters: {
-            type: "string" | "number" | "boolean" | "object" | "array";
-            description?: string | undefined;
-            properties?: Record<string, any> | undefined;
-            required?: string[] | undefined;
-            items?: any;
-            enum?: any[] | undefined;
-        };
-    };
-    type: "function";
-}>;
-type OpenAITool = z.infer<typeof OpenAIToolSchema>;
-
-/**
- * Tool execution context
- */
-interface ToolContext {
-    conversationId?: ConversationId;
-    profileId?: ProfileId;
-    memoryStoreId?: MemoryStoreId;
-    channel?: string;
-    metadata?: Record<string, unknown>;
-}
-/**
- * Tool execution result
- */
-declare const ToolExecutionResultSchema: z.ZodObject<{
-    success: z.ZodBoolean;
-    data: z.ZodOptional<z.ZodAny>;
-    error: z.ZodOptional<z.ZodString>;
-    metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-}, "strip", z.ZodTypeAny, {
-    success: boolean;
-    metadata?: Record<string, unknown> | undefined;
-    error?: string | undefined;
-    data?: any;
-}, {
-    success: boolean;
-    metadata?: Record<string, unknown> | undefined;
-    error?: string | undefined;
-    data?: any;
-}>;
-type ToolExecutionResult = z.infer<typeof ToolExecutionResultSchema>;
-/**
- * Built-in tool types
- */
-declare const BuiltInTools: {
-    readonly RETRIEVE_MEMORY: "retrieve_profile_memory";
-    readonly SEND_MESSAGE: "send_message";
-    readonly ESCALATE_TO_HUMAN: "escalate_to_human";
-    readonly SEARCH_KNOWLEDGE: "search_knowledge";
-};
-type BuiltInToolName = (typeof BuiltInTools)[keyof typeof BuiltInTools];
 
 /**
  * Conversation Intelligence Types
@@ -5110,8 +5127,8 @@ declare class SMSChannel implements Channel {
     isConversationActive(conversationId: ConversationId): boolean;
     on(event: string, callback: (...args: any[]) => void): void;
     shutdown(): void;
-    listTools(): ConversationRelayTool[];
-    registerTool(tool: ConversationRelayTool): void;
+    listTools(): ChannelTool[];
+    registerTool(tool: ChannelTool): void;
     executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Process an SMS webhook event from Twilio Conversation Orchestrator.
@@ -5176,8 +5193,8 @@ declare class ChatChannel implements Channel {
     isConversationActive(conversationId: ConversationId): boolean;
     on(event: string, callback: (...args: any[]) => void): void;
     shutdown(): void;
-    listTools(): ConversationRelayTool[];
-    registerTool(tool: ConversationRelayTool): void;
+    listTools(): ChannelTool[];
+    registerTool(tool: ChannelTool): void;
     executeTool(_conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     /**
      * Process a Chat webhook event from Twilio Conversation Orchestrator.
@@ -5299,8 +5316,8 @@ declare class ConversationRelayChannel implements Channel {
         preemptible?: boolean;
     }): void;
     endCall(conversationId: ConversationId, handoffData?: Record<string, unknown>): void;
-    listTools(): ConversationRelayTool[];
-    registerTool(tool: ConversationRelayTool): void;
+    listTools(): ChannelTool[];
+    registerTool(tool: ChannelTool): void;
     executeTool(conversationId: ConversationId, name: string, args: unknown): Promise<unknown>;
     on(event: string, callback: (...args: any[]) => void): void;
     getConversationSession(conversationId: ConversationId): ConversationSession | undefined;
@@ -5554,9 +5571,9 @@ declare class OperatorResultProcessor {
 declare class TACTool<TParams = unknown, TResult = unknown> {
     readonly name: string;
     readonly description: string;
-    readonly parameters: JSONSchema;
-    readonly implementation: ToolFunction<TParams, TResult>;
-    constructor(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>);
+    readonly parameters: JSONSchema$1;
+    readonly implementation: ToolFunction$1<TParams, TResult>;
+    constructor(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>);
     /**
      * Convert to OpenAI function calling format
      */
@@ -5576,7 +5593,7 @@ declare class TACTool<TParams = unknown, TResult = unknown> {
  * Simplified approach matching Python's create_tool function.
  * No builder pattern - just a simple function call.
  */
-declare function defineTool<TParams = unknown, TResult = unknown>(name: string, description: string, parameters: JSONSchema, implementation: ToolFunction<TParams, TResult>): TACTool<TParams, TResult>;
+declare function defineTool<TParams = unknown, TResult = unknown>(name: string, description: string, parameters: JSONSchema$1, implementation: ToolFunction$1<TParams, TResult>): TACTool<TParams, TResult>;
 
 /**
  * Parameters for memory retrieval tool
@@ -5832,4 +5849,4 @@ declare class TACServer {
     stop(): Promise<void>;
 }
 
-export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, type ConversationRelayChannelConfig, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema, JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
+export { type ActionChannelSettings, ActionChannelSettingsSchema, type ActionParticipantRef, ActionParticipantRefSchema, type ActionResponse, ActionResponseSchema, type ActionTextContent, ActionTextContentSchema, type AuthorInfo, AuthorInfoSchema, BaseClient, type BuiltInToolName, BuiltInTools, type CallSid, type CaptureRule, CaptureRuleSchema, type Channel, type ChannelEvents, type ChannelMessage, type ChannelSettings, ChannelSettingsSchema, type ChannelTool, type ChannelType, ChannelTypeSchema, ChatChannel, type ChatChannelConfig, type CintelParticipant, CintelParticipantSchema, type Communication, type CommunicationContent, CommunicationContentSchema, type CommunicationParticipant, CommunicationParticipantSchema, CommunicationSchema, type ConversationAddress, ConversationAddressSchema, ConversationClient, type ConversationConfiguration, ConversationConfigurationSchema, type ConversationEndedCallback, type ConversationGroupingType, ConversationGroupingTypeSchema, type ConversationId, type ConversationIntelligenceConfig, ConversationIntelligenceConfigSchema, type ConversationParticipant, ConversationParticipantSchema, ConversationRelay, ConversationRelayChannel, type ConversationRelayChannelConfig, ConversationRelayServer, type ConversationRelayServerConfig, type ConversationResponse, ConversationResponseSchema, type ConversationSession, ConversationSessionSchema, ConversationSessionStore, type ConversationSummaryItem, ConversationSummaryItemSchema, type ConversationsV1Bridge, ConversationsV1BridgeSchema, type ConversationsWebhookHandlers, ConversationsWebhookProcessor, type CreateConversationSummariesResponse, CreateConversationSummariesResponseSchema, type CreateObservationResponse, CreateObservationResponseSchema, EMPTY_MEMORY_RESPONSE, EnvironmentVariables, type ErrorCallback, type ExecutionDetails, ExecutionDetailsSchema, type FlexHandoffResult, type HandoffCallback, type IntelligenceConfiguration, IntelligenceConfigurationSchema, type JSONSchema$1 as JSONSchema, JSONSchemaSchema$1 as JSONSchemaSchema, type KnowledgeBase, type KnowledgeBaseId, KnowledgeBaseSchema, type KnowledgeBaseStatus, KnowledgeBaseStatusSchema, type KnowledgeChunkResult, KnowledgeChunkResultSchema, KnowledgeClient, type KnowledgeId, type KnowledgeSearchResponse, KnowledgeSearchResponseSchema, type ListCommunicationsResponse, ListCommunicationsResponseSchema, type ListConversationsResponse, ListConversationsResponseSchema, type ListParticipantsResponse, ListParticipantsResponseSchema, type Logger, type MemoryChannelType, MemoryChannelTypeSchema, MemoryClient, type MemoryCommunication, type MemoryCommunicationContent, MemoryCommunicationContentSchema, MemoryCommunicationSchema, type MemoryDeliveryStatus, MemoryDeliveryStatusSchema, type MemoryParticipant, MemoryParticipantSchema, type MemoryParticipantType, MemoryParticipantTypeSchema, type MemoryRetrievalRequest, MemoryRetrievalRequestSchema, type MemoryRetrievalResponse, MemoryRetrievalResponseSchema, type MemoryRetriever, type MemoryStoreId, type MessageDirection, MessageDirectionSchema, type MessageReadyCallback, type MessagingWebhookPayload, type ObservationInfo, ObservationInfoSchema, type OpenAITool, OpenAIToolSchema, type Operator, type OperatorProcessingResult, OperatorProcessingResultSchema, type OperatorResult, type OperatorResultEvent, OperatorResultEventSchema, OperatorResultProcessor, OperatorResultSchema, OperatorSchema, type ParticipantAddress, ParticipantAddressSchema, type ParticipantAddressType, ParticipantAddressTypeSchema, type ParticipantId, type Profile, type ProfileId, type ProfileLookupResponse, ProfileLookupResponseSchema, type ProfileResponse, ProfileResponseSchema, SMSChannel, type SMSChannelConfig, type SendMessageActionPayload, SendMessageActionPayloadSchema, type SendMessageActionRequest, SendMessageActionRequestSchema, type SessionContext, type SessionInfo, SessionInfoSchema, type SessionMessage, SessionMessageSchema, type SessionStoreCallbacks, type StatusCallback, StatusCallbackSchema, type StatusTimeouts, StatusTimeoutsSchema, type SummaryInfo, SummaryInfoSchema, TAC, type TACChannelType, TACChannelTypeSchema, type TACCommunication, type TACCommunicationAuthor, TACCommunicationAuthorSchema, type TACCommunicationContent, TACCommunicationContentSchema, TACCommunicationSchema, TACConfig, type TACConfigData, TACConfigSchema, type TACCustomParameters, TACCustomParametersSchema, type TACDeliveryStatus, TACDeliveryStatusSchema, TACMemoryResponse, type TACOptions, type TACParticipantType, TACParticipantTypeSchema, TACServer, type TACServerConfig, TACTool, type ToolContext, type ToolExecutionResult, ToolExecutionResultSchema, type ToolFunction$1 as ToolFunction, type Transcription, TranscriptionSchema, type TranscriptionWord, TranscriptionWordSchema, VoiceChannel, type VoiceChannelConfig, type WebhookProcessorConfig, createHandoffTool, createHandoffTools, createKnowledgeSearchTool, createKnowledgeSearchToolAsync, createKnowledgeTools, createLogger, createMemoryRetrievalTool, createMemoryTools, createMessagingTools, createSendMessageTool, defineTool, ensureAgentParticipant, handleFlexHandoffLogic, isConversationId, isKnowledgeBaseId, isKnowledgeId, isMemoryStoreId, isParticipantId, isProfileId };
