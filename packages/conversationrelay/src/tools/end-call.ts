@@ -31,13 +31,14 @@ interface EndCallResult {
  *
  * @example
  * ```typescript
- * // Simple call termination
- * const result = await endCallTool.implementation({
- *   reason: 'User requested to end call',
- * });
+ * // Preferred: execute via a ConversationRelaySession — the session
+ * // auto-ships the returned outgoingMessage (terminal `end` frames are
+ * // deferred until the next terminal text token, so the farewell reaches
+ * // TTS before hangup).
+ * await session.executeTool('end_call', { reason: 'User requested to end call' });
  *
  * // End with handoff data for Flex transfer
- * const result = await endCallTool.implementation({
+ * await session.executeTool('end_call', {
  *   reason: 'Escalating to human agent',
  *   handoffData: {
  *     reasonCode: 'live-agent-handoff',
@@ -45,6 +46,9 @@ interface EndCallResult {
  *     priority: 'high',
  *   },
  * });
+ *
+ * // Or end immediately (bypasses terminal deferral):
+ * session.endCall({ reasonCode: 'live-agent-handoff', issueType: 'billing' });
  * ```
  */
 export const endCallTool = defineTool<EndCallParams, EndCallResult>(

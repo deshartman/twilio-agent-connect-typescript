@@ -30,16 +30,15 @@ interface SwitchLanguageResult {
  *
  * @example
  * ```typescript
- * // Switch both TTS and transcription to Spanish
- * const result = await switchLanguageTool.implementation({
+ * // Preferred: execute via a ConversationRelaySession — the session
+ * // auto-ships the returned outgoingMessage over the WebSocket.
+ * await session.executeTool('switch_language', {
  *   ttsLanguage: 'es-ES',
  *   transcriptionLanguage: 'es-ES',
  * });
  *
- * // Switch only TTS to French, keep transcription unchanged
- * const result = await switchLanguageTool.implementation({
- *   ttsLanguage: 'fr-FR',
- * });
+ * // Or send the language frame directly:
+ * session.switchLanguage({ ttsLanguage: 'fr-FR' });
  * ```
  */
 export const switchLanguageTool = defineTool<SwitchLanguageParams, SwitchLanguageResult>(
