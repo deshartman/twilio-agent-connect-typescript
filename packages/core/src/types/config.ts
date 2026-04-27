@@ -50,16 +50,3 @@ export const EnvironmentVariables = {
   TWILIO_TAC_CI_SUMMARY_OPERATOR_SID: 'TWILIO_TAC_CI_SUMMARY_OPERATOR_SID',
   TWILIO_REGION: 'TWILIO_REGION',
 } as const;
-
-/**
- * Server configuration for built-in Fastify setup
- */
-export const VoiceServerConfigSchema = z.object({
-  host: z.string().default('0.0.0.0'),
-  // Port 0 asks the OS to assign an ephemeral port (used by parallel test workers
-  // to avoid EADDRINUSE collisions). Server startup logs read the actual bound
-  // port from `fastify.server.address()`, not this configured value.
-  port: z.number().int().nonnegative().default(3000),
-});
-
-export type VoiceServerConfig = z.infer<typeof VoiceServerConfigSchema>;
