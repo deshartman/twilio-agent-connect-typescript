@@ -20,7 +20,10 @@ var TACConfigSchema = z.object({
   apiSecret: z.string().min(1, "Twilio API Secret is required"),
   phoneNumber: z.string().min(1, "Twilio Phone Number is required"),
   traitGroups: z.array(z.string()).optional(),
-  conversationConfigurationId: z.string().regex(/^conv_configuration_[0-9a-z]{26}$/, "Invalid Conversation Configuration ID format"),
+  conversationConfigurationId: z.string().regex(
+    /^conv_configuration_[0-7][0-9a-z]{25}$/,
+    "Invalid Conversation Configuration ID format"
+  ),
   cintelConfigurationId: z.string().optional(),
   cintelObservationOperatorSid: z.string().optional(),
   cintelSummaryOperatorSid: z.string().optional(),
@@ -737,6 +740,13 @@ var package_default = {
 function buildUserAgent() {
   return `twilio-agent-connect-typescript/${package_default.version}`;
 }
+function summarizeResponseBody(body) {
+  if (body === null || body === void 0) return body;
+  const MAX_LENGTH = 2048;
+  const serialized = typeof body === "string" ? body : JSON.stringify(body);
+  if (serialized.length <= MAX_LENGTH) return body;
+  return `${serialized.slice(0, MAX_LENGTH)}\u2026 [truncated ${serialized.length - MAX_LENGTH} chars]`;
+}
 var BaseClient = class {
   baseUrl;
   logger;
@@ -781,7 +791,7 @@ var BaseClient = class {
             method: error.config?.method,
             url: error.config?.url,
             status,
-            responseBody: error.response?.data
+            responseBody: summarizeResponseBody(error.response?.data)
           };
           if (status !== void 0 && status >= 400 && status < 500) {
             this.logger.warn(logContext, "HTTP request client error");
@@ -1258,9 +1268,10 @@ var ConversationClient = class extends BaseClient {
       const data = await this.makeRequest(url, "PUT", requestBody);
       return ConversationResponseSchema.parse(data);
     } catch (error) {
-      const bodyMsg = axios.isAxiosError(error) && error.response?.data ? ` | body: ${JSON.stringify(error.response.data)}` : "";
+      const status2 = axios.isAxiosError(error) ? error.response?.status : void 0;
+      const statusSuffix = status2 !== void 0 ? ` (HTTP ${status2})` : "";
       throw new Error(
-        `Failed to update conversation: ${error instanceof Error ? error.message : String(error)}${bodyMsg}`,
+        `Failed to update conversation${statusSuffix}: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
       );
     }
@@ -1354,7 +1365,7 @@ function extractProfileIds(operatorResult, logger) {
             {
               invalid_profile_id: participant.profileId,
               operator_id: operatorResult.operator.id,
-              expected_format: "mem_profile_[0-9a-z]{26}"
+              expected_format: "mem_profile_[0-7][0-9a-z]{25}"
             },
             "Invalid profile ID format from Cintel operator, skipping participant"
           );
@@ -1439,7 +1450,7 @@ var OperatorResultProcessor = class {
       return {
         success: false,
         skipped: false,
-        error: `Invalid conversationId format in Cintel webhook: ${event.conversationId}. Expected format: conv_conversation_[0-9a-z]{26}`,
+        error: `Invalid conversationId format in Cintel webhook: ${event.conversationId}. Expected format: conv_conversation_[0-7][0-9a-z]{25}`,
         createdCount: 0
       };
     }
@@ -1447,7 +1458,7 @@ var OperatorResultProcessor = class {
       return {
         success: false,
         skipped: false,
-        error: `Invalid memoryStoreId format in Cintel webhook: ${event.memoryStoreId}. Expected format: mem_store_[0-9a-z]{26}`,
+        error: `Invalid memoryStoreId format in Cintel webhook: ${event.memoryStoreId}. Expected format: mem_store_[0-7][0-9a-z]{25}`,
         createdCount: 0
       };
     }
@@ -1780,7 +1791,7 @@ var TAC = class _TAC {
       const fetchedMemoryStoreId = conversationConfig.memoryStoreId;
       if (!isMemoryStoreId(fetchedMemoryStoreId)) {
         throw new Error(
-          `Invalid memoryStoreId from conversation configuration: ${fetchedMemoryStoreId}. Expected format: mem_store_[0-9a-z]{26}.`
+          `Invalid memoryStoreId from conversation configuration: ${fetchedMemoryStoreId}. Expected format: mem_store_[0-7][0-9a-z]{25}.`
         );
       }
       tac.memoryStoreId = fetchedMemoryStoreId;
@@ -2103,7 +2114,7 @@ var TAC = class _TAC {
         const profileIdCandidate = lookupResponse.profiles[0];
         if (!profileIdCandidate || !isProfileId(profileIdCandidate)) {
           throw new Error(
-            `Invalid profile ID format from identity resolution API: ${profileIdCandidate}. Expected format: mem_profile_[0-9a-z]{26}. This indicates a configuration issue with the identity resolution service.`
+            `Invalid profile ID format from identity resolution API: ${profileIdCandidate}. Expected format: mem_profile_[0-7][0-9a-z]{25}. This indicates a configuration issue with the identity resolution service.`
           );
         }
         session.profileId = profileIdCandidate;
@@ -2418,7 +2429,7 @@ function extractConversationId(payload, logger) {
       {
         provided_id: conversationId,
         operation: "extract_conversation_id",
-        expected_pattern: "^conv_conversation_[0-9a-z]{26}$"
+        expected_pattern: "^conv_conversation_[0-7][0-9a-z]{25}$"
       },
       "Invalid conversation ID format in webhook payload"
     );
@@ -2488,7 +2499,7 @@ function extractProfileId(payload, logger) {
       {
         provided_id: profileId,
         operation: "extract_profile_id",
-        expected_pattern: "^mem_profile_[0-9a-z]{26}$",
+        expected_pattern: "^mem_profile_[0-7][0-9a-z]{25}$",
         conversation_id: conversationId
       },
       "Invalid profile ID format in webhook payload"
@@ -3723,7 +3734,7 @@ var ConversationRelayChannel = class {
     const conversation = await this.conversationClient.createConversation(conversationName);
     if (!isConversationId(conversation.id)) {
       throw new Error(
-        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-9a-z]{26}.`
+        `Invalid conversation ID returned from Conversation Service: ${conversation.id}. Expected format: conv_conversation_[0-7][0-9a-z]{25}.`
       );
     }
     const conversationId = conversation.id;

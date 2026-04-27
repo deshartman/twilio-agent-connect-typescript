@@ -9,6 +9,19 @@ function buildUserAgent(): string {
 }
 
 /**
+ * Truncates a response body for safe inclusion in error logs.
+ * Bounds the size to avoid unbounded payloads (PII, large upstream
+ * debug blobs) flooding log pipelines. Signal preserved, volume capped.
+ */
+function summarizeResponseBody(body: unknown): unknown {
+  if (body === null || body === undefined) return body;
+  const MAX_LENGTH = 2048;
+  const serialized = typeof body === 'string' ? body : JSON.stringify(body);
+  if (serialized.length <= MAX_LENGTH) return body;
+  return `${serialized.slice(0, MAX_LENGTH)}… [truncated ${serialized.length - MAX_LENGTH} chars]`;
+}
+
+/**
  * Base HTTP client for Twilio API services
  *
  * Features:
@@ -77,7 +90,7 @@ export abstract class BaseClient {
             method: error.config?.method,
             url: error.config?.url,
             status,
-            responseBody: error.response?.data as unknown,
+            responseBody: summarizeResponseBody(error.response?.data),
           };
           // Log 4xx as warn (client errors, may be expected/handled)
           // Log 5xx/network as error (server/infrastructure failures)

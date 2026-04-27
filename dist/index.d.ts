@@ -762,41 +762,6 @@ declare const CreateConversationSummariesResponseSchema: z.ZodObject<{
 type CreateConversationSummariesResponse = z.infer<typeof CreateConversationSummariesResponseSchema>;
 
 /**
- * Session Types
- *
- * Session abstractions for Maestro-backed channels (voice / crelay / SMS / chat).
- * `ConversationId` is the canonical session key across all TAC channels —
- * this is the unified-identity model this branch's refactor standardises on.
- */
-
-/**
- * Base session context for a TAC channel session.
- *
- * `conversationId` is always a Maestro ConversationId — the single session key
- * shared across voice, crelay, SMS and chat. If you need raw-CallSid sessions
- * (standalone ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
- * directly — it ships its own `CallSid` branded type and does not use this interface.
- */
-interface SessionContext {
-    /**
-     * Maestro ConversationId — canonical session key for this context.
-     */
-    conversationId: string;
-    /**
-     * Channel type for this session
-     */
-    channel: ChannelType;
-    /**
-     * When the session started
-     */
-    startedAt: Date;
-    /**
-     * Arbitrary metadata for this session
-     */
-    metadata: Record<string, unknown>;
-}
-
-/**
  * Participant address type for different communication channels
  */
 declare const ParticipantAddressTypeSchema: z.ZodEnum<["VOICE", "SMS", "RCS", "EMAIL", "WHATSAPP", "CHAT", "API", "SYSTEM"]>;
@@ -2353,6 +2318,41 @@ declare const ConversationConfigurationSchema: z.ZodObject<{
     version?: number | null | undefined;
 }>;
 type ConversationConfiguration = z.infer<typeof ConversationConfigurationSchema>;
+
+/**
+ * Session Types
+ *
+ * Session abstractions for Maestro-backed channels (voice / crelay / SMS / chat).
+ * `ConversationId` is the canonical session key across all TAC channels —
+ * this is the unified-identity model this branch's refactor standardises on.
+ */
+
+/**
+ * Base session context for a TAC channel session.
+ *
+ * `conversationId` is always a Maestro ConversationId — the single session key
+ * shared across voice, crelay, SMS and chat. If you need raw-CallSid sessions
+ * (standalone ConversationRelay without Maestro), consume `@twilio/tac-conversationrelay`
+ * directly — it ships its own `CallSid` branded type and does not use this interface.
+ */
+interface SessionContext {
+    /**
+     * Maestro ConversationId — canonical session key for this context.
+     */
+    conversationId: ConversationId;
+    /**
+     * Channel type for this session
+     */
+    channel: ChannelType;
+    /**
+     * When the session started
+     */
+    startedAt: Date;
+    /**
+     * Arbitrary metadata for this session
+     */
+    metadata: Record<string, unknown>;
+}
 
 /**
  * Channel type for communications

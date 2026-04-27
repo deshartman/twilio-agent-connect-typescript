@@ -336,12 +336,10 @@ export class ConversationClient extends BaseClient {
       const data = await this.makeRequest<ConversationResponse>(url, 'PUT', requestBody);
       return ConversationResponseSchema.parse(data);
     } catch (error) {
-      const bodyMsg =
-        axios.isAxiosError(error) && error.response?.data
-          ? ` | body: ${JSON.stringify(error.response.data)}`
-          : '';
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      const statusSuffix = status !== undefined ? ` (HTTP ${status})` : '';
       throw new Error(
-        `Failed to update conversation: ${error instanceof Error ? error.message : String(error)}${bodyMsg}`,
+        `Failed to update conversation${statusSuffix}: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
       );
     }
