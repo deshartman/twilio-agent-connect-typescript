@@ -25,7 +25,6 @@ export type { ConversationRelayServerConfig } from './lib/server';
 export {
   registerSignatureValidation,
   validateWebSocketSignature,
-  getDefaultWebhookUrl,
   normalizePublicDomain,
 } from './lib/signature';
 export type { RegisterSignatureValidationOptions } from './lib/signature';

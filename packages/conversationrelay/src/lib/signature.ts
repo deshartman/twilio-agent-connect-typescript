@@ -1,17 +1,25 @@
 /**
  * Shared Twilio signature-validation helpers for Fastify servers.
  *
- * Used by ConversationRelayServer (CR package) and TACServer (core package) to avoid
- * three copies of the same URL-reconstruction + twilio.validateRequest glue.
+ * Used by ConversationRelayServer (CR package) and TACServer (core package) to
+ * avoid two copies of the same twilio.validateRequest glue.
  *
  * Two exports:
  *   - registerSignatureValidation — preHandler hook for POST routes
  *   - validateWebSocketSignature  — inline check for WS upgrade requests
  *
- * Both rely on `getDefaultWebhookUrl` to reconstruct the URL Twilio signed
- * against. Twilio signs requests against the full public URL the caller
- * reached, which means proxy/tunnel headers (x-forwarded-*) must be honoured
- * while staying resistant to spoofing. See the per-function docs.
+ * Both require the caller to supply `publicDomain` — the bare host the
+ * server is reachable at from Twilio's side. Twilio signs each request
+ * against the full public URL the caller reached, so URL reconstruction
+ * must match exactly. We used to derive host/proto from `x-forwarded-*`
+ * and `host` headers, but load balancers (AWS ALB, GCP LB) and default
+ * reverse-proxy configs (NGINX, Apache) routinely rewrite those headers
+ * to internal backend addresses, breaking validation with 403s. Using an
+ * explicit config value makes the validation deterministic and also
+ * resistant to header-spoofing attacks.
+ *
+ * `publicDomain` values should be pre-normalised via
+ * `normalizePublicDomain()` (bare host, no scheme, no trailing slash).
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import twilio from 'twilio';
@@ -21,11 +29,11 @@ export interface RegisterSignatureValidationOptions {
   authToken: string;
 
   /**
-   * Optional override for URL reconstruction. If omitted, the default
-   * honours x-forwarded-proto / x-forwarded-host / host headers. Pass a
-   * custom builder for deployments where your proxy setup differs.
+   * Public domain the server is reachable at (no scheme, no trailing slash),
+   * used to build the URL Twilio signed against. E.g. `api.example.com` or
+   * `my-tunnel.ngrok.dev`.
    */
-  getWebhookUrl?: (request: FastifyRequest) => string;
+  publicDomain: string;
 
   /**
    * Paths to skip. Useful when a sub-route on the same app doesn't need
@@ -47,12 +55,14 @@ export interface RegisterSignatureValidationOptions {
  * via `twilio.validateRequestWithBody(url, rawBody)` — the raw body string
  * must be preserved on the request object as `rawBody` by a content-type
  * parser registered elsewhere.
+ *
+ * The URL signed against is always `https://{publicDomain}{request.url}`.
  */
 export function registerSignatureValidation(
   fastify: FastifyInstance,
   options: RegisterSignatureValidationOptions
 ): void {
-  const { authToken, getWebhookUrl = getDefaultWebhookUrl, skipPaths = [] } = options;
+  const { authToken, publicDomain, skipPaths = [] } = options;
 
   fastify.addHook('preHandler', (request, reply, done): void => {
     if (request.method === 'GET') {
@@ -66,7 +76,7 @@ export function registerSignatureValidation(
     }
 
     const signature = request.headers['x-twilio-signature'] as string | undefined;
-    const url = getWebhookUrl(request);
+    const url = `https://${publicDomain}${request.url}`;
 
     let isValid: boolean;
     if (request.url.includes('bodySHA256=')) {
@@ -96,23 +106,23 @@ export function registerSignatureValidation(
  * closing the socket with code 1008 on a false return.
  *
  * Twilio signs WebSocket upgrades against the `wss://` form of the URL
- * (even though the request method is GET), so this helper always forces
- * the protocol component to `wss` (or `ws` when the reconstructed URL
- * was http). Query-string parameters are extracted and passed to
- * `twilio.validateRequest` — Twilio includes them in the signature.
+ * (even though the request method is GET). Query-string parameters are
+ * extracted from `request.url` and passed to `twilio.validateRequest` —
+ * Twilio includes them in the signature.
  */
-export function validateWebSocketSignature(request: FastifyRequest, authToken: string): boolean {
+export function validateWebSocketSignature(
+  request: FastifyRequest,
+  authToken: string,
+  publicDomain: string
+): boolean {
   const signature = request.headers['x-twilio-signature'] as string | undefined;
-  const httpUrl = getDefaultWebhookUrl(request);
 
   let wsUrl: URL;
   try {
-    wsUrl = new URL(httpUrl);
+    wsUrl = new URL(`wss://${publicDomain}${request.url}`);
   } catch {
     return false;
   }
-
-  wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
 
   const params: Record<string, string> = {};
   wsUrl.searchParams.forEach((value, key) => {
@@ -121,33 +131,6 @@ export function validateWebSocketSignature(request: FastifyRequest, authToken: s
   const urlForValidation = wsUrl.origin + wsUrl.pathname;
 
   return twilio.validateRequest(authToken, signature ?? '', urlForValidation, params);
-}
-
-/**
- * Reconstructs the URL Twilio signed against.
- *
- * Ported from TACServer's getForwardedProto/getForwardedHost/getWebhookUrl
- * trio (packages/server/src/lib/server.ts). Honours x-forwarded-proto and
- * x-forwarded-host for proxy/tunnel scenarios; takes the first entry of
- * any comma-separated chain; defaults proto to 'https' when absent.
- *
- * Return shape: `<proto>://<host><path+query>`. Callers may rewrite the
- * protocol afterwards (e.g. `validateWebSocketSignature` forces `wss`).
- */
-export function getDefaultWebhookUrl(request: FastifyRequest): string {
-  const proto = getForwardedProto(request);
-  const host = getForwardedHost(request);
-  return `${proto}://${host}${request.url}`;
-}
-
-function getForwardedProto(request: FastifyRequest): string {
-  const raw = request.headers['x-forwarded-proto'] as string | undefined;
-  return raw?.split(',')[0]?.trim() || 'https';
-}
-
-function getForwardedHost(request: FastifyRequest): string {
-  const raw = (request.headers['x-forwarded-host'] as string | undefined) || request.headers.host;
-  return raw?.split(',')[0]?.trim() || '';
 }
 
 /**

@@ -8,7 +8,7 @@ import formbody from '@fastify/formbody';
 import gracefulShutdown from 'fastify-graceful-shutdown';
 
 import { TAC, SMSChannel, ChatChannel, type Channel } from '@twilio/tac-core';
-import { registerSignatureValidation } from '@twilio/tac-conversationrelay';
+import { registerSignatureValidation, normalizePublicDomain } from '@twilio/tac-conversationrelay';
 
 /**
  * Server configuration options
@@ -19,6 +19,20 @@ import { registerSignatureValidation } from '@twilio/tac-conversationrelay';
  * deployment story in the README.
  */
 export interface TACServerConfig {
+  /**
+   * Public domain this server is reachable at (without scheme, e.g.
+   * `tac-des.ngrok.dev` or `api.example.com`). Used to reconstruct the URL
+   * Twilio signed webhooks against for signature validation.
+   *
+   * Required because load balancers (AWS ALB, GCP LB) and reverse proxies
+   * (NGINX, Apache) routinely rewrite the `Host` header to internal backend
+   * addresses; the old `x-forwarded-*` fallback was unreliable.
+   *
+   * Accepts either a bare host or a full `https://...` URL — values are
+   * normalised via `normalizePublicDomain()`.
+   */
+  publicDomain: string;
+
   /** Fastify server options (ignored if `fastifyInstance` is provided) */
   fastify?: FastifyServerOptions;
 
@@ -69,7 +83,10 @@ const DEFAULT_CONFIG = {
     messaging: '/webhook',
   },
   development: false,
-} satisfies Omit<TACServerConfig, 'fastify' | 'fastifyInstance' | 'conversationChannels'>;
+} satisfies Omit<
+  TACServerConfig,
+  'fastify' | 'fastifyInstance' | 'conversationChannels' | 'publicDomain'
+>;
 
 /**
  * Batteries-included Fastify server for TAC
@@ -103,11 +120,12 @@ export class TACServer {
   /** Channels consuming Conversation Orchestrator webhooks — fanned out on POST /webhook */
   private readonly conversationChannels: Channel[];
 
-  constructor(tac: TAC, config: TACServerConfig = {}) {
+  constructor(tac: TAC, config: TACServerConfig) {
     this.tac = tac;
     this.config = {
       ...DEFAULT_CONFIG,
       ...config,
+      publicDomain: normalizePublicDomain(config.publicDomain),
       // Deep merge webhookPaths to preserve defaults while allowing overrides
       webhookPaths: {
         ...DEFAULT_CONFIG.webhookPaths,
@@ -272,6 +290,7 @@ export class TACServer {
       // Register webhook signature validation (must be after formbody for body access)
       registerSignatureValidation(this.fastify, {
         authToken: this.tac.getConfig().authToken,
+        publicDomain: this.config.publicDomain,
       });
 
       // Set up routes (must be after plugin registration)

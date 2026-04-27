@@ -429,7 +429,7 @@ describe('ConversationRelayServer: /ws WebSocket signature validation', () => {
     expect(mockValidateRequest).toHaveBeenCalledWith(
       TEST_AUTH_TOKEN,
       'test-ws-sig',
-      expect.stringMatching(/^wss?:\/\/.*\/ws$/),
+      `wss://${TEST_PUBLIC_DOMAIN}/ws`,
       {}
     );
 
@@ -456,28 +456,37 @@ describe('ConversationRelayServer: /ws WebSocket signature validation', () => {
     expect(mockValidateRequest).toHaveBeenCalledWith(
       TEST_AUTH_TOKEN,
       'test-ws-sig',
-      expect.stringMatching(/^wss?:\/\/.*\/ws$/),
+      `wss://${TEST_PUBLIC_DOMAIN}/ws`,
       { AccountSid: 'AC123', CallSid: 'CA456' }
     );
 
     ws.close();
   });
 
-  it('rejects the WS upgrade when the Host header is missing', async () => {
+  it('always signs against wss://{publicDomain}, ignoring X-Forwarded-* / Host', async () => {
+    mockValidateRequest.mockReturnValue(true);
     server = makeServer();
     await server.start();
 
     const ws = new WebSocket(`ws://localhost:${getActualPort(server)}/ws`, {
       headers: {
         'X-Twilio-Signature': 'test-sig',
-        Host: '',
+        'X-Forwarded-Host': 'evil.example.com',
+        'X-Forwarded-Proto': 'http',
       },
     });
-    const closeCode = await new Promise<number>((resolve, reject) => {
-      ws.on('close', (code: number) => resolve(code));
-      ws.on('error', (err: Error) => reject(err));
+    await new Promise<void>(resolve => {
+      ws.on('open', () => resolve());
+      ws.on('error', () => resolve());
     });
 
-    expect(closeCode).toBe(1008);
+    expect(mockValidateRequest).toHaveBeenCalledWith(
+      TEST_AUTH_TOKEN,
+      'test-sig',
+      `wss://${TEST_PUBLIC_DOMAIN}/ws`,
+      {}
+    );
+
+    ws.close();
   });
 });

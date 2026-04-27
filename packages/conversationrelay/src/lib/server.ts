@@ -188,6 +188,7 @@ export class ConversationRelayServer {
       // Webhook signature validation is always on — see PR #69
       registerSignatureValidation(this.fastify, {
         authToken: this.config.authToken,
+        publicDomain: this.config.publicDomain,
       });
 
       // Setup routes
@@ -274,7 +275,11 @@ export class ConversationRelayServer {
         this.config.webhookPaths.ws!,
         { websocket: true },
         (socket: WebSocket, request: FastifyRequest) => {
-          const isValid = validateWebSocketSignature(request, this.config.authToken);
+          const isValid = validateWebSocketSignature(
+            request,
+            this.config.authToken,
+            this.config.publicDomain
+          );
 
           if (!isValid) {
             this.fastify.log.warn(

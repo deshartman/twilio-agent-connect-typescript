@@ -27,6 +27,8 @@ vi.mock('twilio', () => {
 // Use port 0 to let OS assign available ports (prevents parallel test collisions)
 const getNextPort = () => 0;
 
+const TEST_PUBLIC_DOMAIN = 'test.example.com';
+
 // Shared config for describe blocks that just need a plain TACConfig.
 const SHARED_TEST_CONFIG = {
   accountSid: 'ACtest123456789',
@@ -87,6 +89,7 @@ describe('TACServer Webhook Validation', () => {
     mockValidateRequest.mockReturnValue(false);
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -112,6 +115,7 @@ describe('TACServer Webhook Validation', () => {
     mockValidateRequest.mockReturnValue(true);
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -136,6 +140,7 @@ describe('TACServer Webhook Validation', () => {
     mockValidateRequest.mockReturnValue(true);
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -161,10 +166,11 @@ describe('TACServer Webhook Validation', () => {
   });
 
   describe('URL construction for validation', () => {
-    it('should handle X-Forwarded-Proto header', async () => {
+    it('builds the signed URL from publicDomain, ignoring X-Forwarded-* / Host', async () => {
       mockValidateRequest.mockReturnValue(true);
 
       server = new TACServer(tac, {
+        publicDomain: TEST_PUBLIC_DOMAIN,
         development: true,
         port: currentPort,
       });
@@ -177,24 +183,26 @@ describe('TACServer Webhook Validation', () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'X-Twilio-Signature': 'sig',
-          'X-Forwarded-Proto': 'https',
+          // Spoofed headers that would previously have been honoured.
+          'X-Forwarded-Proto': 'http',
+          'X-Forwarded-Host': 'evil.example.com',
         },
         body: 'From=test',
       });
 
-      // Check that URL was constructed with https
       expect(mockValidateRequest).toHaveBeenCalledWith(
         expect.any(String),
-        expect.any(String),
-        expect.stringMatching(/^https:\/\//),
+        'sig',
+        `https://${TEST_PUBLIC_DOMAIN}/webhook`,
         expect.any(Object)
       );
     });
 
-    it('should handle X-Forwarded-Host header', async () => {
+    it('normalises publicDomain supplied with an https:// prefix', async () => {
       mockValidateRequest.mockReturnValue(true);
 
       server = new TACServer(tac, {
+        publicDomain: 'https://scheme.example.com/',
         development: true,
         port: currentPort,
       });
@@ -207,24 +215,23 @@ describe('TACServer Webhook Validation', () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'X-Twilio-Signature': 'sig',
-          'X-Forwarded-Host': 'my-app.ngrok.io',
         },
         body: 'From=test',
       });
 
-      // Check that URL was constructed with forwarded host
       expect(mockValidateRequest).toHaveBeenCalledWith(
         expect.any(String),
-        expect.any(String),
-        expect.stringContaining('my-app.ngrok.io'),
+        'sig',
+        'https://scheme.example.com/webhook',
         expect.any(Object)
       );
     });
 
-    it('should use first value from comma-separated X-Forwarded-Proto', async () => {
-      mockValidateRequest.mockReturnValue(true);
+    it('includes query-string parameters in the signed URL', async () => {
+      mockValidateRequestWithBody.mockReturnValue(true);
 
       server = new TACServer(tac, {
+        publicDomain: TEST_PUBLIC_DOMAIN,
         development: true,
         port: currentPort,
       });
@@ -232,85 +239,31 @@ describe('TACServer Webhook Validation', () => {
       await server.start();
       const actualPort = getActualPort(server);
 
-      await fetch(`http://localhost:${actualPort}/webhook`, {
+      await fetch(`http://localhost:${actualPort}/webhook?bodySHA256=abc123`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
           'X-Twilio-Signature': 'sig',
-          'X-Forwarded-Proto': 'https, http',
         },
-        body: 'From=test',
+        body: '{"k":"v"}',
       });
 
-      expect(mockValidateRequest).toHaveBeenCalledWith(
+      expect(mockValidateRequestWithBody).toHaveBeenCalledWith(
         expect.any(String),
-        expect.any(String),
-        expect.stringMatching(/^https:\/\//),
-        expect.any(Object)
+        'sig',
+        `https://${TEST_PUBLIC_DOMAIN}/webhook?bodySHA256=abc123`,
+        '{"k":"v"}'
       );
     });
 
-    it('should use first value from comma-separated X-Forwarded-Host', async () => {
-      mockValidateRequest.mockReturnValue(true);
-
-      server = new TACServer(tac, {
-        development: true,
-        port: currentPort,
-      });
-
-      await server.start();
-      const actualPort = getActualPort(server);
-
-      await fetch(`http://localhost:${actualPort}/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Twilio-Signature': 'sig',
-          'X-Forwarded-Host': 'app.ngrok.io, proxy.internal',
-        },
-        body: 'From=test',
-      });
-
-      expect(mockValidateRequest).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.stringContaining('app.ngrok.io'),
-        expect.any(Object)
-      );
-      expect(mockValidateRequest).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.not.stringContaining('proxy.internal'),
-        expect.any(Object)
-      );
-    });
-
-    it('should default to https:// when X-Forwarded-Proto is absent', async () => {
-      mockValidateRequest.mockReturnValue(true);
-
-      server = new TACServer(tac, {
-        development: true,
-        port: currentPort,
-      });
-
-      await server.start();
-      const actualPort = getActualPort(server);
-
-      await fetch(`http://localhost:${actualPort}/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Twilio-Signature': 'sig',
-        },
-        body: 'From=test',
-      });
-
-      expect(mockValidateRequest).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.stringMatching(/^https:\/\//),
-        expect.any(Object)
-      );
+    it('throws at construction when publicDomain is empty', () => {
+      expect(
+        () =>
+          new TACServer(tac, {
+            publicDomain: '',
+            port: currentPort,
+          })
+      ).toThrow(/required/i);
     });
   });
 
@@ -321,6 +274,7 @@ describe('TACServer Webhook Validation', () => {
     mockValidateRequestWithBody.mockReturnValue(true);
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -394,6 +348,7 @@ describe('TACServer idempotency token', () => {
     const processWebhookSpy = vi.spyOn(smsChannel, 'processWebhook');
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -425,6 +380,7 @@ describe('TACServer idempotency token', () => {
     const processWebhookSpy = vi.spyOn(smsChannel, 'processWebhook');
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       development: true,
       port: currentPort,
     });
@@ -522,6 +478,7 @@ describe('TACServer customization', () => {
     const customApp = Fastify({ logger: false });
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       fastifyInstance: customApp,
       port: currentPort,
     });
@@ -541,6 +498,7 @@ describe('TACServer customization', () => {
     });
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       fastifyInstance: customApp,
       port: currentPort,
     });
@@ -573,6 +531,7 @@ describe('TACServer customization', () => {
     await customApp.register(formbody);
 
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       fastifyInstance: customApp,
       port: currentPort,
     });
@@ -591,6 +550,7 @@ describe('TACServer customization', () => {
 
   it('creates a default Fastify instance when none is provided', () => {
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       port: currentPort,
     });
 
@@ -600,6 +560,7 @@ describe('TACServer customization', () => {
 
   it('exposes the same Fastify instance before and after start()', async () => {
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       port: currentPort,
     });
 
@@ -612,6 +573,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a custom route to server.fastify after construction', async () => {
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       port: currentPort,
     });
 
@@ -626,6 +588,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a hook to server.fastify after construction', async () => {
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       port: currentPort,
     });
 
@@ -644,6 +607,7 @@ describe('TACServer customization', () => {
 
   it('allows adding a custom error handler on server.fastify', async () => {
     server = new TACServer(tac, {
+      publicDomain: TEST_PUBLIC_DOMAIN,
       port: currentPort,
     });
 
