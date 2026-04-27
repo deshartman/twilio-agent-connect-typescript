@@ -103,6 +103,8 @@ Why explicit: load balancers (AWS ALB, GCP LB) and default reverse-proxy configs
 
 Accepts either a bare host or a full `https://...` URL (values are normalised).
 
+> **Migrating from an older tree?** `VOICE_PUBLIC_DOMAIN` has been removed — replace it with `TAC_PUBLIC_DOMAIN` (for `TACServer`) and `CR_PUBLIC_DOMAIN` (for `ConversationRelayServer`). The two commonly point at different tunnels.
+
 ```mermaid
 graph LR
     subgraph Twilio["Twilio APIs"]
