@@ -336,9 +336,25 @@ tac.onMessageReady(async msg => {
 // IDs that get spliced into <ConversationRelay> customParameters, and
 // handleConversationRelayCallback closes the Maestro conversation when the
 // call ends. Data flows as plain records — CR never learns about Maestro.
+if (!process.env.TAC_PUBLIC_DOMAIN) {
+  throw new Error(
+    'TAC_PUBLIC_DOMAIN is required — the public host Twilio reaches TACServer at ' +
+      '(e.g. tac-<you>.ngrok.dev). Used for Conversation Orchestrator webhook ' +
+      'signature validation.'
+  );
+}
+if (!process.env.CR_PUBLIC_DOMAIN) {
+  throw new Error(
+    'CR_PUBLIC_DOMAIN is required — the public host Twilio reaches ConversationRelayServer ' +
+      'at (e.g. cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
+      'WebSocket URL generation.'
+  );
+}
+
 const tacServer = new TACServer(tac, {
   host: '0.0.0.0',
   port: 8000,
+  publicDomain: process.env.TAC_PUBLIC_DOMAIN,
   development: true,
 });
 
@@ -346,6 +362,7 @@ const crServer = new ConversationRelayServer(conversationRelay, {
   authToken: tac.getConfig().authToken,
   host: '0.0.0.0',
   port: 8001,
+  publicDomain: process.env.CR_PUBLIC_DOMAIN,
   conversationRelayConfig: {
     welcomeGreeting: 'Hello! What can I tell you about Conversations today?',
     ttsProvider: 'ElevenLabs',

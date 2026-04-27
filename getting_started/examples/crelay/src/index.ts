@@ -205,10 +205,18 @@ conversationRelay.onError((session, error) => {
 if (!process.env.TWILIO_AUTH_TOKEN) {
   throw new Error('TWILIO_AUTH_TOKEN is required for webhook signature validation');
 }
+if (!process.env.CR_PUBLIC_DOMAIN) {
+  throw new Error(
+    'CR_PUBLIC_DOMAIN is required — the public host Twilio reaches this server at ' +
+      '(e.g. cr-<you>.ngrok.dev). Used for webhook signature validation and ' +
+      'WebSocket URL generation.'
+  );
+}
 
 const server = new ConversationRelayServer(conversationRelay, {
   host: '0.0.0.0',
-  port: Number.parseInt(process.env.PORT || '8000', 10),
+  port: 8001,
+  publicDomain: process.env.CR_PUBLIC_DOMAIN,
   conversationRelayConfig: {
     welcomeGreeting: 'Hello! What can I tell you about Conversation Relay today?',
     transcriptionProvider: 'Deepgram',
